@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { build, chat, recover } from '../src/agents';
 import { ShieldBlock } from '../src/llm';
 import { runCouncil } from '../src/swarms';
-import { DEFAULT_SPEC, isolateEnv, json, mockFetch, openAiReply } from './helpers';
+import { DEFAULT_SPEC, isolateEnv, jevDomainReply, json, mockFetch, openAiReply } from './helpers';
 
 isolateEnv();
 
@@ -69,6 +69,90 @@ describe('agent pipelines', () => {
     expect(calls).toBe(1);
     expect(refusalOf(events)?.reason).toBe('Fluid flow is not modelled.');
     expect(environmentOf(events)).toBeNull();
+  });
+
+  describe('Interpreter on Jev', () => {
+    const SCHEMA = 'A university database schema with students and courses';
+    const isJev = (url: string) => url.endsWith('/v1/systemone');
+    const routing = (bodies: string[]) => bodies.filter((b) => b.includes('You route requests'));
+    const interpreterEngines = (events: StreamEvent[]) =>
+      events.flatMap((e) => (e.type === 'step' && e.agent === 'interpreter' && e.status !== 'running' ? [`${e.engine}:${e.status}`] : []));
+    const unsure = () => jevDomainReply('database', { database: 0.4, software: 0.35, electronics: 0.1, warehouse: 0.1, none: 0.05 }, { database: 0.55, software: 0.5 });
+    const recordGemini = (bodies: string[], domain: string) => (url: string, init: RequestInit) => {
+      const body = String(init.body);
+      bodies.push(body);
+      if (body.includes('You route requests')) return json(openAiReply(JSON.stringify({ domain, reason: 'r' })));
+      return json(openAiReply(JSON.stringify({ name: 'n', summary: 's', spec: DOMAINS[domain as 'warehouse'].rules.spec('x') })));
+    };
+
+    it('routes a confident pick without asking Gemini', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const bodies: string[] = [];
+      const gemini = recordGemini(bodies, 'database');
+      mockFetch((url, init) => (isJev(url) ? jevDomainReply('database', { database: 0.95, software: 0.03, none: 0.02 }, { database: 0.93, software: 0.2 }) : gemini(url, init)));
+      const { events, emit } = collect();
+      await build(SCHEMA, emit);
+      expect(routing(bodies)).toHaveLength(0);
+      expect(interpreterEngines(events)).toEqual(['jev:done']);
+      expect(environmentOf(events)?.domain).toBe('database');
+      expect(events.some((e) => e.type === 'usage' && e.usage.engine === 'jev' && e.usage.feature === 'interpreter')).toBe(true);
+    });
+
+    it('refuses when nothing fits and names the closest domain', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const calls = mockFetch(() => jevDomainReply('none', { none: 0.9, software: 0.05 }, { software: 0.25, electronics: 0.05 }));
+      const { events, emit } = collect();
+      await build('Simulate aerodynamics over a wing', emit);
+      expect(calls.every(isJev)).toBe(true);
+      expect(environmentOf(events)).toBeNull();
+      expect(refusalOf(events)?.closest).toBe('software');
+      expect(refusalOf(events)?.reason).toContain(DOMAINS.software.limits[0]);
+    });
+
+    it('asks Gemini when Jev is unsure, and follows Gemini', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const bodies: string[] = [];
+      const gemini = recordGemini(bodies, 'software');
+      mockFetch((url, init) => (isJev(url) ? unsure() : gemini(url, init)));
+      const { events, emit } = collect();
+      await build(SCHEMA, emit);
+      expect(routing(bodies)).toHaveLength(1);
+      expect(interpreterEngines(events)).toEqual(['jev:done', 'gemini:done']);
+      expect(environmentOf(events)?.domain).toBe('software');
+    });
+
+    it('goes with an unsure pick on its own when there is no Gemini to ask', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      mockFetch(unsure);
+      const { events, emit } = collect();
+      await build(SCHEMA, emit);
+      expect(interpreterEngines(events)).toEqual(['jev:done']);
+      expect(environmentOf(events)?.domain).toBe('database');
+    });
+
+    it('falls back to Gemini when Jev errors', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const bodies: string[] = [];
+      const gemini = recordGemini(bodies, 'database');
+      mockFetch((url, init) => (isJev(url) ? new Response('down', { status: 500 }) : gemini(url, init)));
+      const { events, emit } = collect();
+      await build(SCHEMA, emit);
+      expect(interpreterEngines(events)).toEqual(['jev:failed', 'gemini:done']);
+      expect(environmentOf(events)?.domain).toBe('database');
+    });
+
+    it('falls back to local rules when Jev errors and there is no Gemini', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      mockFetch(() => new Response('bad key', { status: 401 }));
+      const { events, emit } = collect();
+      await build(SCHEMA, emit);
+      expect(interpreterEngines(events)).toEqual(['jev:failed', 'rules:done']);
+      expect(environmentOf(events)?.domain).toBe('database');
+    });
   });
 
   it('sends a rejected design back to the Architect once, then builds the fix', async () => {

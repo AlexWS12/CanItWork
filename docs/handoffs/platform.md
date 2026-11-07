@@ -1,6 +1,6 @@
 # Handoff: Platform lane
 
-_Updated 2026-11-07 with PR #7 (status checks); first written against e136422. Check `git log -- apps/server apps/web/src/ui packages/core/src/domain.ts` for anything newer._
+_Updated 2026-11-07 with PR #7 (status checks) and the Jev branches; first written against e136422. Check `git log -- apps/server apps/web/src/ui packages/core/src/domain.ts` for anything newer._
 
 ## 1. Current state
 
@@ -35,15 +35,17 @@ Server:
   - **Response shape:** it parses Gemini's native `candidates` and `usageMetadata`.
   - **Rate limits:** a 429 or 503 on the direct route waits out Google's `retryDelay` (up to 20 s) and retries once.
   - **Timeout:** 45 s.
-  - **Helpers:** `providerStatus`, `architectModel`.
+  - **Helpers:** `geminiStatus`, `architectModel`.
   - **Key checks:** `probe` calls a free endpoint (a model list) and caches the result per URL and key for 60 s; `routeChecks` probes each route.
 - **`swarms.ts` `runCouncil`:**
   - **Budget:** it checks the balance first (`assertBudget` against `SWARMS_KEEP_USD`, default 5).
   - **Crashes:** a model that crashes is halted until restart (`haltModel`).
   - **Model:** both roles default to `gemini/gemini-3.5-flash-lite`.
   - **Key check:** `swarmsCheck` probes the free `/account/credits` endpoint.
+- **`jev.ts` `askJev`:** one TypeSafe System One request, with a fresh client per call, 5 s per attempt and one retry, so a dead Jev doesn't hold up the Gemini fallback. `jevCheck` probes `GET /v1/models`.
+- **The Interpreter asks Jev first** (`askDomain`): a Choice of domain plus a Noul per domain on whether its simulator fits, in one request. `decideDomain` routes, refuses (naming the domain with the highest fit as closest), or hands unsure cases to Gemini. Its thresholds are the `JEV` constants in `agents.ts`. Without Gemini it decides unsure cases itself. A Jev error falls through to Gemini, then rules.
 - **`fallback.ts`:** keyless domain routing (`routePrompt`) and chat (`ruleChat`).
-- **`status.ts` `checkedStatus`:** combines the routing with the key checks, waiting at most 300 ms so the page never shows "Server offline" while Prune answers.
+- **`status.ts` `providerStatus` and `checkedStatus`:** combine the routing with the key checks, waiting at most 300 ms so the page never shows "Server offline" while Prune answers.
 
 Web:
 
@@ -53,7 +55,7 @@ Web:
 - **`ui/`** has one file per component, each importing its own CSS: `Landing`, `ChatPanel`, `RightPanel` (agent trace with step durations, usage ledger), `StatusBar` (chips turn red when a key is rejected), `Transport`, `Inspector`, `RecoveryCard` and `Charts` (sparkline and recovery chart).
 - **`styles.css`** holds only tokens, element defaults, the shared panel surface and scene tags. New UI gets its own CSS file.
 
-Tests: `apps/server/test/` has `llm`, `swarms`, `pipelines` and `status` tests, with the shared `fetch` mock in `helpers.ts`. All 110 tests pass.
+Tests: `apps/server/test/` has `llm`, `swarms`, `pipelines` and `status` tests, with the shared `fetch` mock in `helpers.ts`. All 117 tests pass.
 
 Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:check` on every PR. Prettier is set to single quotes and width 180, and ignores Markdown.
 
@@ -90,8 +92,12 @@ Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:
 - `Panels.tsx` and `styles.css` split by component, with no computed-style change in 27 UI states (PR #3).
 - Step durations in the protocol, server and trace (PRs #4 and #5).
 - Status chips that check each key against a free endpoint (PRs #6 and #7). All three keys checked `ok` live.
+- Jev in the protocol, status chip and trace (`eduardo/jev-contract`), and Jev routing in the Interpreter (`eduardo/jev-interpreter`). Mocked tests only.
 
 **Pending:**
+- **Jev's thresholds are untuned guesses** and haven't run against the live API. Set `TYPESAFE_API_KEY` and run `npm run eval:interpreter` (20 billed requests), then adjust `JEV` in `agents.ts`. Time a keyed build too: the Interpreter was 12.7 s of the 25 s build on Gemini.
+- **A Jev-only refusal has a template reason** built from the closest domain's `limits`, not Gemini's sentence.
+- **The Editor's intent and target could move to Jev next:** a Choice of intent and a Choice over `breakables()` in one request, with a higher bar for `inject` than `whatif`.
 - **Builds take about 25 s, mostly the Interpreter.** Compare the same build with Gemini direct (blank `PRUNE_API_KEY` for one run) before changing anything. If direct is much faster, route the Interpreter direct.
 - **The Prune vault's Gemini key is unconfirmed.** The Prune key check only lists models, so it can't see which Gemini key Prune forwards. A keyed build through Prune did succeed today. To be sure, check the Prune dashboard (Connect > Providers).
 - **A fix that disables a broken output can score the same as a real repair** in electronics ranking. Agree any tie-break with the Electronics lane.
@@ -101,10 +107,11 @@ Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:
 
 ## 4. Exact next action
 
-1. Run one build with Gemini direct (`PRUNE_API_KEY` blank for that run) and compare its step times with the 25.1 s Prune build above. Ask in team chat first, since the Red Team still spends Swarms credit. Then decide whether to route the Interpreter direct.
-2. Tell Ship about the README's "once" (it's up to two repair rounds).
-3. Agree the electronics ranking tie-break with the Electronics lane.
-4. Try a chat edit of an electronics sketch live.
+1. Merge `eduardo/jev-contract` on its own and announce the `protocol.ts` change, then `eduardo/jev-interpreter`. Run the eval before trusting Jev's routing.
+2. Run one build with Gemini direct (`PRUNE_API_KEY` blank for that run) and compare its step times with the 25.1 s Prune build above. Ask in team chat first, since the Red Team still spends Swarms credit. Then decide whether to route the Interpreter direct.
+3. Tell Ship about the README's "once" (it's up to two repair rounds).
+4. Agree the electronics ranking tie-break with the Electronics lane.
+5. Try a chat edit of an electronics sketch live.
 
 ## 5. Gotchas
 

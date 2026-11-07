@@ -19,8 +19,10 @@ import {
   type TimedEvent,
   type Usage,
 } from '@tv/core';
+import { choice, noul, type Questions } from '@typesafe-ai/sdk';
 import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
+import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -29,6 +31,15 @@ type Step = ReturnType<typeof stepper>;
 
 const MAX_REPAIRS = 2;
 const DOMAIN_IDS = domainList().map((d) => d.id) as [DomainId, ...DomainId[]];
+
+// Starting points for Jev's routing; tune them with `npm run eval:interpreter`.
+const JEV = {
+  routeConfidence: 0.6, // the Choice is concentrated enough on one domain
+  routeFits: 0.7, // and that domain's simulator likely models the request
+  refuseFits: 0.3, // no domain reaches this, so nothing fits
+  closestFits: 0.2, // worth naming as the nearest domain in a refusal
+  aloneFits: 0.5, // without Gemini to ask, route an unsure pick only above this
+};
 
 function stepper(emit: Emit) {
   let n = 0;
@@ -84,6 +95,79 @@ const describeCapabilities = () =>
     .map((d) => `- ${d.id}: ${d.capabilities} It cannot do: ${d.limits.join('; ')}.`)
     .join('\n');
 
+type Reading = { kind: 'route'; id: DomainId } | { kind: 'refuse'; reason: string; closest: DomainId | null } | { kind: 'defer' };
+
+function refusalReason(closest: DomainId | null) {
+  if (!closest)
+    return `None of these simulators can model that. tv builds ${domainList()
+      .map((d) => d.label.toLowerCase())
+      .join(', ')}.`;
+  const domain = DOMAINS[closest];
+  return `None of these simulators can model that. The closest is ${domain.label.toLowerCase()}, which can't model: ${domain.limits.slice(0, 2).join('; ')}.`;
+}
+
+export interface DomainAnswers {
+  pick: DomainId | null;
+  confidence: number;
+  probabilities: Record<string, number>;
+  fits: Record<DomainId, number>;
+}
+
+// One Jev request: a Choice of domain, plus a Noul per domain on whether its simulator fits, asked in parallel.
+export async function askDomain(prompt: string, onUsage: (usage: Usage) => void): Promise<DomainAnswers> {
+  const domains = domainList();
+  const questions: Questions = {
+    domain: choice(
+      'Which simulator in `domains` can genuinely model the system the user describes in `request`? Judge by what the user wants to explore, not by words the request shares with a domain.',
+      {
+        ...Object.fromEntries(domains.map((d) => [d.id, `${d.label}: ${d.capabilities}`])),
+        none: 'None of the simulators in `domains` can model what the user wants to explore, even if some words overlap with one of them.',
+      },
+    ),
+    ...Object.fromEntries(
+      domains.map((d) => [
+        `fits_${d.id}`,
+        noul(`Can the ${d.label} simulator in \`domains\` model the core of what the user wants to explore in \`request\`, even if some details would be left out?`),
+      ]),
+    ),
+  };
+  const answers = await askJev({
+    feature: 'interpreter',
+    onUsage,
+    state: { request: prompt, domains: domains.map((d) => ({ id: d.id, name: d.label, can_model: d.capabilities, cannot_model: d.limits })) },
+    questions,
+  });
+  const pick = answers.domain;
+  if (pick?.type !== 'choice') throw new Error('Jev returned no domain choice');
+  const fits = Object.fromEntries(
+    DOMAIN_IDS.map((id) => {
+      const answer = answers[`fits_${id}`];
+      return [id, answer?.type === 'noul' ? answer.noul : 0];
+    }),
+  ) as Record<DomainId, number>;
+  return { pick: pick.choice === 'none' ? null : (pick.choice as DomainId), confidence: pick.confidence, probabilities: pick.probabilities, fits };
+}
+
+// Routing policy over Jev's answers. With canDefer, unsure cases go to Gemini instead of being decided here.
+export function decideDomain(read: DomainAnswers, canDefer: boolean): Reading & { detail: string } {
+  const { pick: top, fits } = read;
+  const percent = (p: number) => `${Math.round(p * 100)}%`;
+  const best = [...DOMAIN_IDS].sort((a, b) => fits[b] - fits[a])[0];
+  const closest = fits[best] >= JEV.closestFits ? best : null;
+  const route = (id: DomainId) => ({ kind: 'route' as const, id, detail: `${DOMAINS[id].label} (${percent(read.probabilities[id] ?? 0)})` });
+  const refuse = () => ({
+    kind: 'refuse' as const,
+    reason: refusalReason(closest),
+    closest,
+    detail: closest ? `Nothing fits; closest is ${DOMAINS[closest].label} (${percent(fits[closest])})` : 'Nothing fits',
+  });
+
+  if (top && read.confidence >= JEV.routeConfidence && fits[top] >= JEV.routeFits) return route(top);
+  if (!top || DOMAIN_IDS.every((id) => fits[id] < JEV.refuseFits)) return refuse();
+  if (canDefer) return { kind: 'defer', detail: `Unsure: ${DOMAINS[top].label} at ${percent(fits[top])}, asking Gemini` };
+  return fits[top] >= JEV.aloneFits ? route(top) : refuse();
+}
+
 async function interpret(prompt: string, emit: Emit, step: Step): Promise<DomainId | null> {
   const refuse = (reason: string, closest: DomainId | null = null) => {
     emit({ type: 'refusal', refusal: { reason, closest } });
@@ -96,32 +180,40 @@ async function interpret(prompt: string, emit: Emit, step: Step): Promise<Domain
       detail(DOMAINS[id].label);
       return id;
     });
-  if (!hasGemini()) return rules();
+  const gemini = () => (hasGemini() ? orRules(() => geminiInterpret(prompt, emit, step, refuse), rules) : rules());
+  if (!hasJev()) return gemini();
+  const reading = await step('interpreter', 'jev', 'Identifying the domain', async (detail) => {
+    const reading = decideDomain(await askDomain(prompt, onUsage(emit)), hasGemini());
+    detail(reading.detail);
+    return reading;
+  }).catch(() => null);
+  if (reading?.kind === 'route') return reading.id;
+  if (reading?.kind === 'refuse') return refuse(reading.reason, reading.closest);
+  return gemini();
+}
+
+function geminiInterpret(prompt: string, emit: Emit, step: Step, refuse: (reason: string, closest?: DomainId | null) => null) {
   const schema = z.object({
     domain: z.enum(DOMAIN_IDS).nullable(),
     reason: z.string(),
     closest: z.enum(DOMAIN_IDS).nullable().optional(),
   });
-  return orRules(
-    () =>
-      step('interpreter', 'gemini', 'Identifying the domain', async (detail) => {
-        const result = await chatJson({
-          feature: 'interpreter',
-          schema,
-          onUsage: onUsage(emit),
-          system: `You route requests for a platform that turns descriptions of systems into working simulations. It has these domains:
+  return step('interpreter', 'gemini', 'Identifying the domain', async (detail) => {
+    const result = await chatJson({
+      feature: 'interpreter',
+      schema,
+      onUsage: onUsage(emit),
+      system: `You route requests for a platform that turns descriptions of systems into working simulations. It has these domains:
 ${describeCapabilities()}
 Pick the domain whose simulator can genuinely model what the user wants to explore. If the heart of the request fits a domain but parts of it don't, still pick that domain, because the next step records what was left out. Never force a request into a domain just because a word overlaps: when the thing the user wants to explore can't be modelled at all, use domain null rather than a misleading model.
 Reply with JSON only: {"domain": one of ${DOMAIN_IDS.join(', ')} or null, "reason": "one sentence", "closest": a domain id or null}.
 When domain is null, "reason" says plainly what is missing and "closest" names the nearest domain, if any is useful.`,
-          user: prompt,
-        });
-        if (!result.domain) return refuse(result.reason, result.closest ?? null);
-        detail(`${DOMAINS[result.domain].label}: ${result.reason}`);
-        return result.domain;
-      }),
-    rules,
-  );
+      user: prompt,
+    });
+    if (!result.domain) return refuse(result.reason, result.closest ?? null);
+    detail(`${DOMAINS[result.domain].label}: ${result.reason}`);
+    return result.domain;
+  });
 }
 
 interface Draft {
