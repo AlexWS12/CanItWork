@@ -115,6 +115,18 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
       const demand = spec.nodes.filter((n) => role(n) === 'sink').reduce((sum, n) => sum + run.rateOf(n), 0);
       if (supply < demand)
         issues.push({ severity: 'warning', repair: true, message: `Sources can supply ${Math.round(supply)} ${def.unit} per tick but demand is ${Math.round(demand)}` });
+      else {
+        // Enough supply on paper can still arrive short: link ratings, splits or delays. Judge it once the longest delay has filled.
+        const settled = new NetRun(config, spec, 1);
+        const warmup = 20 + 3 * Math.max(0, ...spec.edges.map((e) => e.delay ?? 0));
+        for (let i = 0; i < warmup; i++) settled.step();
+        if (settled.ratio < 0.9)
+          issues.push({
+            severity: 'warning',
+            repair: true,
+            message: `Only ${Math.round(settled.ratio * 100)}% of demand is met in normal running, although sources can supply ${Math.round(supply)} ${def.unit} per tick against ${Math.round(demand)}: check link ratings, weights and delays on the way to the end points`,
+          });
+      }
     }
     for (const node of spec.nodes) {
       const state = run.states.get(node.id)!;
