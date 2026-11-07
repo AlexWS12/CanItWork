@@ -182,3 +182,24 @@ export function evaluate(node: Node, lookup: (name: string) => number): number {
     }
   }
 }
+
+const IDENTIFIER = /^[A-Za-z_]\w*$/;
+
+// Chip pins keep their datasheet names (IN1+, 1A, ~RESET), which aren't identifiers, so expressions over them are parsed with each such pin
+// renamed to pin_N first, then names are mapped back. Longer names go first, so IN1+ isn't read as IN1 followed by a plus.
+export function aliasPins(source: string, pins: string[]) {
+  const odd = pins.filter((p) => !IDENTIFIER.test(p)).sort((a, b) => b.length - a.length);
+  const back = new Map<string, string>();
+  let out = source;
+  odd.forEach((pin, i) => {
+    const alias = `pin_${i}`;
+    back.set(alias, pin);
+    const escaped = pin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(^|[^\\w.])(v\\.)?${escaped}(?![\\w])`, 'g'), (_m, lead: string, v: string | undefined) => `${lead}${v ?? ''}${alias}`);
+  });
+  const unalias = (name: string) => {
+    if (name.startsWith('v.') && back.has(name.slice(2))) return `v.${back.get(name.slice(2))}`;
+    return back.get(name) ?? name;
+  };
+  return { source: out, unalias };
+}

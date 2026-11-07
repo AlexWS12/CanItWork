@@ -20,7 +20,7 @@ import {
   type Part,
 } from './parts';
 import { netsOf } from './nets';
-import { compile, evaluate, type Expr, type Node } from './sketch';
+import { aliasPins, compile, evaluate, type Expr, type Node } from './sketch';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
 
@@ -204,7 +204,6 @@ export class CircuitRun implements Run {
   private peakAmps = 0;
   private dirty = true;
   private signature = '';
-  private exprs = new Map<string, Node>();
   private segmentsOn = new Set<string>();
   private ampState = new Map<string, 'linear' | 'high' | 'low'>();
   private chipVars = new Map<string, Map<string, number>>();
@@ -235,13 +234,19 @@ export class CircuitRun implements Run {
     for (const part of this.spec.parts) if (part.custom?.state) this.chipVars.set(part.id, new Map(Object.entries(part.custom.state.vars)));
   }
 
-  private expr(source: string) {
-    let node = this.exprs.get(source);
-    if (!node) {
-      node = compile(source);
-      this.exprs.set(source, node);
+  private chipExprs = new Map<string, { node: Node; unalias: (name: string) => string }>();
+
+  // Evaluates an expression over a chip's own pins and state, whatever its pins are called.
+  private chipEval(part: Part, source: string, lookup: (name: string) => number) {
+    const key = `${part.id}|${source}`;
+    let entry = this.chipExprs.get(key);
+    if (!entry) {
+      const aliased = aliasPins(source, pinsOf(part));
+      entry = { node: compile(aliased.source), unalias: aliased.unalias };
+      this.chipExprs.set(key, entry);
     }
-    return node;
+    const { unalias } = entry;
+    return evaluate(entry.node, (name) => lookup(unalias(name)));
   }
 
   // Names inside a chip's expression: a bare pin is its logic level (1 when at least aboveVolts over ref), v.PIN its voltage over ref, and anything else one of the chip's state variables.
@@ -258,7 +263,7 @@ export class CircuitRun implements Run {
 
   private controlled(part: Part, c: { when: string; ref: string; aboveVolts: number }, at: (key: string) => number) {
     if (pinsOf(part).includes(c.when)) return at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts;
-    return Boolean(evaluate(this.expr(c.when), this.chipLookup(part, at, c.ref, c.aboveVolts)));
+    return Boolean(this.chipEval(part, c.when, this.chipLookup(part, at, c.ref, c.aboveVolts)));
   }
 
   private stepChips() {
@@ -273,8 +278,8 @@ export class CircuitRun implements Run {
           const key = `${part.id}.${rule.edge}`;
           if (!(lookup(rule.edge) && !this.chipPrev.get(key))) continue;
         }
-        if (rule.when && !evaluate(this.expr(rule.when), lookup)) continue;
-        vars.set(rule.set, typeof rule.to === 'number' ? rule.to : evaluate(this.expr(rule.to), lookup));
+        if (rule.when && !this.chipEval(part, rule.when, lookup)) continue;
+        vars.set(rule.set, typeof rule.to === 'number' ? rule.to : this.chipEval(part, rule.to, lookup));
       }
       for (const rule of state.rules) if (rule.edge) this.chipPrev.set(`${part.id}.${rule.edge}`, lookup(rule.edge));
     }

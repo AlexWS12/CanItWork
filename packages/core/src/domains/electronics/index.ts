@@ -3,7 +3,7 @@ import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
 import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
 import { netsOf } from './nets';
-import { compile, namesIn, type Expr } from './sketch';
+import { aliasPins, compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
 const TIMED_CHECK_TICKS = 720;
@@ -139,7 +139,9 @@ function checkParts(spec: CircuitSpec): Issue[] {
     const checkLogic = (expr: Expr, where: string) => {
       if (typeof expr === 'number') return;
       try {
-        for (const name of namesIn(compile(expr))) {
+        const aliased = aliasPins(expr, custom.pins);
+        for (const raw of namesIn(compile(aliased.source))) {
+          const name = aliased.unalias(raw);
           const pin = name.startsWith('v.') ? name.slice(2) : name;
           if (!isPin(pin) && !stateVars.has(name))
             issues.push({
@@ -325,7 +327,8 @@ function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
       if (!nets.has(find(`${chip.id}.${driver.pin}`))) continue;
       let inputs = '';
       try {
-        const names = [...namesIn(compile(driver.when))].filter((n) => pinsOf(chip).includes(n));
+        const aliased = aliasPins(driver.when, pinsOf(chip));
+        const names = [...namesIn(compile(aliased.source))].map(aliased.unalias).filter((n) => pinsOf(chip).includes(n));
         inputs = names
           .map((n) => {
             const level = run.voltsBetween(`${chip.id}.${n}`, `${chip.id}.${driver.ref}`) >= driver.aboveVolts ? 1 : 0;
