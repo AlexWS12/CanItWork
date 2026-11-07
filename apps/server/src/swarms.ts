@@ -1,5 +1,5 @@
-import type { Usage } from '@tv/core';
-import { extractJson } from './llm';
+import type { KeyCheck, Usage } from '@tv/core';
+import { extractJson, probe } from './llm';
 
 const SWARMS_API = 'https://api.swarms.world/v1';
 const DEFAULT_KEEP_USD = 5;
@@ -25,6 +25,8 @@ export function haltModel(model: string, reason: string) {
 export function resetCouncil() {
   halted.clear();
 }
+
+export const swarmsCheck = (): Promise<KeyCheck> => (apiKey() ? probe(`${SWARMS_API}/account/credits`, apiKey(), { 'x-api-key': apiKey() }) : Promise.resolve('unchecked'));
 
 async function assertBudget() {
   const keep = Number(process.env.SWARMS_KEEP_USD ?? DEFAULT_KEEP_USD);

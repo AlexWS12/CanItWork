@@ -1,6 +1,6 @@
 # Handoff: Platform lane
 
-_Written 2026-11-07 against commit e136422. Check `git log -- apps/server apps/web/src/ui packages/core/src/domain.ts` for anything newer._
+_Updated 2026-11-07 with PR #7 (status checks); first written against e136422. Check `git log -- apps/server apps/web/src/ui packages/core/src/domain.ts` for anything newer._
 
 ## 1. Current state
 
@@ -11,7 +11,7 @@ The web shell is `apps/web/src/ui/`, `scene/`, `store.ts`, `actions.ts`, `runner
 Server:
 
 - **`index.ts`** is a Hono app on port 8787.
-  - Routes: `GET /api/status`, and `POST /api/build`, `/api/recover` and `/api/chat`, which stream server-sent events.
+  - Routes: `GET /api/status` (provider routing plus key checks, from `status.ts`), and `POST /api/build`, `/api/recover` and `/api/chat`, which stream server-sent events.
   - It re-reads `.env` on every `/api/*` request, so changing a key needs no restart.
   - It serves `apps/web/dist` as static files.
 - **`agents.ts` `build`** runs the design pipeline:
@@ -21,6 +21,7 @@ Server:
   4. A baseline simulation runs.
   5. The Red Team (`hypotheses`) states how the design should break.
   6. `testClaim` runs each claim in the simulator.
+  - Every step goes through `stepper()`, which emits `ms` (wall-clock duration) on done and failed events.
 - **`agents.ts` `recover`:**
   1. The council (`proposals`) suggests fixes.
   2. Proposals are de-duplicated by their patches.
@@ -35,21 +36,26 @@ Server:
   - **Rate limits:** a 429 or 503 on the direct route waits out Google's `retryDelay` (up to 20 s) and retries once.
   - **Timeout:** 45 s.
   - **Helpers:** `providerStatus`, `architectModel`.
+  - **Key checks:** `probe` calls a free endpoint (a model list) and caches the result per URL and key for 60 s; `routeChecks` probes each route.
 - **`swarms.ts` `runCouncil`:**
   - **Budget:** it checks the balance first (`assertBudget` against `SWARMS_KEEP_USD`, default 5).
   - **Crashes:** a model that crashes is halted until restart (`haltModel`).
   - **Model:** both roles default to `gemini/gemini-3.5-flash-lite`.
+  - **Key check:** `swarmsCheck` probes the free `/account/credits` endpoint.
 - **`fallback.ts`:** keyless domain routing (`routePrompt`) and chat (`ruleChat`).
+- **`status.ts` `checkedStatus`:** combines the routing with the key checks, waiting at most 300 ms so the page never shows "Server offline" while Prune answers.
 
 Web:
 
 - **`actions.ts`** parses the event stream and loads environments.
 - **`store.ts`** is the zustand store.
 - **`runner.ts`** steps the domain's `Run` every frame and applies injects and patches.
-- **`ui/Panels.tsx`** holds `Landing`, `ChatPanel`, `RightPanel` (agent trace and usage ledger), `StatusBar`, `Transport`, `Inspector` and `RecoveryCard`.
-- **`ui/Charts.tsx`** holds the sparkline and recovery chart.
+- **`ui/`** has one file per component, each importing its own CSS: `Landing`, `ChatPanel`, `RightPanel` (agent trace with step durations, usage ledger), `StatusBar` (chips turn red when a key is rejected), `Transport`, `Inspector`, `RecoveryCard` and `Charts` (sparkline and recovery chart).
+- **`styles.css`** holds only tokens, element defaults, the shared panel surface and scene tags. New UI gets its own CSS file.
 
-Tests: `apps/server/test/adapters.test.ts` covers the gateway, Swarms and full pipelines with a mocked `fetch`. All 102 tests pass at e136422.
+Tests: `apps/server/test/` has `llm`, `swarms`, `pipelines` and `status` tests, with the shared `fetch` mock in `helpers.ts`. All 110 tests pass.
+
+Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:check` on every PR. Prettier is set to single quotes and width 180, and ignores Markdown.
 
 ## 2. Decisions made and rationale
 
@@ -64,6 +70,15 @@ Tests: `apps/server/test/adapters.test.ts` covers the gateway, Swarms and full p
   - The halt guard stops a crashing model from being billed again.
   - The balance floor stops spending before the credits run out.
 - **`.env` is re-read per request** because keys were rotated during the event and the old ones kept being used.
+- **The whole repo was reformatted once** (commit `00df7dd`, listed in `.git-blame-ignore-revs`). No Prettier config reproduced the hand formatting, and no branches existed yet.
+- **A key check counts only 401 and 403 as a bad key.** A 404 or other unexpected reply is `unchecked`, so a missing endpoint never shows as a broken key.
+- **Measure before optimising.** One timed keyed build (warehouse example, through Prune and Swarms) took 25.1 s:
+  - Interpreter 12.7 s, for 631 + 35 tokens.
+  - Architect 7.4 s.
+  - Red Team (Swarms) 4.2 s.
+  - All simulator steps together under 0.8 s.
+  - Cost was about $0.0104, nearly all Swarms.
+  - The Interpreter is the smallest call but the slowest, which points to call latency rather than generation. It's one sample.
 
 ## 3. Done vs pending
 
@@ -71,21 +86,25 @@ Tests: `apps/server/test/adapters.test.ts` covers the gateway, Swarms and full p
 - Build, recover and chat pipelines with labelled local fallbacks: `agents.ts`, pipeline tests.
 - Gateway with Prune receipts, fallback, rate-limit retry and JSON repair: `llm.ts`, "LLM gateway" tests.
 - Swarms budget floor and crash halt: `swarms.ts`, "Swarms council" tests.
+- Repo setup: `.gitattributes`, Prettier, CI, test-file split (PR #1, plus #2 for blame).
+- `Panels.tsx` and `styles.css` split by component, with no computed-style change in 27 UI states (PR #3).
+- Step durations in the protocol, server and trace (PRs #4 and #5).
+- Status chips that check each key against a free endpoint (PRs #6 and #7). All three keys checked `ok` live.
 
 **Pending:**
-- **Builds take about 20 s,** and Prune adds about 5 s per call. Steps carry no timings today (`StepEvent` in `protocol.ts`), so measure each step first, then decide what to parallelise or route direct.
-- **Status chips show a key is set, not that it works.** The Swarms balance endpoint is free to call, and so is a Gemini model list.
-- **The Prune vault may still hold an old Gemini key** (Prune dashboard: Connect > Providers).
+- **Builds take about 25 s, mostly the Interpreter.** Compare the same build with Gemini direct (blank `PRUNE_API_KEY` for one run) before changing anything. If direct is much faster, route the Interpreter direct.
+- **The Prune vault's Gemini key is unconfirmed.** The Prune key check only lists models, so it can't see which Gemini key Prune forwards. A keyed build through Prune did succeed today. To be sure, check the Prune dashboard (Connect > Providers).
 - **A fix that disables a broken output can score the same as a real repair** in electronics ranking. Agree any tie-break with the Electronics lane.
 - **Chat edits of electronics sketches** (`set_program` in its `patchDoc`) haven't been tried live.
 - **`README.md` says a rejected design goes back to the Architect "once";** the code allows two rounds. Tell Ship.
-- **`Panels.tsx` and `styles.css`:** split them by component so the other lanes stop colliding there. This is a setup task in `docs/PLAN.md`.
+- **Branch protection and secret scanning on main** are for the repo owner to turn on in GitHub settings.
 
 ## 4. Exact next action
 
-1. Do the setup PR from `docs/PLAN.md` first, or confirm someone else has: line endings, formatter config, CI check, test-file split. Every other lane is waiting on it.
-2. Split `apps/web/src/ui/Panels.tsx` into one file per exported component, each with its own CSS file. Move the rules out of `styles.css` with no visual change, then check every domain's scene in the browser.
-3. Time a keyed build step by step (log `Date.now()` around each `step` in `agents.ts`, locally only) and post the numbers in the team chat before changing the pipeline.
+1. Run one build with Gemini direct (`PRUNE_API_KEY` blank for that run) and compare its step times with the 25.1 s Prune build above. Ask in team chat first, since the Red Team still spends Swarms credit. Then decide whether to route the Interpreter direct.
+2. Tell Ship about the README's "once" (it's up to two repair rounds).
+3. Agree the electronics ranking tie-break with the Electronics lane.
+4. Try a chat edit of an electronics sketch live.
 
 ## 5. Gotchas
 
@@ -102,6 +121,7 @@ npm install
 npm run dev
 npx vitest run apps/server
 npm run typecheck
+npm run format
 ```
 
-The web app is at http://localhost:5173 and proxies `/api` to 8787 (`apps/web/vite.config.ts`). To try a build, set a Gemini key or `PRUNE_API_KEY` in `.env`. Nothing runs in the background for this lane.
+The web app is at http://localhost:5173 and proxies `/api` to 8787 (`apps/web/vite.config.ts`). To try a build, set a Gemini key or `PRUNE_API_KEY` in `.env`. Step durations show in the Agents tab. `curl localhost:8787/api/status` shows the key checks without spending anything. Nothing runs in the background for this lane.
