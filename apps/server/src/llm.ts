@@ -1,4 +1,4 @@
-import type { ProviderStatus, Usage } from '@tv/core';
+import type { KeyCheck, ProviderStatus, Usage } from '@tv/core';
 import type { z } from 'zod';
 
 const GEMINI_DIRECT = 'https://generativelanguage.googleapis.com/v1beta/openai';
@@ -57,6 +57,31 @@ export function providerStatus(): ProviderStatus {
 }
 
 export const hasGemini = () => routes().length > 0;
+
+const CHECK_TTL_MS = 60_000;
+const checked = new Map<string, { at: number; result: Promise<KeyCheck> }>();
+
+// Calls a free endpoint to see whether a key works. Results are cached per URL and key, so a rotated key is checked afresh.
+export function probe(url: string, key: string, headers: Record<string, string>): Promise<KeyCheck> {
+  const id = `${url} ${key}`;
+  const hit = checked.get(id);
+  if (hit && Date.now() - hit.at < CHECK_TTL_MS) return hit.result;
+  const result = fetch(url, { headers, signal: AbortSignal.timeout(5_000) }).then(
+    (res): KeyCheck => (res.ok ? 'ok' : res.status === 401 || res.status === 403 ? 'failing' : 'unchecked'),
+    (): KeyCheck => 'failing',
+  );
+  checked.set(id, { at: Date.now(), result });
+  return result;
+}
+
+export function resetChecks() {
+  checked.clear();
+}
+
+export async function routeChecks(): Promise<Partial<Record<Route['via'], KeyCheck>>> {
+  const entries = await Promise.all(routes().map(async (r) => [r.via, await probe(`${r.url}/models`, r.key, { authorization: `Bearer ${r.key}` })] as const));
+  return Object.fromEntries(entries);
+}
 
 export const architectModel = () => env().ARCHITECT_MODEL?.trim() || geminiModel();
 

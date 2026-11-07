@@ -34,3 +34,8 @@
   color: var(--ok);
   border-color: rgba(93, 255, 177, 0.4);
 }
+
+.chip[data-check='failing'] {
+  color: var(--danger);
+  border-color: rgba(255, 90, 104, 0.5);
+}
