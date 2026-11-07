@@ -107,6 +107,8 @@ export interface Domain<Spec = any, Model = any> {
   council: Array<{ name: string; brief: string }>;
   compile(spec: Spec): Model;
   validate(model: Model): Issue[];
+  // One line saying what the simulator has proved about a valid design, such as every truth-table row passing. Shown as its own step.
+  proof?(model: Model): string | null;
   describe(model: Model): string;
   createRun(model: Model, seed: number): Run;
   compare?(base: Evaluation, after: Evaluation, incident: Incident): { hurt: boolean; evidence: string };

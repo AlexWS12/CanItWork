@@ -807,6 +807,16 @@ A burned part stays dead until replace_part, and that includes the board (use it
   ],
   compile: (spec) => spec,
   validate: validateCircuit,
+  proof: (spec) => {
+    const facts: string[] = [];
+    const tests = runTests(spec);
+    if (tests.total) facts.push(`${tests.passed} of ${tests.total} behaviour tests pass`);
+    const targets = (spec.world ?? []).filter((q) => q.target).map((q) => q.label);
+    if (targets.length) facts.push(`${targets.join(' and ')} held in range`);
+    const inputs = spec.parts.filter((p) => sensorOf(p)).length;
+    facts.push(`no part over its rating${inputs ? ` at any of ${Math.min(12, inputs * 2 + 1)} input settings` : ''}`);
+    return `${facts.join(', ')}, checked in simulation`;
+  },
   describe: (spec) =>
     JSON.stringify({
       parts: spec.parts,

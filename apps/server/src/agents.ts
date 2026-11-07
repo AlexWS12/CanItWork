@@ -369,20 +369,17 @@ export async function build(prompt: string, emit: Emit) {
     const found = toRepair();
     draft = await orRules(
       () =>
-        step(
-          'architect',
-          'gemini',
-          'Fixing what the checks found',
-          async () =>
-            (await chatJson({
-              feature: 'architect-repair',
-              model: architectModel(),
-              schema: draftSchema(domain),
-              onUsage: onUsage(emit),
-              system: architectPrompt(domain),
-              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. Values the user did not state are yours to change: when a check finds overload, first bring unstated loads (arrival rates, demand, call volume, current draw) in line with the stated sizes. Keep a problem only if the user asked to see it, such as a system they said is overwhelmed, or if no unstated value can fix it. Fix everything else.`,
-            })) as Draft,
-        ),
+        step('architect', 'gemini', 'Fixing what the checks found', async (detail) => {
+          detail(`${found.length > 1 ? `${found.length} problems, first: ` : ''}${found[0].length > 160 ? `${found[0].slice(0, 157)}...` : found[0]}`);
+          return (await chatJson({
+            feature: 'architect-repair',
+            model: architectModel(),
+            schema: draftSchema(domain),
+            onUsage: onUsage(emit),
+            system: architectPrompt(domain),
+            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. Values the user did not state are yours to change: when a check finds overload, first bring unstated loads (arrival rates, demand, call volume, current draw) in line with the stated sizes. Keep a problem only if the user asked to see it, such as a system they said is overwhelmed, or if no unstated value can fix it. Fix everything else.`,
+          })) as Draft;
+        }),
       async () => previous,
     );
     issues = await step('validator', 'simulator', 'Rechecking the design', async (detail) => {
@@ -404,6 +401,8 @@ export async function build(prompt: string, emit: Emit) {
   }
 
   const unresolved = issues.filter((i) => i.repair).map((i) => `Still failing the checks: ${i.message}`);
+  const proof = !unresolved.length && domain.proof ? domain.proof(domain.compile(draft.spec)) : null;
+  if (proof) await step('validator', 'simulator', 'Proving it works', async (detail) => detail(proof));
   const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: [...unresolved, ...draft.unmodelled] };
   emit({ type: 'environment', environment });
   const model = domain.compile(draft.spec);
