@@ -1,4 +1,5 @@
 import type { Finding, StepEvent, Usage } from '@tv/core';
+import { BuildGuidePanel } from './BuildGuide';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
@@ -152,15 +153,17 @@ function UsageLedger() {
   );
 }
 
-const TABS = ['agents', 'usage'] as const;
-
 export function RightPanel() {
-  const tab = useStore((s) => s.tab);
+  const stored = useStore((s) => s.tab);
+  const electronics = useStore((s) => s.environment?.domain === 'electronics');
+  // The build guide only exists for circuits.
+  const TABS = electronics ? (['agents', 'build', 'usage'] as const) : (['agents', 'usage'] as const);
+  const tab = (TABS as readonly string[]).includes(stored) ? stored : 'agents';
   const usage = useStore((s) => s.usage.length);
   const set = useStore((s) => s.set);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const onKey = (e: KeyboardEvent) => {
-    const i = TABS.indexOf(tab);
+    const i = (TABS as readonly string[]).indexOf(tab);
     const next =
       e.key === 'ArrowRight' ? (i + 1) % TABS.length : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
     if (next < 0) return;
@@ -168,7 +171,7 @@ export function RightPanel() {
     set({ tab: TABS[next] });
     refs.current[TABS[next]]?.focus();
   };
-  const label = { agents: 'Agents', usage: `Usage${usage ? ` (${usage})` : ''}` };
+  const label = { agents: 'Agents', build: 'Build', usage: `Usage${usage ? ` (${usage})` : ''}` };
   return (
     <aside className="panel right">
       <div className="tabs" role="tablist" aria-label="Run details" onKeyDown={onKey}>
@@ -190,7 +193,7 @@ export function RightPanel() {
         ))}
       </div>
       <div className="tabpanel" id={`tabpanel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
-        {tab === 'agents' ? <Agents /> : <UsageLedger />}
+        {tab === 'agents' ? <Agents /> : tab === 'build' ? <BuildGuidePanel /> : <UsageLedger />}
       </div>
     </aside>
   );

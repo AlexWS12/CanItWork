@@ -38,7 +38,7 @@ interface State {
   reportOpen: boolean;
   appliedId: string | null;
   selected: string | null;
-  tab: 'agents' | 'usage';
+  tab: 'agents' | 'usage' | 'build';
   view: 'scene' | 'chat' | 'agents';
   telemetry: Telemetry;
   set: (partial: Partial<State>) => void;
