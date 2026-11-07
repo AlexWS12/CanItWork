@@ -36,6 +36,46 @@ const healthColor = (down: boolean, utilization: number, success: number) => {
   return '#2fd4c2';
 };
 
+const ZONE_TINTS = ['#4cc3ff', '#a58bff', '#a3e635', '#ff7ac6', '#ffb347', '#67e8f9'];
+const ZONE_DOWN = '#ff3b4e';
+
+/** One chip per zone the node runs in, in front of it; a chip turns red while its zone is down. */
+function ZoneChips({ node, zones }: { node: SystemNode; zones: string[] }) {
+  const chips = useRef<Array<THREE.MeshBasicMaterial | null>>([]);
+  const own = node.zones ?? [];
+  useFrame(() => {
+    const down = system()?.downZones;
+    own.forEach((zone, i) => {
+      const chip = chips.current[i];
+      if (chip) chip.color.set(down?.has(zone) ? ZONE_DOWN : ZONE_TINTS[zones.indexOf(zone) % ZONE_TINTS.length]);
+    });
+  });
+  if (!own.length) return null;
+  return (
+    <group position={[0, 0.06, 2.1]}>
+      {own.map((zone, i) => (
+        <mesh key={zone} position={[(i - (own.length - 1) / 2) * 0.62, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[0.5, 0.3]} />
+          <meshBasicMaterial ref={(m) => void (chips.current[i] = m)} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function ZoneLegend({ zones, z }: { zones: string[]; z: number }) {
+  if (zones.length < 2) return null;
+  return (
+    <group position={[0, 0, z]}>
+      {zones.map((zone, i) => (
+        <group key={zone} position={[(i - (zones.length - 1) / 2) * 6, 0, 0]}>
+          <Tag text={`Zone ${zone}`} tint={ZONE_TINTS[i % ZONE_TINTS.length]} y={0.3} />
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function Rack({ replicas, light }: { replicas: number; light: (m: THREE.MeshBasicMaterial | null) => void }) {
   const units = Math.min(6, replicas);
   return (
@@ -65,7 +105,7 @@ function NodeBody({ node }: { node: SystemNode }) {
   useFrame(() => {
     const state = system()?.states.get(node.id);
     if (!state) return;
-    if (light.current) light.current.color.set(healthColor(state.down, state.utilization, state.success)).multiplyScalar(2);
+    if (light.current) light.current.color.set(healthColor(state.down || state.alive === 0, state.utilization, state.success)).multiplyScalar(2);
     if (fill.current) {
       const level = Math.min(1, state.backlog / 3000);
       fill.current.scale.x = Math.max(0.02, level);
@@ -168,8 +208,8 @@ function Beacon({ node }: { node: SystemNode }) {
   useFrame(({ clock }) => {
     const state = system()?.states.get(node.id);
     const selected = useStore.getState().selected === node.id;
-    const degraded = Boolean(state && state.degraded !== 1);
-    const down = Boolean(state?.down);
+    const degraded = Boolean(state && (state.degraded !== 1 || state.alive < 1));
+    const down = Boolean(state && (state.down || state.alive === 0));
     ring.current.visible = down || degraded || selected;
     material.current.color.set(down ? '#ff3b4e' : degraded ? '#ffb347' : '#22d3ee');
     ring.current.scale.setScalar(down ? 1 + ((clock.elapsedTime * 0.8) % 1) * 0.5 : 1);
@@ -243,6 +283,8 @@ export function Topology() {
   const structure = useStore.getState().structure;
   const spec = useMemo(() => (run ? ({ ...run.spec } as SystemSpec) : null), [run, structure]);
   const positions = useMemo(() => (spec ? layout(spec) : new Map<string, THREE.Vector3>()), [spec]);
+  const zones = useMemo(() => [...new Set(spec?.nodes.flatMap((n) => n.zones ?? []) ?? [])], [spec]);
+  const legendZ = useMemo(() => Math.max(0, ...[...positions.values()].map((p) => p.z)) + 4.5, [positions]);
   if (!spec) return null;
   return (
     <group>
@@ -252,6 +294,7 @@ export function Topology() {
       </mesh>
       <Grid args={[70, 44]} cellSize={1} cellThickness={0.4} cellColor="#1f2c44" sectionSize={LAYER_GAP} sectionThickness={0.8} sectionColor="#2d3f5f" fadeDistance={110} />
       <Links spec={spec} positions={positions} />
+      <ZoneLegend zones={zones} z={legendZ} />
       {spec.nodes.map((node) => {
         const at = positions.get(node.id);
         if (!at) return null;
@@ -259,6 +302,7 @@ export function Topology() {
           <group key={node.id} position={at} onClick={pick(node.id)}>
             <NodeBody node={node} />
             <Beacon node={node} />
+            <ZoneChips node={node} zones={zones} />
             <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3} />
             <ClaimPin id={node.id} position={[0, 1.6, 0]} />
           </group>

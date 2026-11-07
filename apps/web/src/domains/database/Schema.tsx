@@ -42,6 +42,19 @@ function layout(spec: DatabaseSpec) {
   return positions;
 }
 
+/** One cell per partition along the foot of the header, colored by that partition's load. */
+function drawPartitions(ctx: CanvasRenderingContext2D, loads: number[], w: number) {
+  const y = HEADER * PX - 9;
+  const gap = 3;
+  const cell = (w - 36 - gap * (loads.length - 1)) / loads.length;
+  loads.forEach((load, i) => {
+    ctx.fillStyle = load >= 1 ? '#ff5a68' : load >= 0.8 ? '#ffb347' : '#2fd4c2';
+    ctx.globalAlpha = 0.35 + 0.65 * Math.min(1, load);
+    ctx.fillRect(18 + i * (cell + gap), y, cell, 6);
+  });
+  ctx.globalAlpha = 1;
+}
+
 function drawCard(ctx: CanvasRenderingContext2D, table: Table, run: SchemaRun) {
   const w = WIDTH * PX;
   const h = cardHeight(table) * PX;
@@ -61,13 +74,16 @@ function drawCard(ctx: CanvasRenderingContext2D, table: Table, run: SchemaRun) {
   ctx.font = '600 30px "Space Grotesk Variable", sans-serif';
   ctx.textBaseline = 'middle';
   ctx.fillText(table.name, 18, 28);
+  const partitions = run.partitionLoad.get(table.name);
   ctx.font = '500 19px "IBM Plex Mono", monospace';
   ctx.fillStyle = '#b6c4da';
-  ctx.fillText(`${table.rows.toLocaleString('en-US')} rows${locked ? ' · LOCKED' : ''}`, 18, 62);
+  const layout = partitions ? ` · ${partitions.length}× by ${table.partitionBy}` : '';
+  ctx.fillText(`${table.rows.toLocaleString('en-US')} rows${layout}${locked ? ' · LOCKED' : ''}`, 18, 62);
   ctx.fillStyle = heat > 0.5 ? '#ffb347' : '#2fd4c2';
   ctx.fillRect(w - 100, 54, 84 * Math.min(1, heat), 12);
   ctx.strokeStyle = '#46597c';
   ctx.strokeRect(w - 100, 54, 84, 12);
+  if (partitions) drawPartitions(ctx, partitions, w);
 
   table.columns.forEach((col, i) => {
     const y = (HEADER + i * ROW) * PX;
@@ -137,6 +153,8 @@ function Card({ table, at }: { table: Table; at: THREE.Vector3 }) {
         .filter((q) => q.table === table.name)
         .map((q) => run.queries.get(q.name)?.scanned)
         .join(),
+      (run.partitionLoad.get(table.name) ?? []).map((u) => Math.round(u * 10)).join(),
+      live.partitionBy,
     ].join('|');
     if (signature !== last.current) {
       last.current = signature;

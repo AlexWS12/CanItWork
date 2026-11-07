@@ -1,6 +1,6 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
 import { SchemaRun, isIndexed } from './engine';
-import { DatabasePatchSchema, DatabaseSpecSchema, type Column, type DatabaseSpec, type Table } from './schema';
+import { DatabasePatchSchema, DatabaseSpecSchema, partitionsOf, type Column, type DatabaseSpec, type Table } from './schema';
 
 function validateSchema(spec: DatabaseSpec): Issue[] {
   const issues: Issue[] = [];
@@ -24,6 +24,12 @@ function validateSchema(spec: DatabaseSpec): Issue[] {
     for (const index of t.indexes) {
       for (const name of index)
         if (!t.columns.some((c) => c.name === name)) issues.push({ severity: 'error', message: `Index on ${t.name} uses ${name}, which doesn't exist`, target: t.name });
+    }
+    if (t.partitionBy && !t.columns.some((c) => c.name === t.partitionBy)) {
+      issues.push({ severity: 'error', repair: true, message: `${t.name} is partitioned by ${t.partitionBy}, which isn't one of its columns`, target: t.name });
+    }
+    if ((t.partitions ?? 1) > 1 && !t.partitionBy) {
+      issues.push({ severity: 'error', repair: true, message: `${t.name} has ${t.partitions} partitions but no partitionBy column to route rows`, target: t.name });
     }
   }
   for (const query of spec.workload) {
@@ -52,6 +58,13 @@ function validateSchema(spec: DatabaseSpec): Issue[] {
     const repeated = repeats.find((name, i) => repeats.indexOf(name) !== i);
     if (repeated) issues.push({ severity: 'warning', message: `${t.name} repeats ${repeated} columns, which belong in their own table`, target: t.name });
   }
+  for (const query of spec.workload) {
+    const t = table(query.table)!;
+    const parts = partitionsOf(t);
+    if (query.kind === 'read' && parts > 1 && !query.where.includes(t.partitionBy!)) {
+      issues.push({ severity: 'warning', message: `${query.name} doesn't filter on ${t.name}.${t.partitionBy}, so it reads all ${parts} partitions`, target: t.name });
+    }
+  }
   const run = new SchemaRun(spec, 1);
   run.step();
   for (const query of spec.workload) {
@@ -70,7 +83,25 @@ const id = (name = 'id', type: Column['type'] = 'bigint'): Column => ({ name, ty
 const fk = (name: string, table: string): Column => ({ name, type: 'bigint', references: { table, column: 'id', onDelete: 'restrict' } });
 const text = (name: string): Column => ({ name, type: 'text' });
 
+/** The biggest table a query filters on, and the column it filters by. */
+function partitionCandidate(spec: DatabaseSpec) {
+  const filtered = spec.workload.filter((q) => q.where.length).map((q) => ({ table: spec.tables.find((t) => t.name === q.table), key: q.where[0] }));
+  return filtered.filter((c): c is { table: Table; key: string } => Boolean(c.table)).sort((a, b) => b.table.rows - a.table.rows)[0] ?? null;
+}
+
 function buildSchema(prompt: string): DatabaseSpec {
+  const spec = baseSchema(prompt);
+  if (/shard|partition|scale[sd]? out|horizontal/i.test(prompt)) {
+    const candidate = partitionCandidate(spec);
+    if (candidate) {
+      candidate.table.partitions = 8;
+      candidate.table.partitionBy = candidate.key;
+    }
+  }
+  return spec;
+}
+
+function baseSchema(prompt: string): DatabaseSpec {
   if (/universit|school|student|course|college/i.test(prompt)) {
     const tables: Table[] = [
       { name: 'students', rows: 40000, columns: [id(), text('name'), { name: 'email', type: 'text', unique: true }, { name: 'enrolled_at', type: 'timestamp' }], indexes: [] },
@@ -116,6 +147,13 @@ function hypotheses(spec: DatabaseSpec): Hypothesis[] {
     });
     break;
   }
+  const partitioned = spec.tables.find((t) => partitionsOf(t) > 1);
+  if (partitioned) {
+    out.push({
+      claim: `A hot key on ${partitioned.name} sends most of its traffic to one of ${partitionsOf(partitioned)} partitions, which can't keep up.`,
+      incident: { type: 'hot_partition', target: partitioned.name, value: 0.8 },
+    });
+  }
   const biggest = [...spec.tables].sort((a, b) => b.rows - a.rows)[0];
   out.push({ claim: `${biggest.name} doesn't scale: ten times the rows pushes queries over budget.`, incident: { type: 'row_surge', target: biggest.name, value: 10 } });
   const hot = spec.workload[0];
@@ -151,6 +189,29 @@ function recoveries(spec: DatabaseSpec, incident: Incident | undefined): Recover
       return [
         { author: 'Operations rules', title: `Release the lock on ${tableName}`, rationale: 'Let blocked queries through.', patches: [{ op: 'unlock_table', table: tableName }] },
       ];
+    case 'hot_partition': {
+      const table = spec.tables.find((t) => t.name === tableName);
+      if (!table) return [replica];
+      const parts = partitionsOf(table);
+      const options: RecoveryOption[] = [];
+      const primary = table.columns.find((c) => c.primary)?.name;
+      if (primary && primary !== table.partitionBy) {
+        options.push({
+          author: 'Schema rules',
+          title: `Repartition ${tableName} by ${primary}`,
+          rationale: 'A unique key spreads the hot rows evenly, though queries on the old key then read every partition.',
+          patches: [{ op: 'repartition', table: tableName, partitions: parts, by: primary }],
+        });
+      }
+      options.push({
+        author: 'Capacity rules',
+        title: `Split ${tableName} into ${Math.min(32, parts * 2)} partitions`,
+        rationale: 'Smaller partitions, though the hot key still lands on one of them.',
+        patches: [{ op: 'repartition', table: tableName, partitions: Math.min(32, parts * 2) }],
+      });
+      options.push({ ...replica, rationale: 'Give every partition a replica to share the load.' });
+      return options;
+    }
     case 'row_surge': {
       const unindexed = spec.workload.flatMap((q) => {
         const t = spec.tables.find((x) => x.name === q.table);
@@ -180,11 +241,11 @@ export const database: Domain<DatabaseSpec, DatabaseSpec> = {
   label: 'Databases',
   blurb: 'Relational schemas with keys, indexes and a query workload',
   capabilities:
-    'Relational schemas: tables, columns, primary and foreign keys, indexes, row counts and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load and how they change with data growth.',
+    'Relational schemas: tables, columns, primary and foreign keys, indexes, row counts, partitioning across nodes, read replicas and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load, hot partitions and how they change with data growth.',
   limits: ['Costs are estimates from a simple scan and seek model, not a real query planner', 'No transactions, isolation or replication lag', 'Relational schemas only'],
   examples: ['A university database with students, courses, instructors and enrollments'],
   suggestions: ['What happens if the enrollments table grows ten times?', 'What happens if a migration locks the busiest table?', 'Which queries need an index?'],
-  keywords: /database|schema|\bsql\b|postgres|mysql|\btables?\b|foreign key|normali[sz]/i,
+  keywords: /database|schema|\bsql\b|postgres|mysql|\btables?\b|foreign key|normali[sz]|shard|partitioned/i,
   ticksPerSecond: 8,
   horizon: 300,
   seeds: 1,
@@ -195,23 +256,27 @@ export const database: Domain<DatabaseSpec, DatabaseSpec> = {
     "name": string,
     "rows": integer,
     "columns": [{"name": string, "type": "int"|"bigint"|"uuid"|"text"|"decimal"|"bool"|"timestamp", "primary"?: boolean, "unique"?: boolean, "nullable"?: boolean, "references"?: {"table": string, "column": string, "onDelete"?: "cascade"|"restrict"|"set_null"}}],
-    "indexes": [[column names]]
+    "indexes": [[column names]],
+    "partitions"?: integer 2-32, "partitionBy"?: column
   }],
-  "workload": [{"name": string, "kind": "read"|"write", "table": string, "where": [columns], "joins": [{"table": string, "local": column here, "foreign": column there}], "perSecond": number}]
+  "workload": [{"name": string, "kind": "read"|"write", "table": string, "where": [columns], "joins": [{"table": string, "local": column here, "foreign": column there}], "perSecond": number}],
+  "replicas"?: read replicas 0-8
 }
-Include a realistic workload of 2 to 6 queries and realistic row counts. Foreign key columns must have the same type as the column they reference.`,
-  incidentTypes: ['drop_index', 'drop_column', 'lock_table', 'row_surge', 'workload_spike'],
+Include a realistic workload of 2 to 6 queries and realistic row counts. Foreign key columns must have the same type as the column they reference. Partition only when the user asks for sharding or partitioning, by the column the busiest queries filter on.`,
+  incidentTypes: ['drop_index', 'drop_column', 'lock_table', 'row_surge', 'workload_spike', 'hot_partition'],
   incidentDoc: `{"type":"drop_index","target":"table.column"}
 {"type":"drop_column","target":"table.column"}
 {"type":"lock_table","target":"table"}
 {"type":"row_surge","target":"table","value":multiplier}
-{"type":"workload_spike","value":multiplier}`,
+{"type":"workload_spike","value":multiplier}
+{"type":"hot_partition","target":"partitioned table","value":share of its traffic on one partition 0.3-0.95}`,
   patchSchema: DatabasePatchSchema,
   patchDoc: `{"op":"add_index","table":"t","columns":["c"]}
 {"op":"add_replica"}
 {"op":"archive_rows","table":"t","fraction":0.05-0.95}
 {"op":"restore_column","table":"t","column":"c"}
-{"op":"unlock_table","table":"t"}`,
+{"op":"unlock_table","table":"t"}
+{"op":"repartition","table":"t","partitions":integer,"by"?:"column"}`,
   council: [
     { name: 'SchemaDesigner', brief: 'indexes, keys and table structure' },
     { name: 'PerformanceEngineer', brief: 'query cost and what is scanning' },
@@ -227,7 +292,17 @@ Include a realistic workload of 2 to 6 queries and realistic row counts. Foreign
       const col = q.where.find((c) => t && !isIndexed(t, c));
       return col ? [{ title: `Index ${q.table}.${col}`, patches: [{ op: 'add_index', table: q.table, columns: [col] }] }] : [];
     });
-    return [...out.slice(0, 3), { title: 'Add a read replica', patches: [{ op: 'add_replica' }] }];
+    const candidate = partitionCandidate(spec);
+    const partition =
+      candidate && partitionsOf(candidate.table) === 1
+        ? [
+            {
+              title: `Partition ${candidate.table.name} by ${candidate.key}`,
+              spec: { ...spec, tables: spec.tables.map((t) => (t === candidate.table ? { ...t, partitions: 8, partitionBy: candidate.key } : t)) },
+            },
+          ]
+        : [];
+    return [...out.slice(0, 3), { title: 'Add a read replica', patches: [{ op: 'add_replica' }] }, ...partition];
   },
   rules: {
     spec: buildSchema,

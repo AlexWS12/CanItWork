@@ -19,6 +19,7 @@ export class Grid {
     const block = (x: number, y: number) => {
       if (x >= 0 && y >= 0 && x < this.cols && y < this.rows) this.blocked[this.idx(x, y)] = 1;
     };
+    for (const w of world.walls) block(w.x, w.y);
     for (const s of world.shelves) block(s.x, s.y);
     for (const c of world.chargers) block(c.x, c.y);
     for (const c of world.conveyors) for (const p of c.path) block(p.x, p.y);

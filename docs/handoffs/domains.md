@@ -1,6 +1,6 @@
 # Handoff: Other domains lane
 
-_Written 2026-11-07 against commit e136422. Check `git log -- packages/core/src/domains` for anything newer._
+_Written 2026-11-07 against commit e136422; layout, zones and partitions added on branch `nickolas/domain-layouts`. Check `git log -- packages/core/src/domains` for anything newer._
 
 ## 1. Current state
 
@@ -19,18 +19,26 @@ The three domains:
 - **Software** (`software/schema.ts`, `system.ts`, `index.ts`):
   - **Spec:** nodes (`client`, `gateway`, `service`, `database`, `cache`, `queue`, `external`), sync or async edges, traffic and retries.
   - **Simulator:** `SystemRun` is a flow model with capacity, latency, retries, timeouts and queue backlog. Score is "% of requests succeeding".
-  - **Incidents:** `node_down`, `node_slow`, `traffic_spike`, `cut_link`, `cache_flush`.
-  - **Patches:** `scale`, `failover`, `set_retries`, `make_optional`, `add_cache`, `add_queue`.
-  - **Validator:** refuses cycles and names single points of failure.
+  - **Zones:** a node's optional `zones` list spreads its replicas round-robin (`replicaZones` in `schema.ts`). Losing a zone removes those replicas; a node with none left is out (`isOut` in `system.ts`). Nodes without zones never feel a zone outage.
+  - **Incidents:** `node_down`, `node_slow`, `traffic_spike`, `cut_link`, `cache_flush`, `zone_down` (`recover` with a zone name brings it back).
+  - **Patches:** `scale`, `failover`, `set_retries`, `make_optional`, `add_cache`, `add_queue`, `add_zone` (also raises replicas so one runs there).
+  - **Validator:** refuses cycles and names single points of failure, replicated nodes stuck in one zone, and nodes listing more zones than replicas.
   - **View:** `apps/web/src/domains/software/Topology.tsx`.
 - **Database** (`database/schema.ts`, `engine.ts`, `index.ts`):
-  - **Spec:** tables, columns and foreign keys, indexes, and a query workload.
+  - **Spec:** tables, columns and foreign keys, indexes, optional `partitions` + `partitionBy` per table, optional `replicas`, and a query workload.
   - **Simulator:** `SchemaRun` models scan and seek cost, row growth from writes, and locks. Score is "% of queries within 100 ms".
-  - **Incidents:** `drop_index`, `drop_column`, `lock_table`, `row_surge`, `workload_spike`.
+    - Unpartitioned tables share the primary. Each partition is its own node with the same capacity (times replicas), tracked in `partitionLoad`.
+    - Queries filtering on the key, and all writes, hit one partition; other reads hit every partition and pay `GATHER_MS` per partition.
+    - A hot key (`hot` map) sends a share of keyed traffic to partition 0; the score counts only the share that stays in budget.
+  - **Incidents:** `drop_index`, `drop_column`, `lock_table`, `row_surge`, `workload_spike`, `hot_partition` (`cool_partition` undoes it).
+  - **Patches:** adds `repartition`; a new key clears a hot key, more partitions on the same key don't.
   - **View:** `apps/web/src/domains/database/Schema.tsx`.
 - **Warehouse** (`warehouse/schema.ts`, `compile.ts`, `planner.ts`, `sim.ts`, `validate.ts`, `index.ts`):
-  - **Spec:** the Architect sets only 8 values: robots, aisles, shelvesPerAisle, conveyors, chargers, docks, demand and dispatch.
+  - **Spec:** robots, aisles, shelvesPerAisle, conveyors, chargers, docks, demand and dispatch, plus optional `shape` (`rect`, `L`, `U`, `T`) and `zones` (`name`, `aisles`, optional `share` of orders).
   - **Layout:** `compile.ts` generates the floor from those values.
+    - A shape shifts whole aisle blocks south and walls off the rows they leave (`World.walls`), so every shape holds the same shelves; only travel changes. U and T need 3+ aisles and fall back to a rectangle below that.
+    - Zones claim aisle blocks from the west (`World.zones`, `Shelf.zone`). A zone `share` weights which shelves orders come from (`orderWeights` in `sim.ts`); with no shares the draw is the original uniform one.
+    - With no shape and no zones the world is identical to before, and a test pins that.
   - **Simulator:** `planner.ts` routes robots with space-time A*. Score is packages delivered.
   - **View:** `apps/web/src/domains/warehouse/` (`Warehouse.tsx`, `Facility.tsx`, `Actors.tsx`, `palette.ts`).
 
@@ -38,7 +46,8 @@ Tests:
 
 - `packages/core/test/domains.test.ts` covers software and database. Its "meets the platform contract" block runs automatically for every registered domain, new ones included.
 - `packages/core/test/sim.test.ts` covers the warehouse compiler and simulator.
-- All 102 tests pass at e136422.
+- `warehouse-layout.test.ts`, `software-zones.test.ts` and `database-partitions.test.ts` cover the new layout features.
+- All 130 tests pass on `nickolas/domain-layouts`.
 
 ## 2. Decisions made and rationale
 
@@ -53,20 +62,25 @@ Tests:
 
 **Done:**
 - Software, database and warehouse domains with scenes, validators, incidents, fixes and tests: see the files above.
+- Warehouse floor shapes and named zones with order shares; walls and zone labels in `Facility.tsx`.
+- Software availability zones and `zone_down`; zone chips and a legend in `Topology.tsx`.
+- Database partitions, read replicas in the spec and `hot_partition`; per-partition load strips in `Schema.tsx`.
 
 **Pending:**
-- **Warehouse layout.** The Architect can only set counts, so it can't build an L-shaped floor, named zones, people or forklifts. Those land in "Not modelled in this design". Making the layout part of the spec is the biggest gain in this lane.
+- **New scenes haven't been checked in a browser yet.** They typecheck, but walls, zone labels, zone chips and partition strips still need a look at `npm run dev`.
+- **People and forklifts in the warehouse.** Still unmodelled. The cheapest route is a slower robot kind with no battery that shares the grid.
+- **Zone incidents in the warehouse.** Zones only steer demand today; a `close_zone` incident (spill, power cut in cold storage) would make them breakable.
+- **Hot partitions rarely bite with the fallback workloads.** Keyed seeks are cheap next to the 100 ms budget, so the Red Team's hot-key claim on a sharded fallback is often refuted. That's the simulator deciding, but a heavier fallback workload would demo better.
 - **New domains.** Each one is additive: a folder in `packages/core/src/domains/`, one line in `domains/index.ts`, a scene in `apps/web/src/domains/<id>/` and one line in `apps/web/src/domains/index.tsx`. The new id also goes in the `DomainId` union in `domain.ts`, which Platform owns: one-line PR, merged first.
 - **Systems outside every domain.** Today these are refused. A general engine for them was proposed but never agreed on. Decide as a team before starting it.
 
 ## 4. Exact next action
 
-1. Run `npm run dev` with no keys and build each example from the landing page. Break things from the Break bar and the inspector to get a feel for each simulator.
-2. Agree on warehouse layout versus a new domain at the next check-in. If layout:
-   - extend `WorldSpecSchema` in `warehouse/schema.ts` with optional layout fields;
-   - teach `compile.ts` to use them and fall back to today's generator when they're missing;
-   - update `specDoc` in `warehouse/index.ts`.
-3. Add tests in a new file per domain, such as `packages/core/test/warehouse-layout.test.ts`.
+1. Run `npm run dev` with no keys and try these prompts. Check the new scenes, then break the zone or partition from the Break bar:
+   - "An L-shaped warehouse with four robots, a cold storage zone and a hazmat area"
+   - "A payment system running in two availability zones"
+   - "A sharded e-commerce database with customers and orders"
+2. Pick from the pending list above, or a new domain (which needs Platform's one-line `DomainId` PR first).
 
 ## 5. Gotchas
 
