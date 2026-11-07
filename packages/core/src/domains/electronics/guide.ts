@@ -44,6 +44,7 @@ export function describeForBom(part: Part): string {
     case 'button':
       return 'push button';
     case 'diode':
+      if (part.zener) return `${part.zener} V Zener diode`;
       return (part.volts ?? 0.7) < 0.5 ? 'Schottky diode (1N5819)' : 'diode (1N4001)';
     case 'pot':
       return `${si(part.ohms ?? 10000, 'Ω')} potentiometer`;

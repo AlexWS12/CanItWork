@@ -166,6 +166,7 @@ const PartObject = z.object({
   measures: z.string().optional(),
   closed: z.boolean().optional(),
   common: z.enum(['cathode', 'anode']).optional(),
+  zener: z.number().positive().max(200).optional(),
   package: z.enum(PACKAGES).optional(),
   custom: CustomPartSchema.optional(),
 });

@@ -574,6 +574,8 @@ export class CircuitRun implements Run {
           break;
         case 'diode':
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), DIODE_RESISTANCE, part.volts ?? 0.7);
+          // A Zener also conducts backwards once the reverse voltage reaches its rating, holding it there.
+          else if (part.zener && on.has(`${part.id}.reverse`)) add(part.id, pin('cathode'), pin('anode'), DIODE_RESISTANCE, part.zener);
           break;
         case 'pot': {
           const total = part.ohms ?? 10000;
@@ -750,7 +752,10 @@ export class CircuitRun implements Run {
               else on.delete(key);
             }
           };
-          if (part.type === 'diode') conduct(part.id, at(`${part.id}.anode`) - at(`${part.id}.cathode`), part.volts ?? 0.7);
+          if (part.type === 'diode') {
+            conduct(part.id, at(`${part.id}.anode`) - at(`${part.id}.cathode`), part.volts ?? 0.7);
+            if (part.zener) conduct(`${part.id}.reverse`, at(`${part.id}.cathode`) - at(`${part.id}.anode`), part.zener);
+          }
           if (part.type === 'seven_segment') {
             for (const seg of SEGMENTS) {
               const drop = at(`${part.id}.${seg}`) - at(`${part.id}.com`);

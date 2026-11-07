@@ -40,6 +40,33 @@ describe('diode', () => {
   });
 });
 
+describe('Zener diode', () => {
+  it('regulates a 9 V supply to its 5.1 V rating through a series resistor, and holds under load', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'B1', type: 'battery', volts: 9 },
+        { id: 'R1', type: 'resistor', ohms: 220 },
+        { id: 'Z1', type: 'diode', zener: 5.1 },
+        { id: 'RL', type: 'resistor', ohms: 1000 },
+      ],
+      wires: [
+        { from: 'B1.pos', to: 'R1.a' },
+        { from: 'R1.b', to: 'Z1.cathode' },
+        { from: 'Z1.anode', to: 'B1.neg' },
+        { from: 'R1.b', to: 'RL.a' },
+        { from: 'RL.b', to: 'B1.neg' },
+      ],
+      drive: [],
+    };
+    expect(settle(spec).voltsBetween('Z1.cathode', 'Z1.anode')).toBeCloseTo(5.1, 0);
+    // Without the Zener the divider would sit at 9 x 1000/1220 = 7.4 V.
+    const plain = structuredClone(spec);
+    plain.parts = plain.parts.filter((p) => p.id !== 'Z1');
+    plain.wires = plain.wires.filter((w) => !w.to.startsWith('Z1') && !w.from.startsWith('Z1'));
+    expect(settle(plain).voltsBetween('RL.a', 'B1.neg')).toBeCloseTo(7.4, 0);
+  });
+});
+
 describe('potentiometer', () => {
   const dimmer: CircuitSpec = {
     parts: [
