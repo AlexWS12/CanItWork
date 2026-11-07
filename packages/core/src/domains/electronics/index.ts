@@ -1,7 +1,7 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
-import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, type CircuitSpec, type Part } from './parts';
+import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
 import { compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
@@ -266,8 +266,93 @@ function wireTouching(spec: CircuitSpec, id: string) {
   return index >= 0 ? wireId(index) : null;
 }
 
+const CUSTOM = { paths: [], switches: [], drivers: [], sources: [], gpio: [], output: false, visual: [] };
+
+function planter(): CircuitSpec {
+  return {
+    parts: [
+      { id: 'U1', type: 'arduino' },
+      { id: 'B1', type: 'battery', volts: 9, maxAmps: 2 },
+      { id: 'P1', type: 'motor', volts: 9, ohms: 9, maxAmps: 1.5 },
+      {
+        id: 'S1',
+        type: 'custom',
+        measures: 'soil',
+        custom: {
+          ...CUSTOM,
+          label: 'Soil sensor',
+          pins: ['VCC', 'GND', 'AO'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 500 }],
+          supply: { pos: 'VCC', neg: 'GND', minVolts: 3, maxVolts: 5.5 },
+          sensor: { quantity: 'soil moisture', unit: '%', min: 0, max: 100, pin: 'AO' },
+          visual: [
+            { shape: 'box', size: [1.2, 0.08, 0.7], at: [0, 0.2, 0], color: '#14532d' },
+            { shape: 'box', size: [0.18, 0.06, 1.3], at: [-0.3, 0.2, 0.95], color: '#d4af37' },
+            { shape: 'box', size: [0.18, 0.06, 1.3], at: [0.3, 0.2, 0.95], color: '#d4af37' },
+          ],
+        },
+      },
+      {
+        id: 'K1',
+        type: 'custom',
+        custom: {
+          ...CUSTOM,
+          label: 'Relay',
+          pins: ['IN', 'VCC', 'GND', 'COM', 'NO'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 70 }],
+          switches: [{ a: 'COM', b: 'NO', ohms: 0.05, when: 'IN', ref: 'GND', aboveVolts: 2 }],
+          visual: [
+            { shape: 'box', size: [1.6, 0.1, 1.1], at: [0, 0.15, 0], color: '#1d4ed8' },
+            { shape: 'box', size: [0.9, 0.6, 0.7], at: [0, 0.5, 0], color: '#0f172a' },
+          ],
+        },
+      },
+      {
+        id: 'L1',
+        type: 'custom',
+        custom: {
+          ...CUSTOM,
+          label: '16x2 LCD',
+          pins: ['VCC', 'GND'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 250 }],
+          supply: { pos: 'VCC', neg: 'GND', minVolts: 4.5, maxVolts: 5.5 },
+          actuator: { quantity: 'text', min: 0, max: 0 },
+          visual: [
+            { shape: 'box', size: [2, 0.12, 1], at: [0, 0.15, 0], color: '#166534' },
+            { shape: 'box', size: [1.6, 0.06, 0.55], at: [0, 0.24, 0], color: '#86efac' },
+          ],
+        },
+      },
+    ],
+    wires: [
+      { from: 'U1.5V', to: 'S1.VCC' },
+      { from: 'U1.GND', to: 'S1.GND' },
+      { from: 'S1.AO', to: 'U1.A0' },
+      { from: 'U1.D7', to: 'K1.IN' },
+      { from: 'U1.5V', to: 'K1.VCC' },
+      { from: 'U1.GND', to: 'K1.GND' },
+      { from: 'B1.neg', to: 'U1.GND' },
+      { from: 'B1.pos', to: 'K1.COM' },
+      { from: 'K1.NO', to: 'P1.a' },
+      { from: 'P1.b', to: 'B1.neg' },
+      { from: 'U1.5V', to: 'L1.VCC' },
+      { from: 'U1.GND', to: 'L1.GND' },
+    ],
+    drive: [],
+    vars: { watering: 0 },
+    program: [
+      { when: 'S1 < 35', then: [{ set: 'watering', to: 1 }] },
+      { when: 'S1 > 60', then: [{ set: 'watering', to: 0 }] },
+      { when: 'watering == 1', then: [{ pin: 'U1.D7', mode: 'high' }], else: [{ pin: 'U1.D7', mode: 'low' }] },
+      { every: 0.5, then: [{ show: 'L1', text: 'Soil {S1}% pump {watering}' }] },
+    ],
+    world: [{ id: 'soil', label: 'Soil moisture', unit: '%', start: 50, min: 0, max: 100, drift: -1.5, effects: [{ from: 'P1', rate: 8 }], target: { min: 30, max: 70 } }],
+  };
+}
+
 function buildCircuit(prompt: string): CircuitSpec {
   const text = prompt.toLowerCase();
+  if (/plant|soil|water|greenhouse|irrigat/.test(text)) return planter();
   const parts: Part[] = [{ id: 'U1', type: 'arduino' }];
   const wires: CircuitSpec['wires'] = [];
   const drive: CircuitSpec['drive'] = [];
@@ -332,10 +417,14 @@ function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
   const rules = spec.program ?? [];
   const sensed = spec.parts.filter((p) => sensorOf(p));
-  const read = sensed.find((p) => rules.some((r) => r.if?.read === p.id || r.if?.read.startsWith(`${p.id}.`))) ?? (rules.some((r) => r.if) ? sensed[0] : undefined);
+  const program = JSON.stringify(rules);
+  const read = sensed.find((p) => new RegExp(`\\b${p.id}\\b`).test(program)) ?? (rules.some((r) => r.if || r.when) ? sensed[0] : undefined);
   const info = read && sensorOf(read);
   if (read && info)
-    out.push({ claim: `If ${read.id} fails and reads ${info.min}, the program acts on a false reading.`, incident: { type: 'sensor_fault', target: read.id, value: info.min } });
+    out.push({
+      claim: `If ${read.id} sticks at ${withUnit(info.max, info.unit)}, the sketch acts on a false reading.`,
+      incident: { type: 'sensor_fault', target: read.id, value: info.max },
+    });
   for (const part of spec.parts.filter(isOutput).slice(0, 2)) {
     const wire = wireTouching(spec, part.id);
     if (wire) out.push({ claim: `${part.id} depends on ${wire}: one loose wire takes it out.`, incident: { type: 'loose_wire', target: wire } });
@@ -399,9 +488,14 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
     'Sketches are rules over readings and pin states, not compiled code',
     'Mechanical load, heat and physical motion beyond rotation are not simulated',
   ],
-  examples: ['An Arduino with a motor driver, two motors and an ultrasonic sensor', 'A blinking LED wired to an Arduino with no resistor'],
+  examples: [
+    'A self-watering planter that keeps the soil between 30 and 70 percent',
+    'An Arduino with a motor driver, two motors and an ultrasonic sensor',
+    'A blinking LED wired to an Arduino with no resistor',
+  ],
   suggestions: ['What happens if the battery runs low?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
-  keywords: /arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
+  keywords:
+    /planter|soil|greenhouse|irrigat|thermostat|relay|pump|arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
   ticksPerSecond: 12,
   horizon: 300,
   seeds: 1,

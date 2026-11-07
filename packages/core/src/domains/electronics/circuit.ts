@@ -117,6 +117,7 @@ const milli = (amps: number) => `${Math.round(Math.abs(amps) * 1000)} mA`;
 const volts = (v: number) => `${(Math.round(v * 100) / 100).toFixed(2)} V`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const shape = (text: string | undefined) => (text ?? '').replace(/-?\d+(\.\d+)?/g, '#');
 
 function compare(left: number, op: string, right: number) {
   switch (op) {
@@ -795,7 +796,7 @@ export class CircuitRun implements Run {
   private matchesTwin(part: Part) {
     const twin = this.twin!;
     const actuator = part.custom?.actuator;
-    if (actuator?.quantity === 'text') return (this.texts.get(part.id) ?? '') === (twin.texts.get(part.id) ?? '');
+    if (actuator?.quantity === 'text') return shape(this.texts.get(part.id)) === shape(twin.texts.get(part.id));
     if (actuator) {
       const span = Math.abs(actuator.max - actuator.min) || 1;
       return Math.abs((this.outputs.get(part.id) ?? 0) - (twin.outputs.get(part.id) ?? 0)) <= span * 0.05;

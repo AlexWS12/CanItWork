@@ -462,7 +462,7 @@ function WorldPanel({ spec }: { spec: CircuitSpec }) {
   });
   const run = circuit();
   return (
-    <Html fullscreen zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}>
+    <Html fullscreen calculatePosition={(_, __, size) => [size.width / 2, size.height / 2]} zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}>
       <div className="world-panel">
         {(spec.world ?? []).map((q) => {
           const value = run?.world.get(q.id) ?? q.start;
