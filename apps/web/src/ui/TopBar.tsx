@@ -10,7 +10,7 @@ const CHECK_LABEL: Record<KeyCheck, string> = { ok: 'key works', failing: 'key f
 
 type Chip = [name: string, on: boolean, how: string, check: KeyCheck | undefined];
 
-const chipsOf = (status: ProviderStatus | null): Chip[] =>
+const chipsOf = (status: ProviderStatus | null | undefined): Chip[] =>
   status
     ? [
         ['Gemini', status.gemini !== 'off', status.gemini, status.checks?.gemini],
@@ -27,7 +27,7 @@ function Integrations({ variant }: { variant: 'chip' | 'dot' }) {
   return (
     <div className={`integrations ${variant}s`}>
       {status && !live && <span className="offline">Local rules, no AI connected</span>}
-      {!status && <span className="offline">Server offline</span>}
+      {status === null && <span className="offline">Server offline</span>}
       {chips.map(([name, on, how, check]) => {
         const label = `${name}: ${how}${on && check ? `, ${CHECK_LABEL[check]}` : ''}`;
         return (

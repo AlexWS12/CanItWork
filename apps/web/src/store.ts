@@ -29,7 +29,8 @@ interface State {
   domainOdds: Partial<Record<DomainId, number>> | null;
   chatting: boolean;
   recovering: boolean;
-  status: ProviderStatus | null;
+  // undefined until the first status check answers, null when the server can't be reached.
+  status: ProviderStatus | null | undefined;
   steps: StepEvent[];
   findings: Finding[];
   usage: Usage[];
@@ -60,7 +61,7 @@ export const useStore = create<State>((set) => ({
   domainOdds: null,
   chatting: false,
   recovering: false,
-  status: null,
+  status: undefined,
   steps: [],
   findings: [],
   usage: [],
