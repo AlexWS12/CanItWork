@@ -272,6 +272,24 @@ const CASES: Case[] = [
     checks: [noMcu, ['no resistor (as asked)', (s) => !parts(s).some((p) => p.type === 'resistor')]],
     stressed: true,
   },
+  {
+    id: 'e3-opamp',
+    domain: 'electronics',
+    prompt: 'A non-inverting amplifier with an LM358 and a gain of 11, fed from a potentiometer',
+    checks: [noMcu, ['op-amp stage', (s) => parts(s).some((p: any) => p.custom?.amplifiers?.length)], ['pot', has(/pot/)]],
+  },
+  {
+    id: 'e3-zener',
+    domain: 'electronics',
+    prompt: 'A 5.1V Zener regulator powered from a 9V battery driving an LED',
+    checks: [noMcu, ['zener', (s) => parts(s).some((p: any) => p.zener)]],
+  },
+  {
+    id: 'e3-buffer',
+    domain: 'electronics',
+    prompt: 'An op-amp voltage follower buffering a light sensor divider into an LED bar of three comparators',
+    checks: [noMcu, ['ldr', has(/ldr/)], ['three leds', (s) => count(/led/)(s) >= 3]],
+  },
   // Software
   {
     id: 's-cache',
