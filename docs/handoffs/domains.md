@@ -42,6 +42,29 @@ The three domains:
   - **Simulator:** `planner.ts` routes robots with space-time A*. Score is packages delivered.
   - **View:** `apps/web/src/domains/warehouse/` (`Warehouse.tsx`, `Facility.tsx`, `Actors.tsx`, `palette.ts`).
 
+### Flow-network domains (branch `nickolas/new-domains`)
+
+Seven domains share one engine, so each is mostly configuration:
+
+| Domain | Folder | Mode | Score |
+|---|---|---|---|
+| Power grids | `power/` | demand, lines trip | % of demand served |
+| Water networks | `water/` | demand | % of demand supplied |
+| Supply chains | `supply/` | demand, shipping delays | % of store demand filled |
+| Hospitals | `hospital/` | flow | % of patients treated |
+| Factory lines | `factory/` | flow | % of planned output |
+| Airports | `airport/` | flow | % of flights turned around |
+| Call centres | `callcenter/` | flow | % of calls answered |
+
+- **Engine** (`network/engine.ts`, `NetRun`): sources, stages and sinks with capacity, units (`count`), storage (`buffer`), link weights, ratings and delays.
+  - **Demand mode** works each stage's need back from the end points, splits it over live feeds by rating and how well each fed last tick, and dispatches sources to match. A line at its rating while its area is short trips after three ticks, so overloads cascade.
+  - **Flow mode** pushes arrivals through. Work a full step refuses waits at the node it finished at, bound for that step (ER boarding), and still occupies capacity there. Arrivals with nowhere to wait are lost (diverted, abandoned).
+- **Factory** (`network/domain.ts`, `networkDomain`): builds a whole `Domain` from kinds, wording and a template: spec docs, validator, Red Team claims, recoveries and variants.
+- **Shared incidents and patches:** `node_down`, `node_slow`, `link_down`, `surge`, `recover`; `scale`, `restore`, `add_link`, `restore_link`, `set_buffer`, `shed`.
+- **View:** one scene, `apps/web/src/domains/network/Network.tsx`, with per-domain shapes and colours in `styles.ts`.
+- **Adding another:** a folder with one `networkDomain({...})` call, a line in `domains/index.ts`, a style entry in `styles.ts`, a `network` entry in `apps/web/src/domains/index.tsx`, and the id in `DomainId`.
+- **Tests:** `network.test.ts` (validator, conservation of flow, cascades, held work, every patch), `edge-cases.test.ts` (every domain through every failure, fix and variant, bad inputs, long replays, a healthy start) and `apps/server/test/routing.test.ts` (each preset routes to its own domain).
+
 Tests:
 
 - `packages/core/test/software.test.ts` and `database.test.ts` cover those domains. `contract.test.ts` runs automatically for every registered domain, new ones included.

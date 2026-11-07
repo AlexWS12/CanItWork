@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod';
 import { z } from 'zod';
 
-export type DomainId = 'warehouse' | 'electronics' | 'software' | 'database';
+export type DomainId = 'warehouse' | 'electronics' | 'software' | 'database' | 'power' | 'water' | 'supply' | 'hospital' | 'factory' | 'airport' | 'callcenter';
 
 export interface Issue {
   severity: 'error' | 'warning';
