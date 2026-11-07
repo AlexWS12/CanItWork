@@ -1,8 +1,8 @@
 # Overnight report, Nov 7–8
 
-All work is on the local branch `alex/circuits-beyond-arduino`: 27 commits, 45 files. **Nothing is pushed and nothing is merged.** `main` and Nickolas's PRs are untouched.
+All work is on the local branch `alex/circuits-beyond-arduino`: about 30 commits. The full list is in `git log main..alex/circuits-beyond-arduino`. **Nothing is pushed and nothing is merged.** `main` and Nickolas's PRs are untouched.
 
-Checks: 179 tests pass, typecheck and Prettier are clean, and the web production build passes.
+Checks: 182 tests pass, typecheck and Prettier are clean, and the web production build passes and is served correctly by the API server (the same setup the container runs).
 
 ## Where it started
 
@@ -50,6 +50,11 @@ The agent trace says it outright:
 - **Build tab:** a parts list plus numbered steps naming exact holes ("pin 1 sits in f3", "R2 from d5 to the top − rail"), with Copy and Markdown download.
 - **Share:** copies a link of about 2 KB that replays the run exactly, recomputes its SHA-256 provenance hash and says whether it matches. An edited link is reported.
 - **Fixes:** the software camera cropped long chains, and the database and electronics suggestions named things that weren't in the design.
+- I checked this with real clicks in the browser: clicking two breadboard switches (A=2, B=2) lit only the 4s LED.
+
+**Ready to deploy**
+- **Rate limit:** `RATE_LIMIT_PER_HOUR` caps AI builds, chats and recoveries per visitor, so a public URL can't drain the Gemini or Swarms credits. Cached example prompts are free and never count. Over the limit, a visitor gets a friendly refusal pointing to the examples. I tested it on the real server.
+- **Dockerfile and [`deploy/README.md`](../../deploy/README.md):** Vultr instance, Docker, HTTPS through Caddy, and the env settings to make before sharing the URL. Docker isn't installed on this machine, so I haven't tried building the image itself.
 
 ## Scores (live Gemini, strict rubric: a design shipped with any check still failing counts as a fail)
 
@@ -70,7 +75,7 @@ Fixes made after those runs that haven't been re-run live yet:
 
 ## Quota
 
-**Gemini** used about 490 calls on the free-tier key today, about $0.33 at list price and $0 actual. The free tier allows `gemini-3.5-flash` only **20 requests a day**, which explains why flash-lite is the default Architect. The eval stops at 500 calls a day (`EVAL_DAILY_CAP`), so the rest of today's quota was left alone. Live runs stopped once the cap was reached.
+**Gemini** used 491 calls on the free-tier key today, about $0.33 at list price and $0 actual. The free tier allows `gemini-3.5-flash` only **20 requests a day**, which explains why flash-lite is the default Architect. The eval stops at 500 calls a day (`EVAL_DAILY_CAP`), so the rest of today's quota was left alone. Live runs stopped once the cap was reached. One slip afterwards: testing the rate limit sent one uncached prompt to the real server, which cost 1 Interpreter call (490 to 491) before I stopped it. After that I only sent cached prompts to the server.
 
 **Swarms:** $0. No key was set.
 
@@ -91,8 +96,9 @@ See [`docs/reviews/pr16-pr17-live-eval.md`](../reviews/pr16-pr17-live-eval.md).
 2. **Merge #16**, which looks clean.
 3. **Apply the patch to #17**, then merge it.
 4. **Re-run the strict eval** once the free-tier quota resets at midnight Pacific: `npm run eval:suite -w @tv/server -- electronics`. It stops at the daily cap by itself.
-5. Turn on **`DESIGN_COUNCIL=on`** for the demo only if the Swarms balance allows it. Each build then costs one Swarms run.
-6. `README.md` belongs to the Ship lane in the team plan. I updated it on this branch, so whoever owns it should review it.
+5. **Deploying:** set `RATE_LIMIT_PER_HOUR` before sharing the URL. See `deploy/README.md`.
+6. Turn on **`DESIGN_COUNCIL=on`** for the demo only if the Swarms balance allows it. Each build then costs one Swarms run.
+7. `README.md` belongs to the Ship lane in the team plan. I updated it on this branch, so whoever owns it should review it.
 
 ## Suggested demo flow
 
