@@ -63,6 +63,7 @@ export const VIEWS: Record<DomainId, View> = {
     },
   },
   power: network,
+  queues: network,
   water: network,
   supply: network,
   hospital: network,
