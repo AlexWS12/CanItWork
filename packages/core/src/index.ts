@@ -11,3 +11,4 @@ export { SystemRun, edgeKey, topoOrder } from './domains/software/system';
 export type { SystemNode, SystemSpec } from './domains/software/schema';
 export { SchemaRun, isIndexed } from './domains/database/engine';
 export type { DatabaseSpec, Table } from './domains/database/schema';
+export { NetRun, linkKey, netOrder, type NetSpec } from './domains/network';
