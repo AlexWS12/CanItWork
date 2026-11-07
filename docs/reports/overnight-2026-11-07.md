@@ -2,7 +2,7 @@
 
 All work is on the local branch `alex/circuits-beyond-arduino`: about 30 commits. The full list is in `git log main..alex/circuits-beyond-arduino`. **Nothing is pushed and nothing is merged.** `main` and Nickolas's PRs are untouched.
 
-Checks: 188 tests pass, typecheck and Prettier are clean, and the web production build passes and is served correctly by the API server (the same setup the container runs).
+Checks: 191 tests pass, typecheck and Prettier are clean, and the web production build passes and is served correctly by the API server (the same setup the container runs).
 
 ## Where it started
 
@@ -59,6 +59,20 @@ The agent trace says it outright:
 **Ready to deploy**
 - **Rate limit:** `RATE_LIMIT_PER_HOUR` caps AI builds, chats and recoveries per visitor, so a public URL can't drain the Gemini or Swarms credits. Cached example prompts are free and never count. Over the limit, a visitor gets a friendly refusal pointing to the examples. I tested it on the real server.
 - **Dockerfile and [`deploy/README.md`](../../deploy/README.md):** Vultr instance, Docker, HTTPS through Caddy, and the env settings to make before sharing the URL. Docker isn't installed on this machine, so I haven't tried building the image itself.
+
+## Self-review
+
+A high-effort code review of this branch found 10 issues, all fixed:
+- **The rate limit could be bypassed** by forging `X-Forwarded-For`. It now trusts that header only behind a proxy (`TRUST_PROXY=1`), and only the address the proxy appended.
+- **A crafted share link could freeze the page.** Replays are now capped at 20,000 ticks and 2,000 events.
+- **The proof step overstated how many input settings were checked.** It now reports the number the validator actually ran.
+- **A stale cached design** would have been repaired and then refused. It is now checked before use and handed to the Architect if it no longer passes.
+- **Builds served from a bad cache entry** slipped past the rate limit uncounted. Only prompts the cache can really serve are exempt now.
+- **"New system" left the `#run=` link in the URL**, so a reload brought the old run back.
+- **Full truth tables were forced** on circuits whose inputs are independent. They are now required only where logic chips combine inputs.
+- **The drift check ignored** where drift and the pull toward ambient balance.
+- **Cache files were re-parsed on every lookup.**
+- **Three copies of the net-finding code** are now one.
 
 ## Scores (live Gemini, strict rubric: a design shipped with any check still failing counts as a fail)
 
