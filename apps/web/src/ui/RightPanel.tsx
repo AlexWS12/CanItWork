@@ -5,6 +5,7 @@ import './RightPanel.css';
 
 const ENGINE_LABEL: Record<Engine, string> = {
   gemini: 'Gemini',
+  jev: 'Jev',
   swarms: 'Swarms',
   simulator: 'Simulator',
   rules: 'Local rules',

@@ -104,6 +104,11 @@
   border-color: #8ab4ff66;
 }
 
+.tag[data-engine='jev'] {
+  color: #7ee0a1;
+  border-color: #7ee0a166;
+}
+
 .tag[data-engine='swarms'] {
   color: #c9a0ff;
   border-color: #c9a0ff66;

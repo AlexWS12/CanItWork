@@ -9,6 +9,7 @@ export function StatusBar() {
   const chips: Array<[string, boolean, string, KeyCheck | undefined]> = status
     ? [
         ['Gemini', status.gemini !== 'off', status.gemini, status.checks?.gemini],
+        ['Jev', status.typesafe, status.typesafe ? 'TypeSafe' : 'off', status.checks?.typesafe],
         ['Swarms', status.swarms, status.swarms ? 'hosted' : 'off', status.checks?.swarms],
         ['Prune', status.prune, status.prune ? 'gateway' : 'off', status.checks?.prune],
       ]
