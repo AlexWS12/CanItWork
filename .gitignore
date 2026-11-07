@@ -6,3 +6,5 @@ dist
 *.log
 .DS_Store
 apps/server/.spend/
+apps/web/public/dev-envs.json
+.claude/launch.json
