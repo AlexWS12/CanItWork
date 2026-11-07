@@ -1,6 +1,6 @@
 import { Grid, Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { pinsOf, sensorOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
+import { netsOf, pinsOf, sensorOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
 import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
@@ -549,18 +549,6 @@ const toggleInput = (part: Part) => {
   }
 };
 
-function netRoots(spec: CircuitSpec) {
-  const parent = new Map<string, string>();
-  const find = (k: string): string => {
-    if (!parent.has(k)) parent.set(k, k);
-    let r = k;
-    while (parent.get(r) !== r) r = parent.get(r)!;
-    return r;
-  };
-  for (const w of spec.wires) parent.set(find(w.from), find(w.to));
-  return find;
-}
-
 function Lead({ a, b, color }: { a: THREE.Vector3; b: THREE.Vector3; color: string }) {
   const geometry = useMemo(() => {
     const mid = a.clone().lerp(b, 0.5);
@@ -596,7 +584,7 @@ function BreadboardScene({ spec }: { spec: CircuitSpec }) {
   );
   // The supply's leads clip onto the left end of each rail it feeds.
   const leads = useMemo(() => {
-    const find = netRoots(spec);
+    const { find } = netsOf(spec);
     const offKeys = spec.parts.filter((p) => layout.offBoard.has(p.id)).flatMap((p) => pinsOf(p).map((pin) => `${p.id}.${pin}`));
     return [...layout.supply.entries()].flatMap(([net, rail]) => {
       const key = offKeys.find((k) => find(k) === find(net));

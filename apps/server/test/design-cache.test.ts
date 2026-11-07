@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { StreamEvent } from '@tv/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { build } from '../src/agents';
-import { normalize } from '../src/design-cache';
+import { normalize, resetStale } from '../src/design-cache';
 import { DEFAULT_SPEC, isolateEnv, json, mockFetch, openAiReply } from './helpers';
 
 describe('verified design cache', () => {
@@ -18,6 +18,7 @@ describe('verified design cache', () => {
   afterEach(() => {
     delete process.env.DESIGN_CACHE;
     delete process.env.DESIGN_CACHE_FILE;
+    resetStale();
   });
 
   const collect = () => {
@@ -56,6 +57,37 @@ describe('verified design cache', () => {
     await build('A warehouse with six robots', emit);
     expect(calls.length).toBeGreaterThan(0);
     expect(events.some((e) => e.type === 'environment')).toBe(true);
+  });
+
+  it('sends a cached design that no longer passes the checks to the Architect, without spending repairs on it', async () => {
+    process.env.GEMINI_API_KEY = 'g';
+    // Parses fine, but the validator rejects it: a wire goes to a pin the LED doesn't have.
+    const broken = {
+      name: 'Old circuit',
+      summary: 's',
+      unmodelled: [],
+      spec: {
+        parts: [
+          { id: 'B1', type: 'battery', volts: 9 },
+          { id: 'D1', type: 'led' },
+        ],
+        wires: [{ from: 'B1.pos', to: 'D1.nope' }],
+        drive: [],
+      },
+    };
+    writeFileSync(file, JSON.stringify({ [normalize('A warehouse with six robots')]: { domain: 'electronics', draft: broken } }));
+    const features: string[] = [];
+    mockFetch((_url, init) => {
+      const body = String(init.body);
+      features.push(body.includes('You route requests') ? 'interpreter' : body.includes('previous design') ? 'repair' : 'architect');
+      return body.includes('You route requests') ? json(openAiReply(JSON.stringify({ domain: 'warehouse', reason: 'r' }))) : json(openAiReply(JSON.stringify(draft)));
+    });
+    const { events, emit } = collect();
+    await build('A warehouse with six robots', emit);
+    expect(events.some((e) => e.type === 'step' && e.engine === 'cache')).toBe(false);
+    expect(features).toEqual(['interpreter', 'architect']);
+    const environment = events.find((e) => e.type === 'environment');
+    expect(environment?.type === 'environment' && (environment.environment.spec as { robots: number }).robots).toBe(6);
   });
 
   it('is off in tests unless asked for, and off everywhere with DESIGN_CACHE=off', async () => {

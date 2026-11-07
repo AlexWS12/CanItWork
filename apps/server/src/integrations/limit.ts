@@ -8,10 +8,13 @@ const seen = new Map<string, number[]>();
 
 export const limitPerHour = () => Math.max(0, Number(process.env.RATE_LIMIT_PER_HOUR ?? 0) || 0);
 
+// Forwarding headers are written by whoever sends the request, so they only count behind a proxy we run (TRUST_PROXY=1).
+// The proxy appends the address it saw, so the last entry is the one it vouches for; earlier ones may be forged.
 export function visitorOf(c: Context) {
-  const forwarded = c.req.header('x-forwarded-for')?.split(',')[0]?.trim();
   const socket = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
-  return forwarded || c.req.header('x-real-ip') || socket || 'unknown';
+  if (process.env.TRUST_PROXY?.trim() !== '1') return socket || 'unknown';
+  const forwarded = c.req.header('x-forwarded-for')?.split(',').at(-1)?.trim();
+  return forwarded || socket || 'unknown';
 }
 
 // Records one request for this visitor if they are under the limit. Returns how long until they may try again, or 0 if allowed.

@@ -28,3 +28,23 @@ describe('per-visitor rate limit', () => {
     expect(limitMessage(5 * 60 * 1000)).toMatch(/20 AI builds per visitor an hour.*5 min.*examples/);
   });
 });
+
+describe('who counts as a visitor', () => {
+  const ctx = (headers: Record<string, string>, remoteAddress = '10.0.0.9') =>
+    ({ req: { header: (name: string) => headers[name.toLowerCase()] }, env: { incoming: { socket: { remoteAddress } } } }) as never;
+
+  afterEach(() => {
+    delete process.env.TRUST_PROXY;
+  });
+
+  it('ignores X-Forwarded-For unless the server is behind a trusted proxy, so it cannot be spoofed', async () => {
+    const { visitorOf } = await import('../src/integrations/limit');
+    expect(visitorOf(ctx({ 'x-forwarded-for': '1.2.3.4' }))).toBe('10.0.0.9');
+  });
+
+  it('behind a trusted proxy, uses the address the proxy appended, not one the client wrote', async () => {
+    const { visitorOf } = await import('../src/integrations/limit');
+    process.env.TRUST_PROXY = '1';
+    expect(visitorOf(ctx({ 'x-forwarded-for': 'forged, 203.0.113.7' }))).toBe('203.0.113.7');
+  });
+});

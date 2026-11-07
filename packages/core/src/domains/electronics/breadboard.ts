@@ -1,3 +1,4 @@
+import { netsOf } from './nets';
 import { pinsOf, type CircuitSpec, type Part } from './parts';
 
 // Where each part goes on a breadboard: chips straddle the centre channel, leads go into holes, and each wire of the spec becomes a jumper between holes.
@@ -35,23 +36,8 @@ export interface BoardLayout {
   railsUsed: Set<string>;
 }
 
-class Nets {
-  private parent = new Map<string, string>();
-  find(key: string): string {
-    if (!this.parent.has(key)) this.parent.set(key, key);
-    let root = key;
-    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
-    this.parent.set(key, root);
-    return root;
-  }
-  join(a: string, b: string) {
-    this.parent.set(this.find(a), this.find(b));
-  }
-}
-
 export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
-  const nets = new Nets();
-  for (const w of spec.wires) nets.join(w.from, w.to);
+  const nets = netsOf(spec);
   const supplyPart =
     spec.parts.find((p) => p.type === 'battery') ?? spec.parts.find((p) => p.type === 'arduino') ?? spec.parts.find((p) => p.custom?.sources.length && !STRADDLES(p));
   const supply = new Map<string, Rail>();

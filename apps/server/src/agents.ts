@@ -25,7 +25,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
-import { forget, lookup, remember } from './design-cache';
+import { forget, lookup, markStale, remember } from './design-cache';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -376,15 +376,32 @@ Use only ids that exist in the system.`,
   );
 }
 
-// A design that passed every check for this exact prompt before. It is checked again below like any other draft.
-async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft } | null> {
+// A cached design for this exact prompt that still parses and still passes every check, or null.
+// One that no longer does is marked stale, so this request and later ones go to the Architect instead of repairing it.
+export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } | null {
   const hit = lookup(prompt);
   if (!hit) return null;
-  const parsed = draftSchema(DOMAINS[hit.domain]).safeParse(hit.draft);
-  if (!parsed.success) return null;
-  const draft = parsed.data as Draft;
+  const domain = DOMAINS[hit.domain];
+  const parsed = draftSchema(domain).safeParse(hit.draft);
+  let passes = false;
+  try {
+    passes = parsed.success && !domain.validate(domain.compile(parsed.data.spec)).some((i) => i.severity === 'error' || i.repair);
+  } catch {
+    passes = false;
+  }
+  if (!passes) {
+    markStale(prompt);
+    return null;
+  }
+  return { id: hit.domain, draft: parsed.data as Draft };
+}
+
+async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft } | null> {
+  const served = servedFromCache(prompt);
+  if (!served) return null;
+  const { draft } = served;
   await step('architect', 'cache', 'Reusing a verified design', async (detail) => detail(`${draft.name}, which passed every check for this exact request before`));
-  return { id: hit.domain, draft };
+  return served;
 }
 
 export async function build(prompt: string, emit: Emit) {

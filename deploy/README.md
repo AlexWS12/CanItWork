@@ -43,7 +43,7 @@ echo 'your-domain.example { reverse_proxy localhost:8787 }' | sudo tee /etc/cadd
 sudo systemctl reload caddy
 ```
 
-Caddy sets `X-Forwarded-For`, which the rate limit uses to tell visitors apart.
+Behind Caddy, set `TRUST_PROXY=1` in `.env` and publish the container on localhost only (`-p 127.0.0.1:8787:8787`), so every request comes through Caddy. The rate limit then uses the address Caddy appends to `X-Forwarded-For`. Without `TRUST_PROXY`, it ignores that header, since a client could forge it, and uses the connection's own address.
 
 ## 4. Updating
 

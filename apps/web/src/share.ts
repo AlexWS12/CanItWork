@@ -12,6 +12,9 @@ export interface SharedRun {
 }
 
 const PREFIX = '#run=';
+// Replaying runs on the page's main thread, so a link can't ask for more than this; a crafted one could otherwise freeze the tab.
+export const MAX_SHARED_TICKS = 20_000;
+const MAX_SHARED_EVENTS = 2_000;
 
 const toBase64Url = (bytes: Uint8Array) => {
   let binary = '';
@@ -50,10 +53,13 @@ export async function decodeRun(hash = location.hash): Promise<SharedRun | null>
   try {
     const bytes = await squeeze(fromBase64Url(hash.slice(PREFIX.length)), 'decompress');
     const run = JSON.parse(new TextDecoder().decode(bytes)) as SharedRun;
-    return run.environment?.domain in DOMAINS ? run : null;
+    const sane = Number.isInteger(run.tick) && run.tick >= 0 && run.tick <= MAX_SHARED_TICKS && Array.isArray(run.events) && run.events.length <= MAX_SHARED_EVENTS;
+    return sane && run.environment?.domain in DOMAINS ? run : null;
   } catch {
     return null;
   }
 }
 
 export const shortHash = (hash: string) => hash.slice(0, 12);
+
+export const isSharedLink = (hash = location.hash) => hash.startsWith(PREFIX);

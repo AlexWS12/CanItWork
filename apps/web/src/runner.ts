@@ -1,4 +1,5 @@
 import { DOMAINS, type Domain, type Environment, type Incident, type Run, type TimedEvent } from '@tv/core';
+import { MAX_SHARED_TICKS } from './share';
 import { useStore } from './store';
 
 const PUBLISH_EVERY = 0.2;
@@ -38,7 +39,7 @@ class Runner {
     const run = this.run!;
     const queue = [...events].sort((a, b) => a.at - b.at);
     let next = 0;
-    for (let t = 0; t < tick; t++) {
+    for (let t = 0; t < Math.min(tick, MAX_SHARED_TICKS); t++) {
       while (next < queue.length && queue[next].at <= t) {
         const event = queue[next++];
         if ('incident' in event) run.inject(event.incident);

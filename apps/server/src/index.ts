@@ -6,8 +6,8 @@ import { config } from 'dotenv';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
-import { build, chat, describeFailure, recover, type Emit } from './agents';
-import { lookup, showcase } from './design-cache';
+import { build, chat, describeFailure, recover, servedFromCache, type Emit } from './agents';
+import { showcase } from './design-cache';
 import { limitMessage, take, visitorOf } from './integrations/limit';
 import { checkedStatus, providerStatus } from './status';
 
@@ -62,7 +62,7 @@ const limited = (c: Context, asRefusal = false) => {
 app.post('/api/build', async (c) => {
   const { prompt } = await c.req.json<{ prompt: string }>();
   // A verified-cache hit costs nothing, so it never counts against the allowance.
-  const blocked = lookup(prompt) ? null : limited(c, true);
+  const blocked = servedFromCache(prompt) ? null : limited(c, true);
   return blocked ?? agentStream((emit) => build(prompt, emit))(c);
 });
 

@@ -9,6 +9,7 @@ export { CircuitRun } from './domains/electronics/circuit';
 export { runTests } from './domains/electronics';
 export { LEADED, STRADDLES, dipRows, layoutBreadboard, type BoardLayout, type Spot } from './domains/electronics/breadboard';
 export { buildGuide, guideText, type BuildGuide } from './domains/electronics/guide';
+export { netsOf } from './domains/electronics/nets';
 export { PINS, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './domains/electronics/parts';
 export { SystemRun, edgeKey, topoOrder } from './domains/software/system';
 export type { SystemNode, SystemSpec } from './domains/software/schema';

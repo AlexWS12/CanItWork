@@ -2,6 +2,7 @@ import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
 import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
+import { netsOf } from './nets';
 import { compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
@@ -101,7 +102,8 @@ function checkWorld(spec: CircuitSpec): Issue[] {
     }
     // A quantity that leaves its target on its own, with nothing able to push it back, can't be held by any control loop.
     if (q.target && q.drift) {
-      const rest = q.toward ? q.toward.value : q.drift < 0 ? q.min : q.max;
+      // Drift and the pull toward ambient balance where drift + rate x (value - x) = 0.
+      const rest = Math.min(q.max, Math.max(q.min, q.toward ? q.toward.value + q.drift / q.toward.rate : q.drift < 0 ? q.min : q.max));
       const leaves = q.drift < 0 ? rest < q.target.min : rest > q.target.max;
       const counters = q.effects.some((e) => Math.sign(e.rate) === -Math.sign(q.drift!));
       if (leaves && !counters)
@@ -296,27 +298,6 @@ function explore(spec: CircuitSpec) {
 
 const TEST_TICKS = 24;
 
-// Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
-function netsOf(spec: CircuitSpec) {
-  const parent = new Map<string, string>();
-  const find = (k: string): string => {
-    if (!parent.has(k)) parent.set(k, k);
-    let r = k;
-    while (parent.get(r) !== r) r = parent.get(r)!;
-    parent.set(k, r);
-    return r;
-  };
-  for (const w of spec.wires) parent.set(find(w.from), find(w.to));
-  const members = new Map<string, string[]>();
-  for (const part of spec.parts)
-    for (const pin of pinsOf(part)) {
-      const key = `${part.id}.${pin}`;
-      const root = find(key);
-      members.set(root, [...(members.get(root) ?? []), key]);
-    }
-  return { find, members };
-}
-
 // Follows a wrong output back to the chip output driving it, with that output's logic and the level each of its inputs had, so a repair knows where the logic breaks.
 function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
   const { find, members } = netsOf(spec);
@@ -424,6 +405,9 @@ export function runTests(spec: CircuitSpec) {
   return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces };
 }
 
+const hasLogic = (spec: CircuitSpec) =>
+  spec.parts.some((p) => p.custom?.state || [...(p.custom?.drivers ?? []), ...(p.custom?.switches ?? [])].some((c) => !pinsOf(p).includes(c.when)));
+
 function checkTests(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
   const inputs = spec.parts.filter(isInput);
@@ -446,7 +430,8 @@ function checkTests(spec: CircuitSpec): Issue[] {
   }
   if (issues.length) return issues;
   const wanted = 2 ** inputs.length;
-  if (!spec.program?.length && inputs.length && inputs.length <= 4 && (spec.tests?.length ?? 0) < wanted) {
+  // Only logic can make outputs depend on combinations of inputs; separate buttons each lighting their own LED need a row per input, not all 16.
+  if (!spec.program?.length && hasLogic(spec) && inputs.length && inputs.length <= 4 && (spec.tests?.length ?? 0) < wanted) {
     issues.push({
       severity: 'warning',
       message: `There are ${inputs.length} inputs (${inputs.map((p) => p.id).join(', ')}) but only ${spec.tests?.length ?? 0} behaviour tests; list all ${wanted} combinations so every case is checked`,
@@ -881,8 +866,8 @@ A burned part stays dead until replace_part, and that includes the board (use it
     if (tests.total) facts.push(`${tests.passed} of ${tests.total} behaviour tests pass`);
     const targets = (spec.world ?? []).filter((q) => q.target).map((q) => q.label);
     if (targets.length) facts.push(`${targets.join(' and ')} held in range`);
-    const inputs = spec.parts.filter((p) => sensorOf(p)).length;
-    facts.push(`no part over its rating${inputs ? ` at any of ${Math.min(12, inputs * 2 + 1)} input settings` : ''}`);
+    const settings = scenarios(spec).length;
+    facts.push(`no part over its rating${settings > 1 ? ` at any of the ${settings} input settings checked` : ''}`);
     return `${facts.join(', ')}, checked in simulation`;
   },
   describe: (spec) =>

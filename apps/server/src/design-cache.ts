@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DOMAINS, type DomainId } from '@tv/core';
@@ -30,17 +30,34 @@ export const normalize = (prompt: string) =>
     .replace(/[.!?\s]+$/, '')
     .trim();
 
+// Parsed files stay in memory and are re-read only when they change on disk.
+const memo = new Map<string, { mtime: number; data: Record<string, CachedDesign> }>();
+
 function read(file: string): Record<string, CachedDesign> {
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as Record<string, CachedDesign>;
+    const mtime = statSync(file).mtimeMs;
+    const hit = memo.get(file);
+    if (hit && hit.mtime === mtime) return hit.data;
+    const data = JSON.parse(readFileSync(file, 'utf8')) as Record<string, CachedDesign>;
+    memo.set(file, { mtime, data });
+    return data;
   } catch {
     return {};
   }
 }
 
+// Entries that no longer pass the checks, seeds included, are skipped until the server restarts.
+const stale = new Set<string>();
+
+export function markStale(prompt: string) {
+  stale.add(normalize(prompt));
+  forget(prompt);
+}
+
 export function lookup(prompt: string): CachedDesign | null {
   if (!cacheOn()) return null;
   const key = normalize(prompt);
+  if (stale.has(key)) return null;
   const hit = read(runtimeFile())[key] ?? read(SEEDS)[key];
   return hit && hit.domain in DOMAINS ? hit : null;
 }
@@ -53,6 +70,7 @@ export function remember(prompt: string, design: CachedDesign) {
     all[normalize(prompt)] = design;
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify(all));
+    stale.delete(normalize(prompt));
   } catch {
     // Best effort: a read-only disk only costs the next build a model call.
   }
@@ -82,3 +100,7 @@ const SHOWCASE = [
 ];
 
 export const showcase = () => SHOWCASE.filter((prompt) => lookup(prompt));
+
+export function resetStale() {
+  stale.clear();
+}
