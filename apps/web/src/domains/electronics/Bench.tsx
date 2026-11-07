@@ -1,0 +1,350 @@
+import { Grid } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
+import { PINS, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
+import { useMemo, useRef } from 'react';
+import * as THREE from 'three';
+import { runner } from '../../runner';
+import { select, useStore } from '../../store';
+import { Tag, pick } from '../shared';
+
+const circuit = () => runner.run as CircuitRun | null;
+const LED_COLORS = { red: '#ff3b3b', yellow: '#ffd24a', green: '#3dff7a', blue: '#4aa3ff', white: '#ffffff' };
+const WIRE_COLORS = ['#f59e0b', '#22d3ee', '#a78bfa', '#34d399', '#f472b6', '#60a5fa'];
+const dummy = new THREE.Object3D();
+
+function layoutParts(spec: CircuitSpec) {
+  const positions = new Map<string, [number, number]>();
+  spec.parts.filter((p) => p.type === 'arduino').forEach((p, i) => positions.set(p.id, [-9.5, i * 7]));
+  const others = spec.parts.filter((p) => p.type !== 'arduino');
+  const columns = Math.max(3, Math.ceil(Math.sqrt(others.length * 1.4)));
+  others.forEach((p, i) => positions.set(p.id, [-3 + (i % columns) * 4.4, -5 + Math.floor(i / columns) * 3.6]));
+  return positions;
+}
+
+export function benchExtent(spec: CircuitSpec) {
+  const points = [...layoutParts(spec).values()];
+  const xs = points.map(([x]) => x);
+  const zs = points.map(([, z]) => z);
+  const minX = Math.min(...xs) - 4;
+  const maxX = Math.max(...xs) + 2;
+  const minZ = Math.min(...zs) - 3;
+  const maxZ = Math.max(...zs) + 3;
+  return { width: maxX - minX, depth: maxZ - minZ, centerX: (minX + maxX) / 2, centerZ: (minZ + maxZ) / 2 };
+}
+
+function pinPosition(part: Part, pin: string, [x, z]: [number, number]) {
+  const pins = PINS[part.type];
+  const i = Math.max(0, pins.indexOf(pin));
+  switch (part.type) {
+    case 'arduino': {
+      if (/^D\d+$/.test(pin)) return new THREE.Vector3(x - 2.9 + (Number(pin.slice(1)) - 2) * 0.52, 0.36, z - 2.45);
+      const lower = ['5V', '3V3', 'GND', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5'].indexOf(pin);
+      return new THREE.Vector3(x - 2.9 + lower * 0.62, 0.36, z + 2.45);
+    }
+    case 'motor_driver':
+      return new THREE.Vector3(x + (i < 7 ? -1.35 : 1.35), 0.32, z - 1.2 + (i < 7 ? i : i - 7) * 0.38);
+    case 'ultrasonic':
+      return new THREE.Vector3(x - 0.54 + i * 0.36, 0.3, z + 0.75);
+    default:
+      return new THREE.Vector3(x + (i === 0 ? -1 : 1), 0.2, z);
+  }
+}
+
+function wireColor(from: string, to: string, index: number) {
+  if (/\.(GND|neg)$/.test(from) || /\.(GND|neg)$/.test(to)) return '#64748b';
+  if (/\.(5V|3V3|VCC|VS|pos)$/.test(from) || /\.(5V|3V3|VCC|VS|pos)$/.test(to)) return '#ef4444';
+  return WIRE_COLORS[index % WIRE_COLORS.length];
+}
+
+function Board() {
+  return (
+    <group>
+      <mesh position={[0, 0.16, 0]} castShadow receiveShadow>
+        <boxGeometry args={[7.2, 0.14, 5.2]} />
+        <meshStandardMaterial color="#0c6a78" roughness={0.5} metalness={0.3} />
+      </mesh>
+      <mesh position={[-3.1, 0.42, 1]} castShadow>
+        <boxGeometry args={[1.6, 0.5, 1.4]} />
+        <meshStandardMaterial color="#b6c0cc" metalness={0.8} roughness={0.3} />
+      </mesh>
+      <mesh position={[0.9, 0.3, 0.2]} castShadow>
+        <boxGeometry args={[3, 0.16, 0.8]} />
+        <meshStandardMaterial color="#14171f" roughness={0.6} />
+      </mesh>
+      {[-2.45, 2.45].map((z) => (
+        <mesh key={z} position={[0, 0.3, z]}>
+          <boxGeometry args={[6.4, 0.16, 0.2]} />
+          <meshStandardMaterial color="#14171f" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Led({ part }: { part: Part }) {
+  const material = useRef<THREE.MeshStandardMaterial>(null!);
+  const color = LED_COLORS[part.color ?? 'red'];
+  useFrame(() => {
+    const run = circuit();
+    const amps = run?.readings.get(part.id)?.amps ?? 0;
+    const dead = run?.burned.has(part.id);
+    material.current.emissiveIntensity = dead ? 0 : Math.min(7, amps * 500);
+    material.current.color.set(dead ? '#111' : color);
+  });
+  return (
+    <group>
+      <mesh position={[0, 0.34, 0]} castShadow>
+        <sphereGeometry args={[0.36, 24, 16]} />
+        <meshStandardMaterial ref={material} color={color} emissive={color} roughness={0.25} transparent opacity={0.92} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 0.12, 0]}>
+        <boxGeometry args={[2, 0.05, 0.08]} />
+        <meshStandardMaterial color="#c8d0da" metalness={0.8} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
+function Resistor({ part }: { part: Part }) {
+  const material = useRef<THREE.MeshStandardMaterial>(null!);
+  useFrame(() => {
+    const run = circuit();
+    const load = run?.readings.get(part.id)?.load ?? 0;
+    material.current.color.set(run?.burned.has(part.id) ? '#1a1a1a' : load > 1 ? '#c2410c' : '#d6b98a');
+  });
+  return (
+    <group>
+      <mesh position={[0, 0.2, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <capsuleGeometry args={[0.2, 0.9, 6, 16]} />
+        <meshStandardMaterial ref={material} roughness={0.6} />
+      </mesh>
+      {[-0.26, 0, 0.26].map((x, i) => (
+        <mesh key={x} position={[x, 0.2, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.215, 0.215, 0.1, 16]} />
+          <meshStandardMaterial color={['#7c2d12', '#991b1b', '#1f2937'][i]} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.2, 0]}>
+        <boxGeometry args={[2, 0.05, 0.05]} />
+        <meshStandardMaterial color="#c8d0da" metalness={0.8} roughness={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
+function Motor({ part }: { part: Part }) {
+  const shaft = useRef<THREE.Group>(null!);
+  useFrame((_, dt) => {
+    const run = circuit();
+    const volts = run?.burned.has(part.id) ? 0 : (run?.readings.get(part.id)?.volts ?? 0);
+    shaft.current.rotation.z += dt * volts * 4 * (runner.running ? runner.speed : 0);
+  });
+  return (
+    <group>
+      <mesh position={[-0.2, 0.55, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <cylinderGeometry args={[0.55, 0.55, 1.5, 28]} />
+        <meshStandardMaterial color="#aeb8c4" metalness={0.8} roughness={0.28} />
+      </mesh>
+      <group ref={shaft} position={[0.75, 0.55, 0]}>
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.08, 0.08, 0.5, 12]} />
+          <meshStandardMaterial color="#e2e8f0" metalness={0.9} roughness={0.2} />
+        </mesh>
+        <mesh position={[0.25, 0, 0]}>
+          <boxGeometry args={[0.08, 1.3, 0.18]} />
+          <meshStandardMaterial color="#f59e0b" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function Driver() {
+  return (
+    <group>
+      <mesh position={[0, 0.14, 0]} castShadow>
+        <boxGeometry args={[2.8, 0.12, 2.8]} />
+        <meshStandardMaterial color="#9f1239" roughness={0.5} />
+      </mesh>
+      <mesh position={[0, 0.5, -0.3]} castShadow>
+        <boxGeometry args={[1.6, 0.6, 1]} />
+        <meshStandardMaterial color="#20262f" metalness={0.7} roughness={0.4} />
+      </mesh>
+    </group>
+  );
+}
+
+function Ultrasonic() {
+  return (
+    <group>
+      <mesh position={[0, 0.14, 0]} castShadow>
+        <boxGeometry args={[2.6, 0.1, 1.4]} />
+        <meshStandardMaterial color="#1d4ed8" roughness={0.5} />
+      </mesh>
+      {[-0.7, 0.7].map((x) => (
+        <mesh key={x} position={[x, 0.42, -0.1]} castShadow>
+          <cylinderGeometry args={[0.46, 0.46, 0.5, 28]} />
+          <meshStandardMaterial color="#cbd5e1" metalness={0.8} roughness={0.25} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function PartBody({ part }: { part: Part }) {
+  switch (part.type) {
+    case 'arduino':
+      return <Board />;
+    case 'led':
+      return <Led part={part} />;
+    case 'resistor':
+      return <Resistor part={part} />;
+    case 'motor':
+      return <Motor part={part} />;
+    case 'motor_driver':
+      return <Driver />;
+    case 'ultrasonic':
+      return <Ultrasonic />;
+    case 'battery':
+      return (
+        <mesh position={[0, 0.5, 0]} castShadow>
+          <boxGeometry args={[1.8, 1, 1.2]} />
+          <meshStandardMaterial color="#1f2937" roughness={0.45} />
+        </mesh>
+      );
+    case 'button':
+      return (
+        <group>
+          <mesh position={[0, 0.16, 0]} castShadow>
+            <boxGeometry args={[0.9, 0.3, 0.9]} />
+            <meshStandardMaterial color="#27303d" />
+          </mesh>
+          <mesh position={[0, 0.38, 0]}>
+            <cylinderGeometry args={[0.26, 0.26, 0.2, 20]} />
+            <meshStandardMaterial color="#e11d48" />
+          </mesh>
+        </group>
+      );
+    case 'buzzer':
+      return (
+        <mesh position={[0, 0.34, 0]} castShadow>
+          <cylinderGeometry args={[0.6, 0.6, 0.65, 28]} />
+          <meshStandardMaterial color="#14171f" roughness={0.4} />
+        </mesh>
+      );
+  }
+}
+
+function FaultRing({ part }: { part: Part }) {
+  const ring = useRef<THREE.Mesh>(null!);
+  const material = useRef<THREE.MeshBasicMaterial>(null!);
+  const size = part.type === 'arduino' ? 4.8 : part.type === 'motor_driver' ? 2.1 : 1.5;
+  useFrame(({ clock }) => {
+    const run = circuit();
+    const selected = useStore.getState().selected === part.id;
+    const broken = Boolean(run?.burned.has(part.id) || run?.shorted.has(part.id));
+    const stressed = (run?.readings.get(part.id)?.load ?? 0) > 1;
+    ring.current.visible = broken || stressed || selected;
+    material.current.color.set(broken ? '#ff3b4e' : stressed ? '#ffb347' : '#22d3ee');
+    ring.current.scale.setScalar(broken ? 1 + ((clock.elapsedTime * 0.8) % 1) * 0.35 : 1);
+  });
+  return (
+    <mesh ref={ring} position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+      <ringGeometry args={[size * 0.9, size, 44]} />
+      <meshBasicMaterial ref={material} toneMapped={false} transparent opacity={0.9} />
+    </mesh>
+  );
+}
+
+function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, [number, number]> }) {
+  const dots = useRef<THREE.InstancedMesh>(null!);
+  const phase = useRef(0);
+  const DOTS = 4;
+
+  const curves = useMemo(() => {
+    const end = (key: string) => {
+      const [id, pin] = key.split('.');
+      const part = spec.parts.find((p) => p.id === id);
+      const at = positions.get(id);
+      return part && at ? pinPosition(part, pin, at) : new THREE.Vector3();
+    };
+    return spec.wires.map((wire, i) => {
+      const a = end(wire.from);
+      const b = end(wire.to);
+      const mid = a.clone().lerp(b, 0.5);
+      mid.y = 0.9 + a.distanceTo(b) * 0.16;
+      const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+      return { curve, color: wireColor(wire.from, wire.to, i), geometry: new THREE.TubeGeometry(curve, 28, 0.05, 6) };
+    });
+  }, [spec, positions]);
+
+  useFrame((_, dt) => {
+    const run = circuit();
+    if (!run) return;
+    if (runner.running) phase.current += dt * runner.speed;
+    let n = 0;
+    curves.forEach(({ curve }, i) => {
+      const amps = run.wireAmps[i] ?? 0;
+      if (Math.abs(amps) < 0.0005) return;
+      const speed = Math.min(1.4, 0.25 + Math.abs(amps) * 8) * Math.sign(amps);
+      for (let d = 0; d < DOTS; d++) {
+        const t = (((phase.current * speed + d / DOTS) % 1) + 1) % 1;
+        dummy.position.copy(curve.getPoint(t));
+        dummy.scale.setScalar(1);
+        dummy.updateMatrix();
+        dots.current.setMatrixAt(n++, dummy.matrix);
+      }
+    });
+    dots.current.count = n;
+    dots.current.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <group>
+      {curves.map(({ geometry, color }, i) => (
+        <mesh key={i} geometry={geometry} onClick={pick(`W${i + 1}`)} castShadow>
+          <meshStandardMaterial color={color} roughness={0.45} />
+        </mesh>
+      ))}
+      <instancedMesh ref={dots} args={[undefined, undefined, spec.wires.length * DOTS]} frustumCulled={false}>
+        <sphereGeometry args={[0.09, 8, 8]} />
+        <meshBasicMaterial color="#fff7d6" toneMapped={false} />
+      </instancedMesh>
+    </group>
+  );
+}
+
+const describePart = (part: Part) => {
+  if (part.type === 'resistor') return `${part.id} ${part.ohms ?? 1000} Ω`;
+  if (part.type === 'battery') return `${part.id} ${part.volts ?? 9} V`;
+  return part.id;
+};
+
+export function Bench() {
+  useStore((s) => s.structure);
+  const run = circuit();
+  const spec = useMemo(() => (run ? ({ ...run.spec } as CircuitSpec) : null), [run, useStore.getState().structure]);
+  const positions = useMemo(() => (spec ? layoutParts(spec) : new Map<string, [number, number]>()), [spec]);
+  if (!spec) return null;
+  const { width, depth, centerX, centerZ } = benchExtent(spec);
+  return (
+    <group position={[-centerX, 0, -centerZ]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centerX, -0.01, centerZ]} receiveShadow onClick={() => select(null)}>
+        <planeGeometry args={[width + 4, depth + 4]} />
+        <meshStandardMaterial color="#1b2636" roughness={0.75} metalness={0.15} />
+      </mesh>
+      <Grid position={[centerX, 0, centerZ]} args={[width + 4, depth + 4]} cellSize={0.5} cellThickness={0.4} cellColor="#2a3a52" sectionSize={2.5} sectionThickness={0.8} sectionColor="#3a4e70" fadeDistance={90} />
+      {spec.parts.map((part) => {
+        const at = positions.get(part.id) ?? [0, 0];
+        return (
+          <group key={part.id} position={[at[0], 0, at[1]]} onClick={pick(part.id)}>
+            <PartBody part={part} />
+            <FaultRing part={part} />
+            <Tag text={describePart(part)} tint={part.type === 'arduino' ? '#22d3ee' : '#ffb347'} y={part.type === 'arduino' ? 1.4 : 1.35} />
+          </group>
+        );
+      })}
+      <Wires spec={spec} positions={positions} />
+    </group>
+  );
+}
