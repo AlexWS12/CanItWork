@@ -127,7 +127,7 @@ async function send(route: Route, model: string, messages: Array<{ role: string;
     method: 'POST',
     headers,
     body: JSON.stringify({ model, messages, temperature: 0.4, response_format: { type: 'json_object' } }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(90_000),
   });
   const shield = res.headers.get('x-prune-shield-code');
   if (shield) throw new ShieldBlock(shield);
@@ -189,14 +189,27 @@ function extractJson(text: string): unknown {
 
 export { extractJson };
 
-export async function chatJson<S extends z.ZodTypeAny>(opts: {
+interface ChatOptions<S extends z.ZodTypeAny> {
   system: string;
   user: string;
   schema: S;
   feature: string;
   model?: string;
   onUsage: (usage: Usage) => void;
-}): Promise<z.infer<S>> {
+}
+
+// A stronger model can be asked for, such as the Architect's; when it is busy or failing, the default model answers instead of the build failing.
+export async function chatJson<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z.infer<S>> {
+  try {
+    return await chatOnce(opts);
+  } catch (error) {
+    if (error instanceof ShieldBlock || error instanceof NoCredentials || !opts.model || opts.model === geminiModel()) throw error;
+    console.warn(`[llm] ${opts.model} failed, falling back to ${geminiModel()}`);
+    return chatOnce({ ...opts, model: geminiModel() });
+  }
+}
+
+async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z.infer<S>> {
   const available = routes();
   if (!available.length) throw new NoCredentials('Gemini has no credentials');
   const model = opts.model ?? geminiModel();
