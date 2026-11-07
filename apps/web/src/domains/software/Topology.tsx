@@ -29,6 +29,14 @@ function layout(spec: SystemSpec) {
   return positions;
 }
 
+// How much floor the layout covers, so the camera can frame wide chains and tall layers without the side panels cutting them off.
+export function topologyExtent(spec: SystemSpec) {
+  const points = [...layout(spec).values()];
+  const xs = points.map((p) => p.x);
+  const zs = points.map((p) => p.z);
+  return { width: Math.max(0, ...xs) - Math.min(0, ...xs), depth: Math.max(0, ...zs) - Math.min(0, ...zs) };
+}
+
 const healthColor = (down: boolean, utilization: number, success: number) => {
   if (down) return '#ff3b4e';
   if (success < 0.9 || utilization > 1) return '#ff7a45';

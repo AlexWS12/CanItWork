@@ -2,7 +2,7 @@ import { DOMAINS, type CircuitSpec, type DatabaseSpec, type DomainId, type Envir
 import type { ComponentType } from 'react';
 import { Schema, schemaExtent } from './database/Schema';
 import { Bench, benchExtent } from './electronics/Bench';
-import { Topology } from './software/Topology';
+import { Topology, topologyExtent } from './software/Topology';
 import { Warehouse } from './warehouse/Warehouse';
 
 interface View {
@@ -31,8 +31,10 @@ export const VIEWS: Record<DomainId, View> = {
   software: {
     Scene: Topology,
     camera(environment) {
-      const nodes = (environment.spec as SystemSpec).nodes.length;
-      return tilted(46 + nodes * 1.8);
+      const spec = environment.spec as SystemSpec;
+      const { width, depth } = topologyExtent(spec);
+      // The side panels leave about half the screen clear, so frame the layout's full width and depth inside it.
+      return tilted(Math.max(46 + spec.nodes.length * 1.8, (width + 8) * 2, (depth + 6) * 2.4));
     },
   },
   database: {
