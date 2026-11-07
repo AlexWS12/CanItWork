@@ -213,3 +213,51 @@ describe('7-segment display', () => {
     expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
   });
 });
+
+describe('boards on USB', () => {
+  // A Pico-style board: its 3V3 rail comes from VBUS, and a servo is powered from VBUS.
+  const board = (battery: boolean): CircuitSpec => ({
+    parts: [
+      {
+        id: 'P1',
+        type: 'custom',
+        package: 'module',
+        custom: {
+          label: 'Raspberry Pi Pico',
+          pins: ['VBUS', 'VSYS', '3V3', 'GND', 'GP0'],
+          paths: [],
+          switches: [],
+          drivers: [],
+          sources: [{ pos: '3V3', neg: 'GND', volts: 3.3, ohms: 1, from: 'VBUS', dropout: 0.3 }],
+          gpio: ['GP0'],
+          gpioVolts: 3.3,
+          output: false,
+          visual: [],
+        },
+      },
+      { id: 'R1', type: 'resistor', ohms: 100 },
+      ...(battery ? [{ id: 'B1', type: 'battery' as const, volts: 3 }] : []),
+    ],
+    wires: [
+      { from: 'P1.VBUS', to: 'R1.a' },
+      { from: 'R1.b', to: 'P1.GND' },
+      ...(battery
+        ? [
+            { from: 'B1.pos', to: 'P1.VBUS' },
+            { from: 'B1.neg', to: 'P1.GND' },
+          ]
+        : []),
+    ],
+    drive: [],
+  });
+
+  it('puts USB 5 V on the regulator input pin for loads wired to it', () => {
+    expect(settle(board(false)).voltsBetween('P1.VBUS', 'P1.GND')).toBeCloseTo(5, 0);
+  });
+
+  it('runs from a real supply when one feeds that pin, and browns out when it is too weak', () => {
+    const run = settle(board(true));
+    expect(run.voltsBetween('P1.VBUS', 'P1.GND')).toBeLessThan(3.2);
+    expect(run.boardOn.get('P1')).toBe(false);
+  });
+});

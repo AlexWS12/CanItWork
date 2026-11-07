@@ -89,6 +89,8 @@ export async function routeChecks(): Promise<Partial<Record<Route['via'], KeyChe
 }
 
 export const architectModel = () => env().ARCHITECT_MODEL?.trim() || geminiModel();
+// Repairs are the hard cases (a miswired adder), so they can use a stronger model than first drafts; it falls back like the Architect's.
+export const repairModel = () => env().ARCHITECT_REPAIR_MODEL?.trim() || architectModel();
 
 function num(value: unknown): number | null {
   const n = typeof value === 'string' ? Number(value) : value;

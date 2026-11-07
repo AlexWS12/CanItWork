@@ -19,6 +19,7 @@ import {
   type CustomPart,
   type Part,
 } from './parts';
+import { netsOf } from './nets';
 import { compile, evaluate, type Expr, type Node } from './sketch';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
@@ -45,6 +46,7 @@ const BURN_TICKS = 6;
 const SERIES_STEP = 5;
 const LED_RESISTANCE = 12;
 const SEGMENT_VOLTS = 2;
+const USB_VOLTS = 5;
 const DIODE_RESISTANCE = 0.3;
 const PIN_RESISTANCE = 25;
 const BROWNOUT_VOLTS = 4.3;
@@ -498,12 +500,32 @@ export class CircuitRun implements Run {
     });
   }
 
+  // A board runs from USB, like an Arduino with nothing on VIN, unless a real supply feeds its regulator input.
+  // Wiring a load to that input (a servo on a Pico's VBUS) doesn't count: on USB the input pin is itself a live 5 V output.
+  private onUsb(part: Part, source: Source) {
+    if (!part.custom?.gpio.length || part.usb === false || !source.from) return false;
+    const { find } = this.nets();
+    const net = find(`${part.id}.${source.from}`);
+    const fed = this.spec.parts.some((p) => {
+      if (p.id === part.id) return false;
+      const supplies = p.type === 'battery' ? ['pos'] : p.type === 'arduino' ? ['5V', 'VIN', '3V3'] : (p.custom?.sources.map((s) => s.pos) ?? []);
+      return supplies.some((pin) => find(`${p.id}.${pin}`) === net);
+    });
+    return !fed;
+  }
+
+  private netCache: { version: number; nets: ReturnType<typeof netsOf> } | null = null;
+  private nets() {
+    if (this.netCache?.version !== this.version)
+      this.netCache = { version: this.version, nets: netsOf({ ...this.spec, wires: this.spec.wires.filter((_, i) => !this.loose.has(i)) }) };
+    return this.netCache.nets;
+  }
+
   private sourceVolts(part: Part, source: Source) {
     const sag = this.sag.get(part.id);
     const limit = sag !== undefined ? Math.min(sag, source.volts) : source.volts;
     if (!source.from) return limit;
-    // A board whose regulator input isn't wired runs from USB, like an Arduino with nothing on VIN.
-    if (part.custom?.gpio.length && part.usb !== false && !this.wired.has(`${part.id}.${source.from}`)) return limit;
+    if (this.onUsb(part, source)) return limit;
     const input = this.volt(`${part.id}.${source.from}`) - this.volt(`${part.id}.${source.neg}`);
     return clamp(input - (source.dropout ?? 0), 0, limit);
   }
@@ -640,6 +662,8 @@ export class CircuitRun implements Run {
           for (const source of custom.sources) {
             const e = this.sourceVolts(part, source);
             if (e > 0.05) add(part.id, pin(source.pos), pin(source.neg), source.ohms, e);
+            // USB's own 5 V comes out of the regulator input pin (VBUS, 5V) for anything wired to it.
+            if (source.from && this.onUsb(part, source) && !this.burned.has(part.id)) add(part.id, pin(source.from), pin(source.neg), 0.3, USB_VOLTS);
           }
           const sensor = custom.sensor;
           if (sensor?.pin && custom.supply && this.isPowered(part)) {

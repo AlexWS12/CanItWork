@@ -24,7 +24,7 @@ import { choice, noul, type Questions } from '@typesafe-ai/sdk';
 import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
-import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
+import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
 import { forget, lookup, markStale, remember } from './design-cache';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
@@ -439,7 +439,7 @@ export async function build(prompt: string, emit: Emit) {
           detail(`${found.length > 1 ? `${found.length} problems, first: ` : ''}${found[0].length > 160 ? `${found[0].slice(0, 157)}...` : found[0]}`);
           return (await chatJson({
             feature: 'architect-repair',
-            model: architectModel(),
+            model: repairModel(),
             schema: draftSchema(domain),
             onUsage: onUsage(emit),
             system: architectPrompt(domain),
