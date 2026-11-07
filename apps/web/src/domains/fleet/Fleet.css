@@ -1,0 +1,39 @@
+.fleet-legend {
+  position: absolute;
+  left: calc(var(--panel-left-w, 300px) + var(--gutter, 16px) * 2);
+  bottom: 120px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text);
+}
+
+.fleet-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fleet-legend-row em {
+  color: var(--color-muted);
+  font-style: normal;
+  margin-left: auto;
+  padding-left: var(--space-2);
+}
+
+.fleet-legend-key {
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+.fleet-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}

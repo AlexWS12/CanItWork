@@ -136,7 +136,12 @@ function checkParts(spec: CircuitSpec): Issue[] {
     }
     const isPin = (name: string) => custom.pins.includes(name);
     const twice = custom.pins.filter((pin, i) => custom.pins.indexOf(pin) !== i);
-    if (twice.length) issues.push({ severity: 'error', message: `${part.id} lists pin ${[...new Set(twice)].join(', ')} more than once; every pin needs its own name (2Q and 2Qbar, not 2Q twice)`, target: part.id });
+    if (twice.length)
+      issues.push({
+        severity: 'error',
+        message: `${part.id} lists pin ${[...new Set(twice)].join(', ')} more than once; every pin needs its own name (2Q and 2Qbar, not 2Q twice)`,
+        target: part.id,
+      });
     const stateVars = new Set([...Object.keys(custom.state?.vars ?? {}), ...(custom.state?.rules ?? []).map((r) => r.set)]);
     const checkLogic = (expr: Expr, where: string) => {
       if (typeof expr === 'number') return;

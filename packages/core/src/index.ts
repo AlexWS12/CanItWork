@@ -6,6 +6,8 @@ export { WarehouseRun } from './domains/warehouse';
 export type { RobotState } from './domains/warehouse/sim';
 export type { World } from './domains/warehouse/schema';
 export { CircuitRun } from './domains/electronics/circuit';
+export { FleetRun, type FleetSpec } from './domains/fleet';
+export type { Unit as FleetUnit, Target as FleetTarget } from './domains/fleet/sim';
 export { runTests } from './domains/electronics';
 export { LEADED, STRADDLES, dipRows, layoutBreadboard, type BoardLayout, type Spot } from './domains/electronics/breadboard';
 export { buildGuide, guideText, type BuildGuide } from './domains/electronics/guide';
