@@ -205,6 +205,7 @@ export class CircuitRun implements Run {
   private dirty = true;
   private signature = '';
   private segmentsOn = new Set<string>();
+  private closedSwitches = new Set<string>();
   private ampState = new Map<string, 'linear' | 'high' | 'low'>();
   private chipVars = new Map<string, Map<string, number>>();
   private chipPrev = new Map<string, number>();
@@ -869,6 +870,7 @@ export class CircuitRun implements Run {
     }
 
     this.segmentsOn = new Set([...on].filter((key) => key.includes('.')));
+    this.closedSwitches = new Set([...logic].filter(([key, value]) => value && /\.switch\d+$/.test(key)).map(([key]) => key));
     for (const [key, index] of nodes) this.lastVolts.set(key, average[index] ?? 0);
     const at = (key: string) => average[node(key)] ?? 0;
     this.readings.clear();
@@ -982,6 +984,8 @@ export class CircuitRun implements Run {
       case 'custom': {
         const actuator = part.custom?.actuator;
         if (!this.isPowered(part)) return false;
+        // A relay or other switching part is on when its contacts are closed, not just because it has power.
+        if (!actuator && part.custom?.switches.length) return part.custom.switches.some((_, i) => this.closedSwitches.has(`${part.id}.switch${i}`));
         if (!actuator || actuator.quantity === 'angle') return true;
         if (actuator.quantity === 'text') return Boolean(this.texts.get(part.id));
         return ((this.outputs.get(part.id) ?? actuator.min) - actuator.min) / (actuator.max - actuator.min || 1) > 0.05;
