@@ -8,6 +8,8 @@ import type { StreamEvent } from '@tv/core';
 import { config } from 'dotenv';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// The eval measures design quality, so it leaves Swarms (Red Team, councils) off unless asked: set before .env loads, which never overrides it.
+if (process.env.EVAL_SWARMS !== 'on') process.env.SWARMS_API_KEY = '';
 config({ path: path.resolve(here, '../../../.env') });
 process.env.SPEND_RUN ??= `eval-${new Date().toISOString().slice(0, 16)}`;
 // The eval measures the Architect, so it never reuses a cached design.
