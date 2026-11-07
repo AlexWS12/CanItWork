@@ -4,7 +4,6 @@ import { create } from 'zustand';
 export interface Message {
   role: 'user' | 'app';
   text: string;
-  /** The step that produced an app message, when known */
   source?: { agent: AgentId; engine: Engine };
 }
 
@@ -14,7 +13,6 @@ export interface Telemetry {
   breakables: Breakable[];
   running: boolean;
   speed: number;
-  /** Recent samples per stat label, oldest first */
   statHistory: Record<string, number[]>;
 }
 
@@ -26,11 +24,8 @@ interface State {
   structure: number;
   refusal: Refusal | null;
   building: boolean;
-  /** The sentence being built, shown on the build screen */
   prompt: string;
-  /** Substrings of the prompt that name parts of the built environment */
   entities: string[];
-  /** Jev's per-domain probabilities from the Interpreter, when it ran */
   domainOdds: Partial<Record<DomainId, number>> | null;
   chatting: boolean;
   recovering: boolean;
