@@ -17,7 +17,7 @@ import {
   type CustomPart,
   type Part,
 } from './parts';
-import { compile, evaluate, type Expr } from './sketch';
+import { compile, evaluate, type Expr, type Node } from './sketch';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
 
@@ -186,6 +186,9 @@ export class CircuitRun implements Run {
   private peakAmps = 0;
   private dirty = true;
   private signature = '';
+  private exprs = new Map<string, Node>();
+  private chipVars = new Map<string, Map<string, number>>();
+  private chipPrev = new Map<string, number>();
 
   constructor(spec: CircuitSpec, seed: number, reference = false) {
     this.spec = structuredClone(spec);
@@ -199,12 +202,62 @@ export class CircuitRun implements Run {
       if (part.type === 'motor') this.speeds.set(part.id, 0);
     }
     for (const wire of this.spec.wires) this.wired.add(wire.from).add(wire.to);
+    this.resetChips();
     this.twin = reference ? null : new CircuitRun(spec, seed, true);
   }
 
   private resetPins(board?: string) {
     for (const key of [...this.pinStates.keys()]) if (!board || key.startsWith(`${board}.`)) this.pinStates.delete(key);
     for (const d of this.spec.drive) if (!board || d.pin.startsWith(`${board}.`)) this.pinStates.set(d.pin, { mode: d.mode, value: d.value, period: d.period });
+  }
+
+  private resetChips() {
+    for (const part of this.spec.parts) if (part.custom?.state) this.chipVars.set(part.id, new Map(Object.entries(part.custom.state.vars)));
+  }
+
+  private expr(source: string) {
+    let node = this.exprs.get(source);
+    if (!node) {
+      node = compile(source);
+      this.exprs.set(source, node);
+    }
+    return node;
+  }
+
+  // Names inside a chip's expression: a bare pin is its logic level (1 when at least aboveVolts over ref), v.PIN its voltage over ref, and anything else one of the chip's state variables.
+  private chipLookup(part: Part, at: (key: string) => number, ref: string, aboveVolts: number) {
+    const pins = new Set(pinsOf(part));
+    const vars = this.chipVars.get(part.id);
+    return (name: string) => {
+      if (vars?.has(name)) return vars.get(name)!;
+      if (name.startsWith('v.') && pins.has(name.slice(2))) return at(`${part.id}.${name.slice(2)}`) - at(`${part.id}.${ref}`);
+      if (pins.has(name)) return at(`${part.id}.${name}`) - at(`${part.id}.${ref}`) >= aboveVolts ? 1 : 0;
+      throw new Error(`${part.id} has no pin or state called ${name}`);
+    };
+  }
+
+  private controlled(part: Part, c: { when: string; ref: string; aboveVolts: number }, at: (key: string) => number) {
+    if (pinsOf(part).includes(c.when)) return at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts;
+    return Boolean(evaluate(this.expr(c.when), this.chipLookup(part, at, c.ref, c.aboveVolts)));
+  }
+
+  private stepChips() {
+    const at = (key: string) => this.volt(key);
+    for (const part of this.spec.parts) {
+      const state = part.custom?.state;
+      const vars = this.chipVars.get(part.id);
+      if (!state || !vars || this.burned.has(part.id)) continue;
+      const lookup = this.chipLookup(part, at, state.ref, state.aboveVolts);
+      for (const rule of state.rules) {
+        if (rule.edge) {
+          const key = `${part.id}.${rule.edge}`;
+          if (!(lookup(rule.edge) && !this.chipPrev.get(key))) continue;
+        }
+        if (rule.when && !evaluate(this.expr(rule.when), lookup)) continue;
+        vars.set(rule.set, typeof rule.to === 'number' ? rule.to : evaluate(this.expr(rule.to), lookup));
+      }
+      for (const rule of state.rules) if (rule.edge) this.chipPrev.set(`${part.id}.${rule.edge}`, lookup(rule.edge));
+    }
   }
 
   private part(id: string) {
@@ -229,7 +282,9 @@ export class CircuitRun implements Run {
   }
 
   private get dynamic() {
-    return this.spec.parts.some((p) => p.type === 'capacitor' || p.type === 'motor' || (p.type === 'arduino' && !this.usbPowered(p)) || p.custom?.sources.some((s) => s.from));
+    return this.spec.parts.some(
+      (p) => p.type === 'capacitor' || p.type === 'motor' || p.custom?.state || (p.type === 'arduino' && !this.usbPowered(p)) || p.custom?.sources.some((s) => s.from),
+    );
   }
 
   private get hasCapacitors() {
@@ -488,6 +543,7 @@ export class CircuitRun implements Run {
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), LED_RESISTANCE, FORWARD_VOLTS[part.color ?? 'red']);
           break;
         case 'button':
+        case 'switch':
           if ((this.faults.get(part.id) ?? this.values.get(part.id) ?? 0) >= 0.5) add(part.id, pin('a'), pin('b'), 0.05);
           break;
         case 'motor': {
@@ -592,6 +648,7 @@ export class CircuitRun implements Run {
   }
 
   private solve(h: number) {
+    this.stepChips();
     if (this.topology?.version !== this.version) this.topology = this.connect();
     const { size, node: nodes } = this.topology;
     this.wired = this.topology.wired;
@@ -629,8 +686,7 @@ export class CircuitRun implements Run {
               else on.delete(part.id);
             }
           }
-          const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) =>
-            update(key, at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts);
+          const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) => update(key, this.controlled(part, c, at));
           part.custom?.switches.forEach((sw, i) => control(`${part.id}.switch${i}`, sw));
           part.custom?.drivers.forEach((driver, i) => control(`${part.id}.driver${i}`, driver));
           if (part.type === 'motor_driver') {
@@ -1126,10 +1182,11 @@ export class CircuitRun implements Run {
     }
     if (reading) rows.push(['Voltage', volts(reading.volts)], ['Current', milli(reading.amps)], ['Rated', reading.rated], ['Load', `${Math.round(reading.load * 100)}%`]);
     const actions: Inspection['actions'] = [];
-    if (part.type === 'button' && !broken) {
+    if ((part.type === 'button' || part.type === 'switch') && !broken) {
       const pressed = (this.values.get(target) ?? 0) >= 0.5;
+      const words = part.type === 'switch' ? ['Turn off', 'Turn on'] : ['Release', 'Press'];
       actions.push(
-        { label: pressed ? 'Release' : 'Press', incident: { type: 'set_reading', target, value: pressed ? 0 : 1 }, destructive: false },
+        { label: pressed ? words[0] : words[1], incident: { type: 'set_reading', target, value: pressed ? 0 : 1 }, destructive: false },
         { label: 'Stick it down', incident: { type: 'sensor_fault', target, value: 1 }, destructive: true },
       );
     } else if (sensor && !broken) {

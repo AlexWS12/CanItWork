@@ -1,5 +1,6 @@
 import type { KeyCheck, ProviderStatus, Usage } from '@tv/core';
 import type { z } from 'zod';
+import { record } from './spend';
 
 const GEMINI_DIRECT = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
@@ -43,8 +44,12 @@ interface Route {
 function routes(): Route[] {
   const out: Route[] = [];
   if (pruneKey()) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
-  const direct = env().GEMINI_API_KEY?.trim();
-  if (direct) out.push({ url: GEMINI_DIRECT, key: direct, via: 'direct' });
+  // Several direct keys can be comma-separated; a quota error on one moves on to the next.
+  for (const key of (env().GEMINI_API_KEY ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean))
+    out.push({ url: GEMINI_DIRECT, key, via: 'direct' });
   return out;
 }
 
@@ -90,7 +95,25 @@ function num(value: unknown): number | null {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
 
+// Free-tier keys allow ~15 requests a minute per model. GEMINI_RPM spaces calls on each direct key so they stay under it.
+const nextSlot = new Map<string, number>();
+async function pace(route: Route) {
+  const rpm = Number(env().GEMINI_RPM);
+  if (route.via !== 'direct' || !(rpm > 0)) return;
+  const now = Date.now();
+  const at = Math.max(now, nextSlot.get(route.key) ?? 0);
+  nextSlot.set(route.key, at + 60_000 / rpm);
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+}
+
 async function complete(route: Route, model: string, messages: Array<{ role: string; content: string }>, feature: string): Promise<{ text: string; usage: Usage }> {
+  await pace(route);
+  const result = await send(route, model, messages, feature);
+  record(result.usage);
+  return result;
+}
+
+async function send(route: Route, model: string, messages: Array<{ role: string; content: string }>, feature: string): Promise<{ text: string; usage: Usage }> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     authorization: `Bearer ${route.key}`,

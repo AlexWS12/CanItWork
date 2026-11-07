@@ -1,7 +1,11 @@
 import { z } from 'zod';
 
-const PART_TYPES = ['arduino', 'battery', 'resistor', 'capacitor', 'led', 'button', 'motor', 'motor_driver', 'ultrasonic', 'buzzer', 'custom'] as const;
+const PART_TYPES = ['arduino', 'battery', 'resistor', 'capacitor', 'led', 'button', 'switch', 'motor', 'motor_driver', 'ultrasonic', 'buzzer', 'custom'] as const;
 export type PartType = (typeof PART_TYPES)[number];
+
+// The physical form a part takes, so one renderer draws every chip or module of that shape.
+export const PACKAGES = ['dip', 'module', 'to92', 'to220', 'axial', 'radial', 'bulb', 'display', 'pot', 'relay', 'motor', 'speaker', 'sensor'] as const;
+export type Package = (typeof PACKAGES)[number];
 
 const SupplySchema = z.object({ pos: z.string(), neg: z.string(), minVolts: z.number().nonnegative(), maxVolts: z.number().positive() });
 
@@ -63,6 +67,25 @@ export const CustomPartSchema = z.object({
       }),
     )
     .default([]),
+  // Internal memory for sequential chips (flip-flops, counters, 555 timers). Rules run every substep against the pins' logic levels.
+  state: z
+    .object({
+      ref: z.string(),
+      aboveVolts: z.number().nonnegative(),
+      vars: z.record(z.string().regex(/^[A-Za-z_]\w*$/), z.number()).default({}),
+      rules: z
+        .array(
+          z.object({
+            when: z.string().min(1).max(200).optional(),
+            edge: z.string().optional(),
+            set: z.string().regex(/^[A-Za-z_]\w*$/),
+            to: z.union([z.number(), z.string().min(1).max(200)]),
+          }),
+        )
+        .max(24)
+        .default([]),
+    })
+    .optional(),
   gpio: z.array(z.string()).default([]),
   gpioVolts: z.number().positive().max(12).optional(),
   supply: SupplySchema.optional(),
@@ -85,7 +108,19 @@ export const CustomPartSchema = z.object({
 });
 export type CustomPart = z.infer<typeof CustomPartSchema>;
 
-export const PartSchema = z.object({
+// Models sometimes write a custom part's fields beside its type instead of inside "custom"; fold them back in.
+const hoistCustom = (raw: unknown) => {
+  if (!raw || typeof raw !== 'object') return raw;
+  const part = raw as Record<string, unknown>;
+  if (part.type !== 'custom' || part.custom || !Array.isArray(part.pins)) return raw;
+  const keys = Object.keys(CustomPartSchema.shape);
+  const custom = Object.fromEntries(keys.filter((k) => k in part).map((k) => [k, part[k]]));
+  custom.label ??= String(part.id);
+  const rest = Object.fromEntries(Object.entries(part).filter(([k]) => !keys.includes(k) || k === 'maxAmps'));
+  return { ...rest, custom };
+};
+
+const PartObject = z.object({
   id: z.string().min(1),
   type: z.enum(PART_TYPES),
   ohms: z.number().positive().optional(),
@@ -95,9 +130,12 @@ export const PartSchema = z.object({
   usb: z.boolean().optional(),
   color: z.enum(['red', 'yellow', 'green', 'blue', 'white']).optional(),
   measures: z.string().optional(),
+  closed: z.boolean().optional(),
+  package: z.enum(PACKAGES).optional(),
   custom: CustomPartSchema.optional(),
 });
-export type Part = z.infer<typeof PartSchema>;
+export const PartSchema = z.preprocess(hoistCustom, PartObject) as unknown as typeof PartObject;
+export type Part = z.infer<typeof PartObject>;
 
 const ExprSchema = z.union([z.number(), z.string().min(1).max(200)]);
 const VARIABLE = /^[A-Za-z_]\w*$/;
@@ -141,8 +179,8 @@ export const QuantitySchema = z.object({
 export type Quantity = z.infer<typeof QuantitySchema>;
 
 export const CircuitSpecSchema = z.object({
-  parts: z.array(PartSchema).min(1).max(30),
-  wires: z.array(z.object({ from: z.string(), to: z.string() })).max(80),
+  parts: z.array(PartSchema).min(1).max(40),
+  wires: z.array(z.object({ from: z.string(), to: z.string() })).max(140),
   drive: z
     .array(
       z.object({
@@ -156,6 +194,19 @@ export const CircuitSpecSchema = z.object({
   program: z.array(RuleSchema).max(20).optional(),
   vars: z.record(z.string().regex(VARIABLE), z.number()).optional(),
   world: z.array(QuantitySchema).max(8).optional(),
+  layout: z.enum(['bench', 'breadboard']).optional(),
+  // Expected behaviour, checked in simulation: set these inputs (switches, buttons, sensors), then these outputs must be on or off.
+  tests: z
+    .array(
+      z.object({
+        name: z.string().max(60).optional(),
+        set: z.record(z.string(), z.number()).default({}),
+        on: z.array(z.string()).default([]),
+        off: z.array(z.string()).default([]),
+      }),
+    )
+    .max(32)
+    .optional(),
 });
 export type CircuitSpec = z.infer<typeof CircuitSpecSchema>;
 
@@ -171,6 +222,7 @@ export const PINS: Record<PartType, string[]> = {
   capacitor: ['a', 'b'],
   led: ['anode', 'cathode'],
   button: ['a', 'b'],
+  switch: ['a', 'b'],
   motor: ['a', 'b'],
   motor_driver: ['VS', 'VCC', 'GND', 'ENA', 'IN1', 'IN2', 'OUT1', 'OUT2', 'ENB', 'IN3', 'IN4', 'OUT3', 'OUT4'],
   ultrasonic: ['VCC', 'TRIG', 'ECHO', 'GND'],
@@ -200,6 +252,7 @@ export function sensorOf(part: Part): SensorInfo | null {
     const power = new Set(custom.supply ? [custom.supply.pos, custom.supply.neg] : []);
     return { label: custom.label, ...custom.sensor, measures: part.measures, outputs: custom.pins.filter((pin) => !power.has(pin) && !POWER_PIN.test(pin)) };
   }
+  if (part.type === 'switch') return { label: 'Switch', quantity: 'closed', unit: '', min: 0, max: 1, value: part.closed ? 1 : 0, outputs: [] };
   if (part.type === 'button') return { label: 'Button', quantity: 'pressed', unit: '', min: 0, max: 1, value: 0, outputs: [] };
   if (part.type === 'ultrasonic') return { label: 'Ultrasonic sensor', quantity: 'distance', unit: 'cm', min: 2, max: 400, value: 100, outputs: ['ECHO'], measures: part.measures };
   return null;

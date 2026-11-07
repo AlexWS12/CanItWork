@@ -6,6 +6,8 @@ import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Tag, pick } from '../shared';
+import { BoardParts, breadboardExtent, jumperColor, layoutBreadboard, spotPosition, type BoardLayout, type Spot } from './Breadboard';
+import { PackageBody, dipSpan, drawnByPackage, packagePin } from './Packages';
 import './Bench.css';
 
 const circuit = () => runner.run as CircuitRun | null;
@@ -13,16 +15,33 @@ const LED_COLORS = { red: '#ff3b3b', yellow: '#ffd24a', green: '#3dff7a', blue: 
 const WIRE_COLORS = ['#f59e0b', '#22d3ee', '#a78bfa', '#34d399', '#f472b6', '#60a5fa'];
 const dummy = new THREE.Object3D();
 
+const footprint = (part: Part) => {
+  if (part.type === 'arduino') return 0;
+  if (part.package === 'dip' || part.package === 'module') return Math.max(2.6, dipSpan(part).length + 1.4);
+  return 4.4;
+};
+
 function layoutParts(spec: CircuitSpec) {
   const positions = new Map<string, [number, number]>();
   spec.parts.filter((p) => p.type === 'arduino').forEach((p, i) => positions.set(p.id, [-9.5, i * 7]));
   const others = spec.parts.filter((p) => p.type !== 'arduino');
-  const columns = Math.max(3, Math.ceil(Math.sqrt(others.length * 1.4)));
-  others.forEach((p, i) => positions.set(p.id, [-3 + (i % columns) * 4.4, -5 + Math.floor(i / columns) * 3.6]));
+  const rowWidth = Math.max(13.2, Math.sqrt(others.reduce((a, p) => a + footprint(p), 0) * 4.4 * 1.4));
+  let x = 0;
+  let row = 0;
+  for (const p of others) {
+    const w = footprint(p);
+    if (x > 0 && x + w > rowWidth) {
+      x = 0;
+      row++;
+    }
+    positions.set(p.id, [-5.2 + x + w / 2, -5 + row * 3.6]);
+    x += w;
+  }
   return positions;
 }
 
 export function benchExtent(spec: CircuitSpec) {
+  if (spec.layout === 'breadboard') return breadboardExtent(spec);
   const points = [...layoutParts(spec).values()];
   const xs = points.map(([x]) => x);
   const zs = points.map(([, z]) => z);
@@ -36,6 +55,8 @@ export function benchExtent(spec: CircuitSpec) {
 function pinPosition(part: Part, pin: string, [x, z]: [number, number]) {
   const pins = pinsOf(part);
   const i = Math.max(0, pins.indexOf(pin));
+  const packaged = packagePin(part, pin);
+  if (packaged) return new THREE.Vector3(x + packaged[0], packaged[1], z + packaged[2]);
   switch (part.type) {
     case 'custom': {
       const half = Math.ceil(pins.length / 2);
@@ -200,6 +221,11 @@ function Ultrasonic() {
 }
 
 function CustomBody({ part }: { part: Part }) {
+  if (drawnByPackage(part)) return <PackageBody part={part} />;
+  return <VisualBody part={part} />;
+}
+
+function VisualBody({ part }: { part: Part }) {
   const moving = useRef<Array<THREE.Mesh | null>>([]);
   const visual = part.custom?.visual ?? [];
   const actuator = part.custom?.actuator;
@@ -264,6 +290,7 @@ function PartBody({ part }: { part: Part }) {
         </mesh>
       );
     case 'button':
+    case 'switch':
       return (
         <group>
           <mesh position={[0, 0.16, 0]} castShadow>
@@ -272,7 +299,7 @@ function PartBody({ part }: { part: Part }) {
           </mesh>
           <mesh position={[0, 0.38, 0]}>
             <cylinderGeometry args={[0.26, 0.26, 0.2, 20]} />
-            <meshStandardMaterial color="#e11d48" />
+            <meshStandardMaterial color={part.type === 'switch' ? '#f8fafc' : '#e11d48'} />
           </mesh>
         </group>
       );
@@ -303,10 +330,10 @@ function PartBody({ part }: { part: Part }) {
   }
 }
 
-function FaultRing({ part }: { part: Part }) {
+function FaultRing({ part, size: given }: { part: Part; size?: number }) {
   const ring = useRef<THREE.Mesh>(null!);
   const material = useRef<THREE.MeshBasicMaterial>(null!);
-  const size = part.type === 'arduino' ? 4.8 : part.type === 'motor_driver' ? 2.1 : 1.5;
+  const size = given ?? (part.type === 'arduino' ? 4.8 : part.type === 'motor_driver' ? 2.1 : 1.5);
   useFrame(({ clock }) => {
     const run = circuit();
     const selected = useStore.getState().selected === part.id;
@@ -324,40 +351,41 @@ function FaultRing({ part }: { part: Part }) {
   );
 }
 
-function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, [number, number]> }) {
+type Ends = (i: number) => { a: THREE.Vector3; b: THREE.Vector3; color: string; low?: boolean } | null;
+
+function Wires({ spec, ends }: { spec: CircuitSpec; ends: Ends }) {
   const dots = useRef<THREE.InstancedMesh>(null!);
   const phase = useRef(0);
   const DOTS = 4;
 
-  const curves = useMemo(() => {
-    const end = (key: string) => {
-      const [id, pin] = key.split('.');
-      const part = spec.parts.find((p) => p.id === id);
-      const at = positions.get(id);
-      return part && at ? pinPosition(part, pin, at) : new THREE.Vector3();
-    };
-    return spec.wires.map((wire, i) => {
-      const a = end(wire.from);
-      const b = end(wire.to);
-      const mid = a.clone().lerp(b, 0.5);
-      mid.y = 0.9 + a.distanceTo(b) * 0.16;
-      const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
-      return { curve, color: wireColor(wire.from, wire.to, i), geometry: new THREE.TubeGeometry(curve, 28, 0.05, 6) };
-    });
-  }, [spec, positions]);
+  const curves = useMemo(
+    () =>
+      spec.wires.map((_, i) => {
+        const end = ends(i);
+        if (!end) return null;
+        const { a, b, color, low } = end;
+        const height = low ? 0.32 + a.distanceTo(b) * 0.07 : 0.9 + a.distanceTo(b) * 0.16;
+        const curve = low
+          ? new THREE.CubicBezierCurve3(a, a.clone().setY(height), b.clone().setY(height), b)
+          : new THREE.QuadraticBezierCurve3(a, a.clone().lerp(b, 0.5).setY(height), b);
+        return { curve, color, geometry: new THREE.TubeGeometry(curve, 28, low ? 0.035 : 0.05, 6) };
+      }),
+    [spec, ends],
+  );
 
   useFrame((_, dt) => {
     const run = circuit();
     if (!run) return;
     if (runner.running) phase.current += dt * runner.speed;
     let n = 0;
-    curves.forEach(({ curve }, i) => {
+    curves.forEach((c, i) => {
+      if (!c) return;
       const amps = run.wireAmps[i] ?? 0;
       if (Math.abs(amps) < 0.0005) return;
       const speed = Math.min(1.4, 0.25 + Math.abs(amps) * 8) * Math.sign(amps);
       for (let d = 0; d < DOTS; d++) {
         const t = (((phase.current * speed + d / DOTS) % 1) + 1) % 1;
-        dummy.position.copy(curve.getPoint(t));
+        dummy.position.copy(c.curve.getPoint(t));
         dummy.scale.setScalar(1);
         dummy.updateMatrix();
         dots.current.setMatrixAt(n++, dummy.matrix);
@@ -369,13 +397,15 @@ function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, 
 
   return (
     <group>
-      {curves.map(({ geometry, color }, i) => (
-        <mesh key={i} geometry={geometry} onClick={pick(`W${i + 1}`)} castShadow>
-          <meshStandardMaterial color={color} roughness={0.45} />
-        </mesh>
-      ))}
-      <instancedMesh ref={dots} args={[undefined, undefined, spec.wires.length * DOTS]} frustumCulled={false}>
-        <sphereGeometry args={[0.09, 8, 8]} />
+      {curves.map((c, i) =>
+        c ? (
+          <mesh key={i} geometry={c.geometry} onClick={pick(`W${i + 1}`)} castShadow>
+            <meshStandardMaterial color={c.color} roughness={0.45} />
+          </mesh>
+        ) : null,
+      )}
+      <instancedMesh ref={dots} args={[undefined, undefined, Math.max(1, spec.wires.length * DOTS)]} frustumCulled={false}>
+        <sphereGeometry args={[0.07, 8, 8]} />
         <meshBasicMaterial color="#fff7d6" toneMapped={false} />
       </instancedMesh>
     </group>
@@ -383,6 +413,10 @@ function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, 
 }
 
 function liveText(run: CircuitRun, part: Part) {
+  if (part.type === 'switch' || part.type === 'button') {
+    const on = (run.values.get(part.id) ?? 0) >= 0.5;
+    return part.type === 'switch' ? (on ? 'ON' : 'OFF') : on ? 'pressed' : '';
+  }
   const sensor = sensorOf(part);
   if (sensor) {
     const value = run.read(part.id);
@@ -487,11 +521,132 @@ function WorldPanel({ spec }: { spec: CircuitSpec }) {
   );
 }
 
+function Decorations({ part, at, size, y }: { part: Part; at: THREE.Vector3 | [number, number, number]; size?: number; y?: number }) {
+  const position: [number, number, number] = Array.isArray(at) ? at : [at.x, 0, at.z];
+  const tagY = y ?? (part.type === 'arduino' ? 1.4 : 1.35);
+  return (
+    <group position={position}>
+      <FaultRing part={part} size={size} />
+      <Tag text={describePart(part)} tint={part.type === 'arduino' || part.package === 'module' ? '#22d3ee' : '#ffb347'} y={tagY} />
+      {hasLiveValue(part) && <LiveTag part={part} y={tagY + 0.6} />}
+      <ClaimPin id={part.id} position={[0, 0.5, 0]} />
+    </group>
+  );
+}
+
+const toggleInput = (part: Part) => {
+  const run = circuit();
+  if ((part.type === 'switch' || part.type === 'button') && run && !run.burned.has(part.id)) {
+    runner.inject({ type: 'set_reading', target: part.id, value: (run.values.get(part.id) ?? 0) >= 0.5 ? 0 : 1 });
+  }
+};
+
+function netRoots(spec: CircuitSpec) {
+  const parent = new Map<string, string>();
+  const find = (k: string): string => {
+    if (!parent.has(k)) parent.set(k, k);
+    let r = k;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    return r;
+  };
+  for (const w of spec.wires) parent.set(find(w.from), find(w.to));
+  return find;
+}
+
+function Lead({ a, b, color }: { a: THREE.Vector3; b: THREE.Vector3; color: string }) {
+  const geometry = useMemo(() => {
+    const mid = a.clone().lerp(b, 0.5);
+    mid.y = 0.9 + a.distanceTo(b) * 0.12;
+    return new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 24, 0.045, 6);
+  }, [a, b]);
+  return (
+    <mesh geometry={geometry} castShadow>
+      <meshStandardMaterial color={color} roughness={0.45} />
+    </mesh>
+  );
+}
+
+function BreadboardScene({ spec }: { spec: CircuitSpec }) {
+  const layout = useMemo<BoardLayout>(() => layoutBreadboard(spec), [spec]);
+  const offPin = (key: string) => {
+    const [id, pin] = key.split('.');
+    const part = spec.parts.find((p) => p.id === id);
+    const at = layout.offBoard.get(id);
+    return part && at ? pinPosition(part, pin, at) : new THREE.Vector3();
+  };
+  const point = (end: Spot | string) => (typeof end === 'string' ? offPin(end) : spotPosition(layout, end, 0.2));
+  const ends = useMemo<Ends>(
+    () => (i) => {
+      const pair = layout.wireEnds[i];
+      if (!pair) return null;
+      const wire = spec.wires[i];
+      const offBoard = typeof pair[0] === 'string' || typeof pair[1] === 'string';
+      return { a: point(pair[0]), b: point(pair[1]), color: jumperColor(wire.from, wire.to, i, layout, pair), low: !offBoard };
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layout, spec],
+  );
+  // The supply's leads clip onto the left end of each rail it feeds.
+  const leads = useMemo(() => {
+    const find = netRoots(spec);
+    const offKeys = spec.parts.filter((p) => layout.offBoard.has(p.id)).flatMap((p) => pinsOf(p).map((pin) => `${p.id}.${pin}`));
+    return [...layout.supply.entries()].flatMap(([net, rail]) => {
+      const key = offKeys.find((k) => find(k) === find(net));
+      if (!key) return [];
+      return (['top', 'bottom'] as const)
+        .filter((side) => layout.railsUsed.has(`${side}${rail}`))
+        .map((side) => ({ a: offPin(key), b: spotPosition(layout, { kind: 'rail', col: 0, side, rail }, 0.2), color: rail === '+' ? '#ef4444' : '#1f2937' }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, spec]);
+  return (
+    <group>
+      <BoardParts
+        spec={spec}
+        layout={layout}
+        onPart={toggleInput}
+        decorate={(part, at, size) => <Decorations part={part} at={at} size={size} y={part.type === 'custom' ? 1.1 : 0.95} />}
+      />
+      {spec.parts
+        .filter((p) => layout.offBoard.has(p.id))
+        .map((part) => {
+          const at = layout.offBoard.get(part.id)!;
+          return (
+            <group key={part.id}>
+              <group position={[at[0], 0, at[1]]} onClick={pick(part.id)}>
+                <PartBody part={part} />
+              </group>
+              <Decorations part={part} at={[at[0], 0, at[1]]} />
+            </group>
+          );
+        })}
+      <Wires spec={spec} ends={ends} />
+      {leads.map((l, i) => (
+        <Lead key={i} {...l} />
+      ))}
+    </group>
+  );
+}
+
 export function Bench() {
   useStore((s) => s.structure);
   const run = circuit();
   const spec = useMemo(() => (run ? ({ ...run.spec } as CircuitSpec) : null), [run, useStore.getState().structure]);
   const positions = useMemo(() => (spec ? layoutParts(spec) : new Map<string, [number, number]>()), [spec]);
+  const ends = useMemo<Ends>(
+    () => (i) => {
+      if (!spec) return null;
+      const wire = spec.wires[i];
+      const end = (key: string) => {
+        const [id, pin] = key.split('.');
+        const part = spec.parts.find((p) => p.id === id);
+        const at = positions.get(id);
+        return part && at ? pinPosition(part, pin, at) : new THREE.Vector3();
+      };
+      return { a: end(wire.from), b: end(wire.to), color: wireColor(wire.from, wire.to, i) };
+    },
+    [spec, positions],
+  );
   if (!spec) return null;
   const { width, depth, centerX, centerZ } = benchExtent(spec);
   return (
@@ -511,19 +666,30 @@ export function Bench() {
         sectionColor="#3a4e70"
         fadeDistance={90}
       />
-      {spec.parts.map((part) => {
-        const at = positions.get(part.id) ?? [0, 0];
-        return (
-          <group key={part.id} position={[at[0], 0, at[1]]} onClick={pick(part.id)}>
-            <PartBody part={part} />
-            <FaultRing part={part} />
-            <Tag text={describePart(part)} tint={part.type === 'arduino' ? '#22d3ee' : '#ffb347'} y={part.type === 'arduino' ? 1.4 : 1.35} />
-            {hasLiveValue(part) && <LiveTag part={part} y={part.type === 'arduino' ? 2 : 1.95} />}
-            <ClaimPin id={part.id} position={[0, 0.5, 0]} />
-          </group>
-        );
-      })}
-      <Wires spec={spec} positions={positions} />
+      {spec.layout === 'breadboard' ? (
+        <BreadboardScene spec={spec} />
+      ) : (
+        <>
+          {spec.parts.map((part) => {
+            const at = positions.get(part.id) ?? [0, 0];
+            return (
+              <group key={part.id}>
+                <group
+                  position={[at[0], 0, at[1]]}
+                  onClick={(e) => {
+                    pick(part.id)(e);
+                    toggleInput(part);
+                  }}
+                >
+                  <PartBody part={part} />
+                </group>
+                <Decorations part={part} at={[at[0], 0, at[1]]} size={part.package === 'module' || part.package === 'dip' ? dipSpan(part).length / 2 + 0.6 : undefined} />
+              </group>
+            );
+          })}
+          <Wires spec={spec} ends={ends} />
+        </>
+      )}
       {spec.world?.length ? <WorldPanel key={useStore.getState().environmentKey} spec={spec} /> : null}
     </group>
   );
