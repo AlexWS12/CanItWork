@@ -1,11 +1,12 @@
 import { Grid, Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { pinsOf, sensorOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { Tag, pick } from '../shared';
+import './Bench.css';
 
 const circuit = () => runner.run as CircuitRun | null;
 const LED_COLORS = { red: '#ff3b3b', yellow: '#ffd24a', green: '#3dff7a', blue: '#4aa3ff', white: '#ffffff' };
@@ -423,6 +424,69 @@ const describePart = (part: Part) => {
   return part.custom?.label ?? part.id;
 };
 
+const HISTORY = 240;
+const SAMPLE_TICKS = 3;
+
+function Trace({ values, min, max, target }: { values: number[]; min: number; max: number; target?: { min: number; max: number } }) {
+  const span = max - min || 1;
+  const y = (v: number) => 38 - ((v - min) / span) * 36;
+  const points = values.map((v, i) => `${(i / (HISTORY - 1)) * 180},${y(v)}`).join(' ');
+  return (
+    <svg viewBox="0 0 180 40" className="world-trace" aria-hidden>
+      {target && <rect x="0" y={y(target.max)} width="180" height={Math.max(1, y(target.min) - y(target.max))} className="world-band" />}
+      {values.length > 1 && <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+    </svg>
+  );
+}
+
+function WorldPanel({ spec }: { spec: CircuitSpec }) {
+  const history = useRef(new Map<string, number[]>());
+  const last = useRef(-SAMPLE_TICKS);
+  const [, redraw] = useState(0);
+  useFrame(() => {
+    const run = circuit();
+    if (!run) return;
+    if (run.tick < last.current) {
+      history.current.clear();
+      last.current = -SAMPLE_TICKS;
+    }
+    if (run.tick - last.current < SAMPLE_TICKS) return;
+    last.current = run.tick;
+    for (const q of spec.world ?? []) {
+      const list = history.current.get(q.id) ?? [];
+      list.push(run.world.get(q.id) ?? q.start);
+      if (list.length > HISTORY) list.shift();
+      history.current.set(q.id, list);
+    }
+    redraw((n) => n + 1);
+  });
+  const run = circuit();
+  return (
+    <Html fullscreen zIndexRange={[8, 0]} style={{ pointerEvents: 'none' }}>
+      <div className="world-panel">
+        {(spec.world ?? []).map((q) => {
+          const value = run?.world.get(q.id) ?? q.start;
+          const off = q.target && (value < q.target.min || value > q.target.max);
+          return (
+            <div key={q.id} className="world-row" data-off={off ? 'true' : undefined}>
+              <div className="world-head">
+                <span>{q.label}</span>
+                <strong>{withUnit(value, q.unit)}</strong>
+              </div>
+              <Trace values={history.current.get(q.id) ?? []} min={q.min} max={q.max} target={q.target} />
+              {q.target && (
+                <span className="world-target">
+                  target {q.target.min}–{withUnit(q.target.max, q.unit)}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Html>
+  );
+}
+
 export function Bench() {
   useStore((s) => s.structure);
   const run = circuit();
@@ -459,6 +523,7 @@ export function Bench() {
         );
       })}
       <Wires spec={spec} positions={positions} />
+      {spec.world?.length ? <WorldPanel key={useStore.getState().environmentKey} spec={spec} /> : null}
     </group>
   );
 }

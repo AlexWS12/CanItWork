@@ -94,6 +94,7 @@ export const PartSchema = z.object({
   farads: z.number().positive().max(10).optional(),
   usb: z.boolean().optional(),
   color: z.enum(['red', 'yellow', 'green', 'blue', 'white']).optional(),
+  measures: z.string().optional(),
   custom: CustomPartSchema.optional(),
 });
 export type Part = z.infer<typeof PartSchema>;
@@ -122,6 +123,23 @@ export const RuleSchema = z.object({
 });
 export type Rule = z.infer<typeof RuleSchema>;
 
+export const QuantitySchema = z.object({
+  id: z.string().regex(VARIABLE),
+  label: z.string().min(1).max(40),
+  unit: z.string().max(10).default(''),
+  start: z.number(),
+  min: z.number(),
+  max: z.number(),
+  drift: z.number().optional(),
+  toward: z.object({ value: z.number(), rate: z.number().positive().max(10) }).optional(),
+  effects: z
+    .array(z.object({ from: z.string(), rate: z.number() }))
+    .max(8)
+    .default([]),
+  target: z.object({ min: z.number(), max: z.number() }).optional(),
+});
+export type Quantity = z.infer<typeof QuantitySchema>;
+
 export const CircuitSpecSchema = z.object({
   parts: z.array(PartSchema).min(1).max(30),
   wires: z.array(z.object({ from: z.string(), to: z.string() })).max(80),
@@ -137,6 +155,7 @@ export const CircuitSpecSchema = z.object({
     .default([]),
   program: z.array(RuleSchema).max(20).optional(),
   vars: z.record(z.string().regex(VARIABLE), z.number()).optional(),
+  world: z.array(QuantitySchema).max(8).optional(),
 });
 export type CircuitSpec = z.infer<typeof CircuitSpecSchema>;
 
@@ -170,6 +189,7 @@ export interface SensorInfo {
   value?: number;
   pin?: string;
   outputs: string[];
+  measures?: string;
 }
 
 const POWER_PIN = /^(GND|VCC|VDD|VSS|VIN|V\+|3V3|5V)$/i;
@@ -178,10 +198,10 @@ export function sensorOf(part: Part): SensorInfo | null {
   const custom = part.custom;
   if (custom?.sensor) {
     const power = new Set(custom.supply ? [custom.supply.pos, custom.supply.neg] : []);
-    return { label: custom.label, ...custom.sensor, outputs: custom.pins.filter((pin) => !power.has(pin) && !POWER_PIN.test(pin)) };
+    return { label: custom.label, ...custom.sensor, measures: part.measures, outputs: custom.pins.filter((pin) => !power.has(pin) && !POWER_PIN.test(pin)) };
   }
   if (part.type === 'button') return { label: 'Button', quantity: 'pressed', unit: '', min: 0, max: 1, value: 0, outputs: [] };
-  if (part.type === 'ultrasonic') return { label: 'Ultrasonic sensor', quantity: 'distance', unit: 'cm', min: 2, max: 400, value: 100, outputs: ['ECHO'] };
+  if (part.type === 'ultrasonic') return { label: 'Ultrasonic sensor', quantity: 'distance', unit: 'cm', min: 2, max: 400, value: 100, outputs: ['ECHO'], measures: part.measures };
   return null;
 }
 

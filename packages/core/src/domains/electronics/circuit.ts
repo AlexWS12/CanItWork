@@ -174,6 +174,8 @@ export class CircuitRun implements Run {
   private railAmps = new Map<string, number>();
   private onSince = new Map<string, number>();
   readonly vars = new Map<string, number>();
+  readonly world = new Map<string, number>();
+  private onTarget = new Map<string, number>();
   private slots = new Map<number, number>();
   private startTick: number | null = null;
   private topology: { version: number; size: number; node: Map<string, number>; wired: Set<string> } | null = null;
@@ -188,6 +190,7 @@ export class CircuitRun implements Run {
     this.spec = structuredClone(spec);
     this.resetPins();
     this.resetSketch();
+    for (const q of this.spec.world ?? []) this.world.set(q.id, clamp(q.start, q.min, q.max));
     for (const part of this.spec.parts) {
       const sensor = sensorOf(part);
       if (sensor) this.values.set(part.id, sensor.value ?? (sensor.min + sensor.max) / 2);
@@ -205,6 +208,10 @@ export class CircuitRun implements Run {
 
   private part(id: string) {
     return this.spec.parts.find((p) => p.id === id);
+  }
+
+  voltsBetween(a: string, b: string) {
+    return this.volt(a) - this.volt(b);
   }
 
   private volt(key: string) {
@@ -279,13 +286,58 @@ export class CircuitRun implements Run {
     return null;
   }
 
+  private sensed(id: string) {
+    const measures = this.sensor(id)?.measures;
+    return measures !== undefined && this.world.has(measures) ? this.world.get(measures)! : this.values.get(id)!;
+  }
+
+  private quantity(id: string) {
+    return this.spec.world?.find((q) => q.id === id);
+  }
+
+  levelOf(part: Part) {
+    if (this.burned.has(part.id)) return 0;
+    const actuator = part.custom?.actuator;
+    if (part.type === 'motor') return clamp(Math.abs(this.speeds.get(part.id) ?? 0), 0, 1);
+    if (part.type === 'led') return clamp((this.readings.get(part.id)?.amps ?? 0) / 0.02, 0, 1);
+    if (actuator && actuator.quantity !== 'text') {
+      if (!this.isPowered(part)) return 0;
+      return clamp(((this.outputs.get(part.id) ?? actuator.min) - actuator.min) / (actuator.max - actuator.min || 1), 0, 1);
+    }
+    return this.isRunning(part) ? 1 : 0;
+  }
+
+  private stepWorld() {
+    for (const q of this.spec.world ?? []) {
+      const now = this.world.get(q.id)!;
+      let rate = q.drift ?? 0;
+      if (q.toward) rate += q.toward.rate * (q.toward.value - now);
+      for (const effect of q.effects) {
+        const part = this.part(effect.from);
+        if (part) rate += effect.rate * this.levelOf(part);
+      }
+      const next = clamp(now + rate * DT, q.min, q.max);
+      this.world.set(q.id, next);
+      if (q.target && next >= q.target.min && next <= q.target.max) this.onTarget.set(q.id, (this.onTarget.get(q.id) ?? 0) + 1);
+    }
+  }
+
+  private targets() {
+    return (this.spec.world ?? []).filter((q) => q.target);
+  }
+
+  private inTarget(q: { id: string; target?: { min: number; max: number } }) {
+    const value = this.world.get(q.id) ?? 0;
+    return !q.target || (value >= q.target.min && value <= q.target.max);
+  }
+
   read(target: string): number {
     const sensorId = this.sensorFor(target);
     if (sensorId) {
       const part = this.part(sensorId)!;
       const needsPower = part.type !== 'custom' || Boolean(part.custom?.supply);
       if (this.burned.has(sensorId) || this.shorted.has(sensorId) || (needsPower && !this.isPowered(part))) return NaN;
-      return this.faults.get(sensorId) ?? this.values.get(sensorId)!;
+      return this.faults.get(sensorId) ?? this.sensed(sensorId);
     }
     const [id, name = ''] = target.split('.');
     const part = this.part(id);
@@ -681,7 +733,8 @@ export class CircuitRun implements Run {
     for (const [key, state] of this.pinStates) {
       if (this.nodeOf.get(key) === target && this.boardOf(key)) return this.command(state);
     }
-    return 0;
+    const boardPins = this.spec.parts.flatMap((p) => (p.type === 'arduino' ? GPIO : (p.custom?.gpio ?? [])).map((name) => `${p.id}.${name}`));
+    return boardPins.some((key) => this.nodeOf.get(key) === target) ? 0 : 1;
   }
 
   private updateActuators() {
@@ -767,6 +820,7 @@ export class CircuitRun implements Run {
       [...this.pinStates].map(([key, state]) => `${key}:${this.boardOf(key) ? `${state.mode}${this.command(state)}` : 'off'}`).join(),
       [...this.boardOn.values()].join(),
       [...this.values.values()].join(),
+      [...this.world.values()].map((v) => v.toFixed(1)).join(),
       [...this.faults.values()].join(),
     ].join('|');
     if (signature !== this.signature) {
@@ -789,6 +843,7 @@ export class CircuitRun implements Run {
       }
     }
     this.updateActuators();
+    this.stepWorld();
     for (const part of this.outputParts()) if (this.isRunning(part)) this.lastOn.set(part.id, this.tick);
     this.tick++;
     const value = this.percentOk();
@@ -802,11 +857,13 @@ export class CircuitRun implements Run {
 
   private percentOk() {
     const outputs = this.outputParts();
-    if (!outputs.length) {
+    const targets = this.targets();
+    if (!outputs.length && !targets.length) {
       const parts = this.spec.parts.length;
       return ((parts - this.spec.parts.filter((p) => this.burned.has(p.id)).length) / parts) * 100;
     }
-    return (outputs.filter((p) => this.isHealthy(p)).length / outputs.length) * 100;
+    const ok = outputs.filter((p) => this.isHealthy(p)).length + targets.filter((q) => this.inTarget(q)).length;
+    return (ok / (outputs.length + targets.length)) * 100;
   }
 
   inject(incident: Incident) {
@@ -829,7 +886,9 @@ export class CircuitRun implements Run {
       case 'set_reading': {
         this.twin?.inject(incident);
         const sensor = this.sensor(target);
-        if (sensor) this.values.set(target, clamp(incident.value ?? sensor.min, sensor.min, sensor.max));
+        const q = this.quantity(target) ?? (sensor?.measures ? this.quantity(sensor.measures) : undefined);
+        if (q) this.world.set(q.id, clamp(incident.value ?? q.min, q.min, q.max));
+        else if (sensor) this.values.set(target, clamp(incident.value ?? sensor.min, sensor.min, sensor.max));
         break;
       }
       case 'sensor_fault':
@@ -931,8 +990,12 @@ export class CircuitRun implements Run {
   evaluation(): Evaluation {
     return {
       score: this.tick ? Math.round((this.scoreSum / this.tick) * 10) / 10 : 0,
-      scoreLabel: '% of outputs working',
+      scoreLabel: this.targets().length ? '% of outputs and targets OK' : '% of outputs working',
       metrics: [
+        ...this.targets().map((q) => ({
+          label: `${q.label.toLowerCase()} on target`,
+          value: `${this.tick ? Math.round(((this.onTarget.get(q.id) ?? 0) / this.tick) * 100) : 0}%`,
+        })),
         { label: 'peak current', value: milli(this.peakAmps) },
         { label: 'parts burned', value: this.burned.size },
         { label: 'worst load', value: `${this.worstLoad()}%` },
@@ -963,6 +1026,9 @@ export class CircuitRun implements Run {
     ];
     const off = [...this.boardOn].find(([, on]) => !on);
     if (off) metrics.push({ label: `${off[0]} board`, value: 'browned out', tone: 'danger' });
+    for (const q of this.spec.world ?? []) {
+      metrics.push({ label: q.label.toLowerCase(), value: withUnit(this.world.get(q.id) ?? 0, q.unit), tone: this.inTarget(q) ? undefined : 'danger' });
+    }
     return metrics;
   }
 
