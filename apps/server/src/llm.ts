@@ -41,9 +41,16 @@ interface Route {
   via: 'prune' | 'direct';
 }
 
+// When Prune's own upstream Gemini key is out of quota, every call through it fails before falling back, so Prune rests for a while instead.
+const PRUNE_REST_MS = 10 * 60 * 1000;
+let pruneRestUntil = 0;
+export const resetPruneRest = () => {
+  pruneRestUntil = 0;
+};
+
 function routes(): Route[] {
   const out: Route[] = [];
-  if (pruneKey()) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
+  if (pruneKey() && Date.now() >= pruneRestUntil) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
   // Several direct keys can be comma-separated; a quota error on one moves on to the next.
   for (const key of (env().GEMINI_API_KEY ?? '')
     .split(',')
@@ -243,7 +250,10 @@ async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z
       return opts.schema.parse(extractJson(repair.text));
     } catch (error) {
       if (error instanceof ShieldBlock) throw error;
-      console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
+      if (route.via === 'prune' && /HTTP 429/.test(String(error)) && /provider_upstream|exceeded your current quota/.test(String(error))) {
+        pruneRestUntil = Date.now() + PRUNE_REST_MS;
+        console.warn("[llm] Prune's upstream Gemini quota is exhausted; going direct for 10 minutes");
+      } else console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
       lastError = error;
     }
   }
