@@ -23,6 +23,8 @@ interface Case {
   domain: string;
   prompt: string;
   checks: Check[];
+  // The user asked for a stressed system, so checks still failing at the end are what they wanted to see.
+  stressed?: boolean;
 }
 
 interface LoosePart {
@@ -196,7 +198,7 @@ const CASES: Case[] = [
   },
   // Flow-network domains (PR #17). Cases for a domain that isn't installed are skipped.
   { id: 'h-er', domain: 'hospital', prompt: 'An ER with 3 triage nurses, 30 beds and one CT scanner', checks: [exactly('triage', 3), atLeast('er', 30), exactly('imaging', 1)] },
-  { id: 'h-full', domain: 'hospital', prompt: 'A hospital with an ICU that keeps filling up', checks: [kind('icu'), kind('triage')] },
+  { id: 'h-full', domain: 'hospital', prompt: 'A hospital with an ICU that keeps filling up', checks: [kind('icu'), kind('triage')], stressed: true },
   { id: 'a-gates', domain: 'airport', prompt: 'An airport with two runways and 20 gates', checks: [exactly('runway', 2), exactly('gates', 20)] },
   { id: 'c-agents', domain: 'callcenter', prompt: 'A customer support call center with an IVR menu and 25 agents', checks: [kind('ivr'), exactly('agents', 25)] },
   { id: 'f-car', domain: 'factory', prompt: 'A car factory with welding, painting and final assembly', checks: [kind('welding'), kind('paint'), kind('assembly')] },
@@ -298,7 +300,7 @@ async function runCase(c: Case) {
     id: c.id,
     prompt: c.prompt,
     // A design shipped with checks still failing is a failure, whatever parts it has.
-    passed: Boolean(spec) && env?.domain === c.domain && results.every((r) => r.ok) && !env?.unmodelled.some((u) => u.startsWith('Still failing')),
+    passed: Boolean(spec) && env?.domain === c.domain && results.every((r) => r.ok) && (c.stressed || !env?.unmodelled.some((u) => u.startsWith('Still failing'))),
     domain: env?.domain,
     wanted: c.domain,
     seconds: (Date.now() - started) / 1000,

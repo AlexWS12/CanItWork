@@ -380,7 +380,7 @@ export async function build(prompt: string, emit: Emit) {
               schema: draftSchema(domain),
               onUsage: onUsage(emit),
               system: architectPrompt(domain),
-              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Keep a flaw only if the user explicitly asked for it.`,
+              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. If a problem follows from the user's own numbers or from what they asked to see, such as a system that is meant to be overloaded, keep it, since simulating it is the point. Fix everything else.`,
             })) as Draft,
         ),
       async () => previous,
