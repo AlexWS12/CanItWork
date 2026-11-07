@@ -15,6 +15,7 @@ import {
   type Hypothesis,
   type Incident,
   type RecoveryReport,
+  type StepEvent,
   type StreamEvent,
   type TimedEvent,
   type Usage,
@@ -41,21 +42,32 @@ const JEV = {
   aloneFits: 0.5, // without Gemini to ask, route the best-fitting domain only above this
 };
 
+type StepExtra = Pick<StepEvent, 'odds'>;
+
 function stepper(emit: Emit) {
   let n = 0;
-  return async function step<T>(agent: AgentId, engine: Engine, title: string, work: (setDetail: (d: string) => void) => Promise<T>): Promise<T> {
+  return async function step<T>(
+    agent: AgentId,
+    engine: Engine,
+    title: string,
+    work: (setDetail: (d: string) => void, setExtra: (extra: StepExtra) => void) => Promise<T>,
+  ): Promise<T> {
     const id = `${agent}-${++n}`;
     const start = performance.now();
     const ms = () => Math.round(performance.now() - start);
     emit({ type: 'step', id, agent, engine, title, status: 'running' });
     await new Promise((resolve) => setImmediate(resolve));
     let detail: string | undefined;
+    let extra: StepExtra = {};
     try {
-      const result = await work((d) => (detail = d));
-      emit({ type: 'step', id, agent, engine, title, status: 'done', detail, ms: ms() });
+      const result = await work(
+        (d) => (detail = d),
+        (e) => (extra = { ...extra, ...e }),
+      );
+      emit({ type: 'step', id, agent, engine, title, status: 'done', detail, ms: ms(), ...extra });
       return result;
     } catch (error) {
-      emit({ type: 'step', id, agent, engine, title, status: 'failed', detail: shortError(error), ms: ms() });
+      emit({ type: 'step', id, agent, engine, title, status: 'failed', detail: shortError(error), ms: ms(), ...extra });
       throw error;
     }
   };
@@ -183,8 +195,10 @@ async function interpret(prompt: string, emit: Emit, step: Step): Promise<Domain
     });
   const gemini = () => (hasGemini() ? orRules(() => geminiInterpret(prompt, emit, step, refuse), rules) : rules());
   if (!hasJev()) return gemini();
-  const reading = await step('interpreter', 'jev', 'Identifying the domain', async (detail) => {
-    const reading = decideDomain(await askDomain(prompt, onUsage(emit)), hasGemini());
+  const reading = await step('interpreter', 'jev', 'Identifying the domain', async (detail, extra) => {
+    const answers = await askDomain(prompt, onUsage(emit));
+    extra({ odds: Object.fromEntries(DOMAIN_IDS.map((id) => [id, answers.probabilities[id] ?? 0])) });
+    const reading = decideDomain(answers, hasGemini());
     detail(reading.detail);
     return reading;
   }).catch(() => null);

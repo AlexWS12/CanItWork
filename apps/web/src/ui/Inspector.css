@@ -1,7 +1,7 @@
 .inspector {
   position: fixed;
-  right: calc(var(--panel-w) + var(--gutter) * 2);
-  top: var(--top-h);
+  right: calc(var(--panel-right-w) + var(--gutter) * 2);
+  top: calc(var(--top-h) + var(--gutter));
   width: 220px;
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-md);
@@ -71,7 +71,7 @@
 
 @media (max-width: 900px) {
   .inspector {
-    top: var(--top-h);
+    top: calc(var(--top-h) + var(--gutter));
     left: var(--gutter);
     right: var(--gutter);
     width: auto;

@@ -83,24 +83,6 @@
   color: var(--color-accent);
 }
 
-.hero-steps {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--color-muted);
-  min-height: 120px;
-}
-
-.hero-steps li[data-status='running'] {
-  color: var(--color-accent);
-}
-
-.hero-steps li[data-status='running']::after {
-  content: ' …';
-}
-
 /* Example prompts read as a list of rows, not a stack of buttons */
 .prompts {
   margin-top: var(--space-4);

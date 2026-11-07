@@ -2,6 +2,10 @@ import { DOMAINS, type Domain, type Environment, type Incident, type Run } from 
 import { useStore } from './store';
 
 const PUBLISH_EVERY = 0.2;
+const HISTORY = 60;
+
+// '99.4%', '84 ms' and 12 all chart as their leading number
+const numeric = (value: string | number) => (typeof value === 'number' ? value : parseFloat(value.replace(/,/g, '')));
 
 class Runner {
   run: Run | null = null;
@@ -12,6 +16,8 @@ class Runner {
   alpha = 0;
   private acc = 0;
   private sincePublish = 0;
+  private statHistory: Record<string, number[]> = {};
+  private sampledTick = -1;
 
   load(environment: Environment, seed = 1) {
     const domain = DOMAINS[environment.domain];
@@ -21,6 +27,8 @@ class Runner {
     this.acc = 0;
     this.alpha = 0;
     this.running = true;
+    this.statHistory = {};
+    this.sampledTick = -1;
     this.publish();
   }
 
@@ -52,16 +60,25 @@ class Runner {
   private publish() {
     const { run } = this;
     if (!run) return;
+    const stats = run.telemetry();
+    // Sample once per tick, so a paused run doesn't flatten the sparklines
+    if (run.tick !== this.sampledTick) {
+      this.sampledTick = run.tick;
+      const next: Record<string, number[]> = {};
+      for (const stat of stats) {
+        const value = numeric(stat.value);
+        const past = this.statHistory[stat.label] ?? [];
+        next[stat.label] = Number.isFinite(value) ? [...past.slice(1 - HISTORY), value] : past;
+      }
+      this.statHistory = next;
+    }
     useStore.getState().setTelemetry({
       tick: run.tick,
-      stats: run.telemetry(),
+      stats,
       breakables: run.breakables(),
       running: this.running,
       speed: this.speed,
-      history: run
-        .evaluation()
-        .series.slice(-60)
-        .map((p) => p.value),
+      statHistory: this.statHistory,
     });
   }
 

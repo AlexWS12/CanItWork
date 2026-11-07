@@ -2,6 +2,7 @@ import { DOMAINS, domainList } from '@tv/core';
 import { useState } from 'react';
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
+import { Building } from './Building';
 import './Landing.css';
 
 const EXAMPLES = domainList().map((d) => d.examples[0]);
@@ -26,12 +27,12 @@ function Refusal() {
 export function Landing() {
   const [text, setText] = useState('');
   const building = useStore((s) => s.building);
-  const steps = useStore((s) => s.steps);
   const messages = useStore((s) => s.messages);
   const last = messages[messages.length - 1];
   const submit = (prompt: string) => {
     if (prompt.trim() && !building) void buildEnvironment(prompt.trim());
   };
+  if (building) return <Building />;
   return (
     <div className="landing">
       <div className="landing-main">
@@ -58,34 +59,22 @@ export function Landing() {
               }
             }}
           />
-          <button type="submit" disabled={building || !text.trim()}>
-            {building ? 'Building…' : 'Build'}
+          <button type="submit" disabled={!text.trim()}>
+            Build
           </button>
         </form>
-        {building ? (
-          <ol className="hero-steps" aria-live="polite">
-            {steps.map((s) => (
-              <li key={s.id} data-status={s.status}>
-                {s.title}
+        <Refusal />
+        {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
+        <section className="prompts" aria-labelledby="prompts-title">
+          <h2 id="prompts-title">Or start from one of these</h2>
+          <ul>
+            {EXAMPLES.map((example) => (
+              <li key={example}>
+                <button onClick={() => submit(example)}>{example}</button>
               </li>
             ))}
-          </ol>
-        ) : (
-          <>
-            <Refusal />
-            {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-            <section className="prompts" aria-labelledby="prompts-title">
-              <h2 id="prompts-title">Or start from one of these</h2>
-              <ul>
-                {EXAMPLES.map((example) => (
-                  <li key={example}>
-                    <button onClick={() => submit(example)}>{example}</button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </>
-        )}
+          </ul>
+        </section>
       </div>
       <aside className="landing-domains" aria-labelledby="domains-title">
         <h2 id="domains-title">What it can build</h2>

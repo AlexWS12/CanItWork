@@ -27,6 +27,10 @@ export interface StepEvent {
   status: 'running' | 'done' | 'failed';
   detail?: string;
   ms?: number;
+  /** Share of the step's work done so far, 0-1, when the step can tell */
+  progress?: number;
+  /** The Interpreter's per-domain probabilities, when Jev routed the request */
+  odds?: Partial<Record<DomainId, number>>;
 }
 
 export interface Finding {

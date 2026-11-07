@@ -1,20 +1,26 @@
 import type { Point, RecoveryReport } from '@tv/core';
 import './Charts.css';
 
-export function Sparkline({ values }: { values: number[] }) {
-  if (values.length < 2) return <svg className="spark" viewBox="0 0 120 34" aria-hidden />;
+const SW = 80;
+const SH = 30;
+
+export function Sparkline({ values, label }: { values: number[]; label: string }) {
+  if (values.length < 2) return <svg className="spark" viewBox={`0 0 ${SW} ${SH}`} aria-hidden />;
   const max = Math.max(...values, 1);
-  const points = values.map((v, i) => `${(i / (values.length - 1)) * 120},${32 - (v / max) * 30}`).join(' ');
+  const points = values.map((v, i) => `${((i / (values.length - 1)) * SW).toFixed(1)},${(SH - 1 - (v / max) * (SH - 2)).toFixed(1)}`).join(' ');
   return (
-    <svg className="spark" viewBox="0 0 120 34" role="img" aria-label="Score over time">
+    <svg className="spark" viewBox={`0 0 ${SW} ${SH}`} role="img" aria-label={label}>
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   );
 }
 
 const W = 460;
-const H = 150;
-const PAD = { top: 8, right: 118, bottom: 18, left: 30 };
+const H = 170;
+const PAD = { top: 8, right: 118, bottom: 22, left: 30 };
+const LABEL_CHARS = 13;
+
+const short = (text: string) => (text.length > LABEL_CHARS ? `${text.slice(0, LABEL_CHARS - 1).trimEnd()}…` : text);
 
 export function RecoveryChart({ report }: { report: RecoveryReport }) {
   const winner = report.candidates.find((c) => c.id === report.winnerId);
@@ -29,9 +35,18 @@ export function RecoveryChart({ report }: { report: RecoveryReport }) {
 
   const labels = [
     { text: 'No incident', value: report.reference.score, end: finish(report.reference.series), cls: 'ref' },
-    winner && { text: 'Best recovery', value: winner.evaluation.score, end: finish(winner.evaluation.series), cls: 'win' },
+    winner && { text: short(winner.title), value: winner.evaluation.score, end: finish(winner.evaluation.series), cls: 'win' },
     { text: 'Do nothing', value: report.unmitigated.score, end: finish(report.unmitigated.series), cls: 'bad' },
   ].filter(Boolean) as Array<{ text: string; value: number; end: number; cls: string }>;
+
+  // The band between the winner and doing nothing is what the recovery saved
+  const after = (series: Point[]) => series.filter((p) => p.t >= report.tick);
+  const won = winner ? after(winner.evaluation.series) : [];
+  const lost = after(report.unmitigated.series);
+  const saved = winner ? Math.round((winner.evaluation.score - report.unmitigated.score) * 10) / 10 : 0;
+  const band = won.length > 1 && lost.length > 1 ? `${line(won)} ${line([...lost].reverse())}` : null;
+  const mid = won[Math.floor(won.length * 0.6)];
+  const near = mid && lost.reduce((best, p) => (Math.abs(p.t - mid.t) < Math.abs(best.t - mid.t) ? p : best), lost[0]);
 
   const placed = labels.map((l) => ({ ...l, yPos: y(l.end) })).sort((a, b) => a.yPos - b.yPos);
   for (let i = 1; i < placed.length; i++) {
@@ -49,15 +64,21 @@ export function RecoveryChart({ report }: { report: RecoveryReport }) {
         </g>
       ))}
       <line className="incident" x1={x(report.tick)} x2={x(report.tick)} y1={PAD.top} y2={H - PAD.bottom} />
-      <text className="tick-label" x={x(report.tick)} y={H - 6} textAnchor="middle">
+      <text className="tick-label incident-label" x={x(report.tick)} y={H - 6} textAnchor="middle">
         incident
       </text>
+      {band && <polygon className="band" points={band} />}
       <polyline className="ref" points={line(report.reference.series)} />
       {others.map((c) => (
         <polyline key={c.id} className="alt" points={line(c.evaluation.series)} />
       ))}
       <polyline className="bad" points={line(report.unmitigated.series)} />
       {winner && <polyline className="win" points={line(winner.evaluation.series)} />}
+      {band && saved > 0 && mid && near && (
+        <text className="saved" x={x(mid.t)} y={(y(mid.value) + y(near.value)) / 2 + 4} textAnchor="middle">
+          +{saved} saved
+        </text>
+      )}
       {placed.map((l) => (
         <text key={l.text} className={`end-label ${l.cls}`} x={W - PAD.right + 8} y={l.yPos + 4}>
           <tspan fontWeight="600">{l.value}</tspan> {l.text}

@@ -5,7 +5,7 @@
 @media (max-width: 900px) {
   .mobile-nav {
     position: fixed;
-    top: calc(var(--gutter) + 36px);
+    top: calc(var(--bar-h) + var(--gutter));
     left: 50%;
     transform: translateX(-50%);
     z-index: 5;

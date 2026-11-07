@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { Tag, pick } from '../shared';
+import { ClaimPin, Tag, pick } from '../shared';
 import './Bench.css';
 
 const circuit = () => runner.run as CircuitRun | null;
@@ -519,6 +519,7 @@ export function Bench() {
             <FaultRing part={part} />
             <Tag text={describePart(part)} tint={part.type === 'arduino' ? '#22d3ee' : '#ffb347'} y={part.type === 'arduino' ? 1.4 : 1.35} />
             {hasLiveValue(part) && <LiveTag part={part} y={part.type === 'arduino' ? 2 : 1.95} />}
+            <ClaimPin id={part.id} position={[0, 0.5, 0]} />
           </group>
         );
       })}

@@ -5,7 +5,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select } from '../../store';
-import { pick } from '../shared';
+import { ClaimPin, pick } from '../shared';
 import { COLORS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
@@ -132,6 +132,7 @@ function Conveyor({ world, index }: { world: World; index: number }) {
 
   return (
     <group onClick={pick(conveyor.id)}>
+      <ClaimPin id={conveyor.id} position={[cx, 0.34, cz]} />
       <mesh position={[cx, 0.16, cz]} castShadow receiveShadow>
         <boxGeometry args={[length, 0.32, 0.86]} />
         <meshStandardMaterial ref={bed} metalness={0.6} roughness={0.5} />
@@ -238,6 +239,7 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
 
   return (
     <group onClick={pick(charger.id)}>
+      <ClaimPin id={charger.id} position={[x, 1.2, z]} />
       <mesh position={[x, 0.6, z]} castShadow>
         <boxGeometry args={[0.6, 1.2, 0.7]} />
         <meshStandardMaterial color={COLORS.steelLight} metalness={0.7} roughness={0.4} />

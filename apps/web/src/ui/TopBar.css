@@ -1,0 +1,195 @@
+/* Landing: a floating strip with the wordmark and the integration chips */
+.status {
+  position: fixed;
+  top: var(--gutter);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - var(--gutter) * 2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  z-index: 5;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wordmark {
+  letter-spacing: 0.22em;
+  font-weight: 600;
+}
+
+.status .wordmark {
+  margin-right: var(--space-2);
+}
+
+.integrations {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.offline {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+}
+
+.chip {
+  font-family: var(--font-mono);
+  padding: var(--space-half) var(--space-2);
+  border-radius: var(--radius-pill);
+  border: var(--rule);
+  color: var(--color-muted);
+}
+
+.chip[data-on='true'] {
+  color: var(--color-teal);
+  border-color: var(--color-teal-line);
+}
+
+.chip[data-check='failing'] {
+  color: var(--color-danger);
+  border-color: var(--color-danger-line);
+}
+
+/* Running: a full-width bar holds identity and state */
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--bar-h);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: var(--rule);
+  background: var(--color-bg-scrim);
+  backdrop-filter: blur(14px);
+  white-space: nowrap;
+  transition: border-color var(--dur-short) var(--ease-out);
+}
+
+.topbar[data-incident='true'] {
+  border-bottom-color: var(--color-danger-line);
+}
+
+.divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--color-line-strong);
+}
+
+.identity {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.identity b {
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.domain-tag {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-teal);
+}
+
+.topbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.state-pill {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: var(--text-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-fill);
+  border: 1px solid var(--color-accent-line);
+  color: var(--color-accent);
+}
+
+.state-pill[data-state='paused'] {
+  background: var(--color-fill);
+  border: var(--rule);
+  color: var(--color-muted);
+}
+
+.state-pill[data-state='incident'] {
+  display: block;
+  background: var(--color-danger-strong);
+  border-color: transparent;
+  color: var(--color-text);
+}
+
+.dots {
+  gap: 6px;
+  font: var(--text-xs) var(--font-mono);
+}
+
+.dot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-muted);
+}
+
+.dot::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+.dot[data-on='true'] {
+  color: var(--color-teal);
+}
+
+.dot[data-check='failing'] {
+  color: var(--color-danger);
+}
+
+.new-system {
+  font-size: var(--text-sm);
+  min-height: 0;
+  padding: var(--space-1) 10px;
+}
+
+/* Narrower: integrations shrink to their dots, named in the tooltip */
+@media (max-width: 1180px) {
+  .dots .integration-name,
+  .dots .chip-note {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    gap: var(--space-3);
+    padding: 0 var(--space-3);
+  }
+
+  .topbar .identity,
+  .topbar .divider,
+  .topbar .dots {
+    display: none;
+  }
+}

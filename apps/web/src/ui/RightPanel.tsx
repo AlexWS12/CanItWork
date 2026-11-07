@@ -1,54 +1,57 @@
-import type { Engine, Finding, StepEvent, Usage } from '@tv/core';
+import type { Finding, StepEvent, Usage } from '@tv/core';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
+import { AGENT_LABEL, ENGINE_LABEL, engineLine } from './labels';
 import './RightPanel.css';
 
-const ENGINE_LABEL: Record<Engine, string> = {
-  gemini: 'Gemini',
-  jev: 'Jev',
-  swarms: 'Swarms',
-  simulator: 'Simulator',
-  rules: 'Local rules',
-};
-
-const AGENT_LABEL: Record<StepEvent['agent'], string> = {
-  interpreter: 'Interpreter',
-  architect: 'Architect',
-  validator: 'Validator',
-  simulator: 'Simulator',
-  redteam: 'Red Team',
-  council: 'Recovery Council',
-  editor: 'Editor',
-  analyst: 'Analyst',
-};
-
-const seconds = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
-
-function Scoreline({ finding }: { finding: Finding }) {
+function Scoreboard({ findings }: { findings: Finding[] }) {
+  const held = findings.filter((f) => f.verdict === 'confirmed').length;
   return (
-    <div className="finding" data-verdict={finding.verdict}>
-      <span className="verdict">{finding.verdict === 'confirmed' ? 'Confirmed' : 'Refuted'}</span>
-      <p>{finding.claim}</p>
-      <span className="delta">{finding.evidence}</span>
+    <div className="scoreboard">
+      <div className="score-tile" data-verdict="confirmed">
+        <b>{held}</b>
+        <span>{held === 1 ? 'claim held' : 'claims held'}</span>
+      </div>
+      <div className="score-tile" data-verdict="refuted">
+        <b>{findings.length - held}</b>
+        <span>refuted</span>
+      </div>
     </div>
   );
 }
 
-function Trace() {
-  const steps = useStore((s) => s.steps);
-  const findings = useStore((s) => s.findings);
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    end.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'end' });
-  }, [steps, findings]);
+function Claims({ findings }: { findings: Finding[] }) {
   return (
-    <div className="trace">
-      {steps.map((step) => (
-        <div className="step" key={step.id} data-status={step.status}>
+    <ul className="claims" aria-label="Claims tested in the simulator">
+      {findings.map((f) => (
+        <li key={f.claim} className="claim" data-verdict={f.verdict}>
+          <span className="verdict">{f.verdict === 'confirmed' ? 'Confirmed' : 'Refuted'}</span>
+          <span>
+            {f.claim}
+            <small className="delta">{f.evidence}</small>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// One line per step; a line opens into the full step card
+function TraceLine({ step }: { step: StepEvent }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <li>
+      <button className="trace-line" data-status={step.status} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="trace-title">{step.title}</span>
+        <span className="trace-engine" data-engine={step.engine}>
+          {step.status === 'running' ? `${ENGINE_LABEL[step.engine]} · running` : engineLine(step)}
+        </span>
+      </button>
+      {open && (
+        <div className="step" data-status={step.status}>
           <div className="step-head">
             <span className="step-agent">{AGENT_LABEL[step.agent]}</span>
-            {step.ms !== undefined && <span className="step-ms">{seconds(step.ms)}</span>}
             <span className="tag" data-engine={step.engine}>
               {ENGINE_LABEL[step.engine]}
             </span>
@@ -56,11 +59,31 @@ function Trace() {
           <p>{step.title}</p>
           {step.detail && <small>{step.detail}</small>}
         </div>
-      ))}
-      {findings.length > 0 && <h3>Claims tested in the simulator</h3>}
-      {findings.map((f) => (
-        <Scoreline key={f.claim} finding={f} />
-      ))}
+      )}
+    </li>
+  );
+}
+
+function Agents() {
+  const steps = useStore((s) => s.steps);
+  const findings = useStore((s) => s.findings);
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    end.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'end' });
+  }, [steps.length]);
+  return (
+    <div className="agents">
+      {findings.length > 0 && (
+        <>
+          <Scoreboard findings={findings} />
+          <Claims findings={findings} />
+        </>
+      )}
+      <ol className="trace" aria-label="Agent steps">
+        {steps.map((step) => (
+          <TraceLine key={step.id} step={step} />
+        ))}
+      </ol>
       <div ref={end} />
     </div>
   );
@@ -167,7 +190,7 @@ export function RightPanel() {
         ))}
       </div>
       <div className="tabpanel" id={`tabpanel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
-        {tab === 'agents' ? <Trace /> : <UsageLedger />}
+        {tab === 'agents' ? <Agents /> : <UsageLedger />}
       </div>
     </aside>
   );

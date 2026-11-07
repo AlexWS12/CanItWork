@@ -13,11 +13,13 @@ import { Landing } from './ui/Landing';
 import { MobileNav } from './ui/MobileNav';
 import { RecoveryCard } from './ui/RecoveryCard';
 import { RightPanel } from './ui/RightPanel';
-import { StatusBar } from './ui/StatusBar';
+import { TopBar } from './ui/TopBar';
 import { Transport } from './ui/Transport';
 
 function App() {
   const environment = useStore((s) => s.environment);
+  // The build screen stays up until the Red Team's claims are tested
+  const building = useStore((s) => s.building);
   const view = useStore((s) => s.view);
   useEffect(() => {
     document.documentElement.dataset.view = view;
@@ -30,8 +32,8 @@ function App() {
   return (
     <>
       <Scene />
-      <StatusBar />
-      {environment ? (
+      <TopBar />
+      {environment && !building ? (
         <>
           <MobileNav />
           <ChatPanel />
