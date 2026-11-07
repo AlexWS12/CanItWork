@@ -10,6 +10,7 @@ import {
   RuleSchema,
   isOutput,
   pinsOf,
+  sensorOf,
   withUnit,
   type Action,
   type CircuitSpec,
@@ -183,7 +184,7 @@ export class CircuitRun implements Run {
     this.spec = structuredClone(spec);
     this.resetPins();
     for (const part of this.spec.parts) {
-      const sensor = part.custom?.sensor;
+      const sensor = sensorOf(part);
       if (sensor) this.values.set(part.id, sensor.value ?? (sensor.min + sensor.max) / 2);
       if (part.type === 'capacitor') this.capVolts.set(part.id, 0);
       if (part.type === 'motor') this.speeds.set(part.id, 0);
@@ -250,11 +251,36 @@ export class CircuitRun implements Run {
     return this.duty(state) * high;
   }
 
+  private sensor(id: string) {
+    const part = this.part(id);
+    return part ? sensorOf(part) : null;
+  }
+
+  private sensorFor(target: string): string | null {
+    if (this.values.has(target)) return target;
+    const [id, name] = target.split('.');
+    if (!name || !this.part(id)) return null;
+    if (this.values.has(id)) return id;
+    const node = this.nodeOf.get(target);
+    if (node === undefined) return null;
+    const analog = this.part(id)!.type === 'arduino' && /^A\d$/.test(name);
+    for (const part of this.spec.parts) {
+      const sensor = sensorOf(part);
+      for (const output of sensor?.outputs ?? []) {
+        if (this.nodeOf.get(`${part.id}.${output}`) !== node) continue;
+        return analog && sensor!.pin === output ? null : part.id;
+      }
+    }
+    return null;
+  }
+
   read(target: string): number {
-    if (this.values.has(target)) {
-      const part = this.part(target)!;
-      if (this.burned.has(target) || this.shorted.has(target) || (part.custom?.supply && !this.isPowered(part))) return NaN;
-      return this.faults.get(target) ?? this.values.get(target)!;
+    const sensorId = this.sensorFor(target);
+    if (sensorId) {
+      const part = this.part(sensorId)!;
+      const needsPower = part.type !== 'custom' || Boolean(part.custom?.supply);
+      if (this.burned.has(sensorId) || this.shorted.has(sensorId) || (needsPower && !this.isPowered(part))) return NaN;
+      return this.faults.get(sensorId) ?? this.values.get(sensorId)!;
     }
     const [id, name = ''] = target.split('.');
     const part = this.part(id);
@@ -266,12 +292,19 @@ export class CircuitRun implements Run {
   }
 
   private format(text: string) {
-    return text.replace(/\{([^}]+)\}/g, (match, key: string) => {
+    return text.replace(/\{([^}]+)\}/g, (match, key: string, offset: number) => {
       const id = key.trim();
       if (!this.values.has(id) && !id.includes('.')) return match;
       const value = this.read(id);
       if (Number.isNaN(value)) return '--';
-      return `${round1(value)}${this.part(id)?.custom?.sensor?.unit ?? ''}`;
+      const sensorId = this.sensorFor(id);
+      const unit = (sensorId && this.sensor(sensorId)?.unit) || '';
+      const after = text
+        .slice(offset + match.length)
+        .replace(/^\s*°?/, '')
+        .toLowerCase();
+      const written = unit && after.startsWith(unit.replace('°', '').toLowerCase());
+      return `${round1(value)}${written ? '' : unit}`;
     });
   }
 
@@ -755,12 +788,12 @@ export class CircuitRun implements Run {
         break;
       case 'set_reading': {
         this.twin?.inject(incident);
-        const sensor = this.part(target)?.custom?.sensor;
+        const sensor = this.sensor(target);
         if (sensor) this.values.set(target, clamp(incident.value ?? sensor.min, sensor.min, sensor.max));
         break;
       }
       case 'sensor_fault':
-        this.faults.set(target, incident.value ?? this.part(target)?.custom?.sensor?.min ?? 0);
+        this.faults.set(target, incident.value ?? this.sensor(target)?.min ?? 0);
         break;
       case 'repair':
         this.burned.delete(target);
@@ -898,13 +931,13 @@ export class CircuitRun implements Run {
         incident: { type: 'burn_part', target: output.id },
         keywords: [output.id.toLowerCase(), output.type, (output.custom?.label ?? '').toLowerCase(), 'burn', 'fail'].filter(Boolean),
       });
-    const sensor = this.spec.parts.find((p) => p.custom?.sensor && !this.faults.has(p.id));
-    if (sensor?.custom?.sensor) {
-      const label = sensor.custom.label;
+    const sensorPart = this.spec.parts.find((p) => sensorOf(p) && !this.faults.has(p.id));
+    const sensor = sensorPart && sensorOf(sensorPart);
+    if (sensorPart && sensor) {
       out.push({
-        label: `Fault ${label}`,
-        incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min },
-        keywords: [sensor.id.toLowerCase(), label.toLowerCase(), 'sensor', 'reading', 'fault'],
+        label: `Fault ${sensor.label}`,
+        incident: { type: 'sensor_fault', target: sensorPart.id, value: sensor.min },
+        keywords: [sensorPart.id.toLowerCase(), sensor.label.toLowerCase(), 'sensor', 'reading', 'fault'],
       });
     }
     const wire = this.spec.wires.findIndex((_, i) => !this.loose.has(i));
@@ -959,7 +992,7 @@ export class CircuitRun implements Run {
     if (part.ohms && part.type !== 'motor') rows.push(['Value', `${part.ohms} Ω`]);
     if (part.type === 'capacitor') rows.push(['Charge', volts(this.capVolts.get(target) ?? 0)]);
     if (part.type === 'motor') rows.push(['Speed', `${Math.round(Math.abs(this.speeds.get(target) ?? 0) * 100)}% of rated`]);
-    const sensor = part.custom?.sensor;
+    const sensor = sensorOf(part);
     if (sensor) {
       const value = this.read(target);
       rows.push(['Reading', Number.isNaN(value) ? 'No reading' : withUnit(value, sensor.unit)]);

@@ -1,6 +1,6 @@
 import { Grid, Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { pinsOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
+import { pinsOf, sensorOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
@@ -382,7 +382,7 @@ function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, 
 }
 
 function liveText(run: CircuitRun, part: Part) {
-  const sensor = part.custom?.sensor;
+  const sensor = sensorOf(part);
   if (sensor) {
     const value = run.read(part.id);
     return Number.isNaN(value) ? 'no reading' : withUnit(value, sensor.unit);
@@ -396,7 +396,7 @@ function liveText(run: CircuitRun, part: Part) {
   return '';
 }
 
-const hasLiveValue = (part: Part) => Boolean(part.custom?.sensor || part.custom?.actuator) || ['motor', 'capacitor', 'arduino'].includes(part.type);
+const hasLiveValue = (part: Part) => Boolean(sensorOf(part) || part.custom?.actuator) || ['motor', 'capacitor', 'arduino'].includes(part.type);
 
 function LiveTag({ part, y }: { part: Part; y: number }) {
   const label = useRef<HTMLDivElement>(null);

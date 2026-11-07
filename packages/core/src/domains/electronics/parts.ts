@@ -154,6 +154,29 @@ export const PINS: Record<PartType, string[]> = {
 
 export const pinsOf = (part: Part) => (part.type === 'custom' ? (part.custom?.pins ?? []) : PINS[part.type]);
 
+export interface SensorInfo {
+  label: string;
+  quantity: string;
+  unit: string;
+  min: number;
+  max: number;
+  value?: number;
+  pin?: string;
+  outputs: string[];
+}
+
+const POWER_PIN = /^(GND|VCC|VDD|VSS|VIN|V\+|3V3|5V)$/i;
+
+export function sensorOf(part: Part): SensorInfo | null {
+  const custom = part.custom;
+  if (custom?.sensor) {
+    const power = new Set(custom.supply ? [custom.supply.pos, custom.supply.neg] : []);
+    return { label: custom.label, ...custom.sensor, outputs: custom.pins.filter((pin) => !power.has(pin) && !POWER_PIN.test(pin)) };
+  }
+  if (part.type === 'ultrasonic') return { label: 'Ultrasonic sensor', quantity: 'distance', unit: 'cm', min: 2, max: 400, value: 100, outputs: ['ECHO'] };
+  return null;
+}
+
 export const withUnit = (value: number, unit: string) => `${Math.round(value * 10) / 10}${!unit || /^[%°]/.test(unit) ? '' : ' '}${unit}`;
 
 export const FORWARD_VOLTS = { red: 1.9, yellow: 2.0, green: 2.2, blue: 3.0, white: 3.0 };

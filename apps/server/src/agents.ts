@@ -76,7 +76,7 @@ function testClaim(domain: Domain, model: unknown, base: Evaluation, claim: Hypo
   const at = Math.floor(domain.horizon * 0.2);
   const after = baselineOf(domain, model, domain.horizon, [{ at, incident: claim.incident }]);
   const { hurt, evidence } = domain.compare?.(base, after, claim.incident) ?? defaultCompare(base, after);
-  return { claim: claim.claim, incident: claim.incident, verdict: hurt ? 'confirmed' : 'refuted', evidence };
+  return { claim: claim.claim, incident: claim.incident, verdict: hurt ? 'confirmed' : 'refuted', evidence: `${humanize(claim.incident)}: ${evidence}` };
 }
 
 const describeCapabilities = () =>
@@ -209,6 +209,7 @@ async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, 
               agent_name: 'RedTeam',
               system_prompt: `You are the Red Team. Another AI designed this ${domain.label.toLowerCase()} environment; your job is to find how it breaks. Be specific and sceptical.
 Each hypothesis is tested in a real simulator, so a vague or wrong claim will be publicly refuted.
+Only the incident is simulated, so state each claim as what happens when that incident occurs, such as "If R1 shorts, D1 burns out", never as a flaw the incident doesn't cause.
 Reply with JSON only: {"hypotheses":[{"claim":"one sentence naming the specific weakness","incident":Incident}]} with 1-3 items.
 Incident is one of:
 ${domain.incidentDoc}
@@ -295,7 +296,8 @@ export async function build(prompt: string, emit: Emit) {
     return;
   }
 
-  const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: draft.unmodelled };
+  const unresolved = issues.filter((i) => i.repair).map((i) => `Still failing the checks: ${i.message}`);
+  const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: [...unresolved, ...draft.unmodelled] };
   emit({ type: 'environment', environment });
   const model = domain.compile(draft.spec);
 

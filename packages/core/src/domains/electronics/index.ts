@@ -1,9 +1,11 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
-import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, type CircuitSpec, type Part } from './parts';
+import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, type CircuitSpec, type Part } from './parts';
 
 const CHECK_TICKS = 70;
+const WARMUP_TICKS = 20;
+const SUSTAINED_TICKS = 10;
 const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer']);
 
 const pinExists = (spec: CircuitSpec, key: string) => {
@@ -22,7 +24,7 @@ const actionsOf = (spec: CircuitSpec) => (spec.program ?? []).flatMap((rule) => 
 
 function checkProgram(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
-  const sensorIds = new Set(spec.parts.filter((p) => p.custom?.sensor).map((p) => p.id));
+  const sensorIds = new Set(spec.parts.filter((p) => sensorOf(p)).map((p) => p.id));
   for (const drive of spec.drive) {
     if (!drivable(spec, drive.pin)) issues.push({ severity: 'error', message: `The sketch drives ${drive.pin}, which isn't a pin a board can drive` });
   }
@@ -73,7 +75,7 @@ function checkParts(spec: CircuitSpec): Issue[] {
 function scenarios(spec: CircuitSpec) {
   const out: Array<{ incident?: Incident; when: string }> = [{ when: '' }];
   for (const part of spec.parts) {
-    const sensor = part.custom?.sensor;
+    const sensor = sensorOf(part);
     if (!sensor) continue;
     for (const value of [sensor.min, sensor.max]) {
       out.push({ incident: { type: 'set_reading', target: part.id, value }, when: ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}` });
@@ -89,17 +91,21 @@ function explore(spec: CircuitSpec) {
   for (const { incident, when } of scenarios(spec)) {
     const run = new CircuitRun(spec, 1, true);
     if (incident) run.inject(incident);
+    const over = new Map<string, { ticks: number; message: string }>();
     for (let i = 0; i < CHECK_TICKS; i++) {
       run.step();
-      for (const part of spec.parts) if (isOutput(part) && run.isRunning(part)) ran.add(part.id);
+      for (const part of spec.parts) {
+        if (isOutput(part) && run.isRunning(part)) ran.add(part.id);
+        const message = i >= WARMUP_TICKS && !run.burned.has(part.id) ? describeOverload(part, run) : null;
+        if (message) over.set(part.id, { ticks: (over.get(part.id)?.ticks ?? 0) + 1, message: over.get(part.id)?.message ?? message });
+      }
     }
     for (const key of run.burned) {
       const cause = run.burnCauses.get(key);
       if (!burned.has(key)) burned.set(key, `${key} burns out${when || ' when powered'}${cause ? `: ${cause}` : ''}`);
     }
-    for (const part of spec.parts) {
-      const overload = run.burned.has(part.id) || overloads.has(part.id) ? null : describeOverload(part, run);
-      if (overload) overloads.set(part.id, `${overload}${when}`);
+    for (const [id, { ticks, message }] of over) {
+      if (ticks >= SUSTAINED_TICKS && !overloads.has(id) && !run.burned.has(id)) overloads.set(id, `${message}${when}`);
     }
   }
   return { burned, overloads, ran };
@@ -124,7 +130,7 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
   const { burned, overloads, ran } = explore(spec);
   for (const [key, message] of burned) issues.push({ severity: 'warning', message, target: key.split('.')[0], repair: true });
   const shown = new Set(actionsOf(spec).flatMap((a) => ('show' in a ? [a.show] : [])));
-  const sensed = spec.parts.some((p) => p.custom?.sensor);
+  const sensed = spec.parts.some((p) => sensorOf(p));
   for (const part of spec.parts) {
     const overload = overloads.get(part.id);
     if (overload) {
@@ -224,13 +230,12 @@ function buildCircuit(prompt: string): CircuitSpec {
 
 function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
-  const sensor = spec.parts.find((p) => p.custom?.sensor && (spec.program ?? []).some((r) => r.if?.read === p.id));
-  if (sensor?.custom?.sensor) {
-    out.push({
-      claim: `If ${sensor.id} fails and reads ${sensor.custom.sensor.min}, the program acts on a false reading.`,
-      incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min },
-    });
-  }
+  const rules = spec.program ?? [];
+  const sensed = spec.parts.filter((p) => sensorOf(p));
+  const read = sensed.find((p) => rules.some((r) => r.if?.read === p.id || r.if?.read.startsWith(`${p.id}.`))) ?? (rules.some((r) => r.if) ? sensed[0] : undefined);
+  const info = read && sensorOf(read);
+  if (read && info)
+    out.push({ claim: `If ${read.id} fails and reads ${info.min}, the program acts on a false reading.`, incident: { type: 'sensor_fault', target: read.id, value: info.min } });
   for (const part of spec.parts.filter(isOutput).slice(0, 2)) {
     const wire = wireTouching(spec, part.id);
     if (wire) out.push({ claim: `${part.id} depends on ${wire}: one loose wire takes it out.`, incident: { type: 'loose_wire', target: wire } });
@@ -322,7 +327,7 @@ custom: any other component or board. Never leave out a component the user named
 Sensor: {"quantity": what it measures, "unit": "%"|"C"|"cm"|..., "min": number, "max": number, "value": a typical reading, "pin"?: its analog output pin}. With "pin" it outputs a voltage proportional to the reading (wire it to an analog pin); without, it is read over I2C, SPI or 1-wire by its id. Give it a "supply" so it only reads when powered.
 Actuator: {"quantity": "angle"|"speed"|"brightness"|"text", "pin"?: its control pin, "min": number, "max": number}. A servo is angle, min 0, max 180, on its signal pin, which the sketch drives with mode "angle" and value in degrees. A display (LCD, OLED, 7-segment) is text and shows what the program writes to it.
 "visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. Use Part "custom" field only with type "custom".
-"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop: every tick each rule checks its "if" and runs "then" or "else". Leave "if" out for a rule that always runs. An Action is {"pin": "U1.D9", "mode": ..., "value"?: number} or {"show": display id, "text": "Soil {S1}"}, where {S1} becomes that sensor's reading. Reading an arduino analog pin gives 0 to 1023, a digital pin 0 or 1, any other board's pin its voltage. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
+"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop: every tick each rule checks its "if" and runs "then" or "else". Leave "if" out for a rule that always runs. An Action is {"pin": "U1.D9", "mode": ..., "value"?: number} or {"show": display id, "text": "Soil {S1}"}, where {S1} becomes that sensor's reading. Read a sensor by its id. Reading one of its pins, or a board pin wired to it, gives the same reading in the sensor's own unit (an ultrasonic gives distance in cm, 2 to 400), except an arduino analog pin wired to a sensor's analog output, which gives 0 to 1023. Any other arduino digital pin reads 0 or 1, and any other board's pin its voltage. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
 Wire electrically real circuits: use a current-limiting resistor with LEDs (220 ohms is typical), drive motors through a driver with a battery on its motor supply, and share ground between the board and any battery. A servo driver passes its V+ power straight through to the servo with low-ohm "paths". Wire exactly what the user asks for, even if it is a mistake: the checks that follow will catch it. "unmodelled" is only for behaviour none of this can represent, such as a radio link or a mechanical load, never for leaving a part out.`,
   incidentTypes: ['burn_part', 'short_part', 'loose_wire', 'low_supply', 'sensor_fault', 'set_reading'],
   incidentDoc: `{"type":"burn_part","target":"D1"}
