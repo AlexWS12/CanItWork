@@ -11,16 +11,16 @@
 .world-row {
   width: 200px;
   padding: 8px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--color-line);
   border-radius: 8px;
-  background: var(--panel);
-  color: var(--teal);
+  background: var(--color-surface);
+  color: var(--color-teal);
   backdrop-filter: blur(6px);
 }
 
 .world-row[data-off='true'] {
-  color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--color-danger);
+  border-color: var(--color-danger-line);
 }
 
 .world-head {
@@ -28,11 +28,11 @@
   justify-content: space-between;
   gap: 8px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--color-muted);
 }
 
 .world-head strong {
-  font: 600 13px var(--mono);
+  font: 600 13px var(--font-mono);
   color: currentColor;
 }
 
@@ -49,10 +49,10 @@
 }
 
 .world-band {
-  fill: color-mix(in srgb, var(--teal) 14%, transparent);
+  fill: var(--color-teal-fill);
 }
 
 .world-target {
-  font: 500 10.5px var(--mono);
-  color: var(--muted);
+  font: 500 10.5px var(--font-mono);
+  color: var(--color-muted);
 }
