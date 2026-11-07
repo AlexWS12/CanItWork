@@ -1,6 +1,6 @@
-import { Grid } from '@react-three/drei';
+import { Grid, Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { pinsOf, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
+import { pinsOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
@@ -143,8 +143,8 @@ function Motor({ part }: { part: Part }) {
   const shaft = useRef<THREE.Group>(null!);
   useFrame((_, dt) => {
     const run = circuit();
-    const volts = run?.burned.has(part.id) ? 0 : (run?.readings.get(part.id)?.volts ?? 0);
-    shaft.current.rotation.z += dt * volts * 4 * (runner.running ? runner.speed : 0);
+    const speed = run?.burned.has(part.id) ? 0 : (run?.speeds.get(part.id) ?? 0);
+    shaft.current.rotation.z += dt * speed * 14 * (runner.running ? runner.speed : 0);
   });
   return (
     <group>
@@ -201,9 +201,21 @@ function Ultrasonic() {
 function CustomBody({ part }: { part: Part }) {
   const moving = useRef<Array<THREE.Mesh | null>>([]);
   const visual = part.custom?.visual ?? [];
+  const actuator = part.custom?.actuator;
   useFrame((_, dt) => {
-    if (!circuit()?.isRunning(part)) return;
-    for (const mesh of moving.current) if (mesh) mesh.rotation.y += dt * 3 * (runner.running ? runner.speed : 0);
+    const run = circuit();
+    if (!run) return;
+    const value = run.outputs.get(part.id) ?? actuator?.min ?? 0;
+    for (const mesh of moving.current) {
+      if (!mesh) continue;
+      if (actuator?.quantity === 'angle') {
+        const target = THREE.MathUtils.degToRad(value - (actuator.min + actuator.max) / 2);
+        mesh.rotation.y = THREE.MathUtils.damp(mesh.rotation.y, target, 8, dt);
+      } else if (run.isRunning(part) && runner.running) {
+        const rate = actuator?.quantity === 'speed' ? value / (actuator.max || 1) : 1;
+        mesh.rotation.y += dt * 3 * rate * runner.speed;
+      }
+    }
   });
   if (!visual.length) {
     return (
@@ -260,6 +272,23 @@ function PartBody({ part }: { part: Part }) {
           <mesh position={[0, 0.38, 0]}>
             <cylinderGeometry args={[0.26, 0.26, 0.2, 20]} />
             <meshStandardMaterial color="#e11d48" />
+          </mesh>
+        </group>
+      );
+    case 'capacitor':
+      return (
+        <group>
+          <mesh position={[0, 0.55, 0]} castShadow>
+            <cylinderGeometry args={[0.38, 0.38, 0.9, 24]} />
+            <meshStandardMaterial color="#1e3a8a" roughness={0.4} />
+          </mesh>
+          <mesh position={[0.3, 0.55, 0]}>
+            <boxGeometry args={[0.14, 0.86, 0.3]} />
+            <meshStandardMaterial color="#cbd5e1" />
+          </mesh>
+          <mesh position={[0, 0.12, 0]}>
+            <boxGeometry args={[2, 0.05, 0.06]} />
+            <meshStandardMaterial color="#c8d0da" metalness={0.8} roughness={0.3} />
           </mesh>
         </group>
       );
@@ -352,9 +381,45 @@ function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, 
   );
 }
 
+function liveText(run: CircuitRun, part: Part) {
+  const sensor = part.custom?.sensor;
+  if (sensor) {
+    const value = run.read(part.id);
+    return Number.isNaN(value) ? 'no reading' : withUnit(value, sensor.unit);
+  }
+  const actuator = part.custom?.actuator;
+  if (actuator?.quantity === 'text') return run.isPowered(part) ? (run.texts.get(part.id) ?? '') : '';
+  if (actuator) return `${Math.round(run.outputs.get(part.id) ?? actuator.min)}${actuator.quantity === 'angle' ? '°' : ''}`;
+  if (part.type === 'motor') return `${Math.round(Math.abs(run.speeds.get(part.id) ?? 0) * 100)}% speed`;
+  if (part.type === 'capacitor') return `${(run.capVolts.get(part.id) ?? 0).toFixed(1)} V`;
+  if (part.type === 'arduino' && run.boardOn.get(part.id) === false) return 'browned out';
+  return '';
+}
+
+const hasLiveValue = (part: Part) => Boolean(part.custom?.sensor || part.custom?.actuator) || ['motor', 'capacitor', 'arduino'].includes(part.type);
+
+function LiveTag({ part, y }: { part: Part; y: number }) {
+  const label = useRef<HTMLDivElement>(null);
+  const screen = part.custom?.actuator?.quantity === 'text';
+  useFrame(() => {
+    const run = circuit();
+    const element = label.current;
+    if (!run || !element) return;
+    const text = liveText(run, part);
+    if (element.textContent !== text) element.textContent = text;
+    element.style.display = text ? '' : 'none';
+  });
+  return (
+    <Html position={[0, y, 0]} center zIndexRange={[10, 0]}>
+      <div ref={label} className={screen ? 'scene-tag screen-tag' : 'scene-tag'} style={{ ['--tag' as string]: screen ? '#86efac' : '#7dd3fc', display: 'none' }} />
+    </Html>
+  );
+}
+
 const describePart = (part: Part) => {
   if (part.type === 'resistor') return `${part.id} ${part.ohms ?? 1000} Ω`;
   if (part.type === 'battery') return `${part.id} ${part.volts ?? 9} V`;
+  if (part.type === 'capacitor') return `${part.id} ${Math.round((part.farads ?? 1e-4) * 1e6)} µF`;
   return part.custom?.label ?? part.id;
 };
 
@@ -379,6 +444,7 @@ export function Bench() {
             <PartBody part={part} />
             <FaultRing part={part} />
             <Tag text={describePart(part)} tint={part.type === 'arduino' ? '#22d3ee' : '#ffb347'} y={part.type === 'arduino' ? 1.4 : 1.35} />
+            {hasLiveValue(part) && <LiveTag part={part} y={part.type === 'arduino' ? 2 : 1.95} />}
           </group>
         );
       })}

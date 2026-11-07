@@ -47,6 +47,224 @@ const servo = (volts: number, maxVolts = 6): CircuitSpec['parts'][number] => ({
   },
 });
 
+type Part = CircuitSpec['parts'][number];
+type Custom = NonNullable<Part['custom']>;
+
+const customPart = (id: string, def: Pick<Custom, 'label' | 'pins'> & Partial<Custom>): Part => ({
+  id,
+  type: 'custom',
+  custom: { paths: [], switches: [], drivers: [], sources: [], gpio: [], output: false, visual: [], ...def },
+});
+
+const soil = (pin?: string) =>
+  customPart('S1', {
+    label: 'Soil sensor',
+    pins: ['VCC', 'GND', 'AO'],
+    paths: [{ a: 'VCC', b: 'GND', ohms: 500 }],
+    supply: { pos: 'VCC', neg: 'GND', minVolts: 3, maxVolts: 5.5 },
+    sensor: { quantity: 'soil moisture', unit: '%', min: 0, max: 100, value: 60, pin },
+  });
+
+const wateringRig = (read: string, below: number): CircuitSpec => ({
+  parts: [
+    { id: 'U1', type: 'arduino' },
+    { id: 'B1', type: 'battery', volts: 9, maxAmps: 2 },
+    { id: 'P1', type: 'motor', volts: 9, ohms: 9, maxAmps: 1.5 },
+    soil('AO'),
+    customPart('K1', {
+      label: 'Relay',
+      pins: ['IN', 'VCC', 'GND', 'COM', 'NO'],
+      paths: [{ a: 'VCC', b: 'GND', ohms: 70 }],
+      switches: [{ a: 'COM', b: 'NO', ohms: 0.05, when: 'IN', ref: 'GND', aboveVolts: 2 }],
+    }),
+  ],
+  wires: [
+    { from: 'U1.5V', to: 'S1.VCC' },
+    { from: 'U1.GND', to: 'S1.GND' },
+    { from: 'S1.AO', to: 'U1.A0' },
+    { from: 'U1.D7', to: 'K1.IN' },
+    { from: 'U1.5V', to: 'K1.VCC' },
+    { from: 'U1.GND', to: 'K1.GND' },
+    { from: 'B1.neg', to: 'U1.GND' },
+    { from: 'B1.pos', to: 'K1.COM' },
+    { from: 'K1.NO', to: 'P1.a' },
+    { from: 'P1.b', to: 'B1.neg' },
+  ],
+  drive: [],
+  program: [{ if: { read, op: '<', value: below }, then: [{ pin: 'U1.D7', mode: 'high' }], else: [{ pin: 'U1.D7', mode: 'low' }] }],
+});
+
+const pwmMotor = (duty: number): CircuitSpec => ({
+  parts: [
+    { id: 'U1', type: 'arduino' },
+    { id: 'B1', type: 'battery', volts: 9, maxAmps: 2 },
+    { id: 'H1', type: 'motor_driver' },
+    { id: 'M1', type: 'motor', volts: 9 },
+  ],
+  wires: [
+    { from: 'B1.pos', to: 'H1.VS' },
+    { from: 'B1.neg', to: 'H1.GND' },
+    { from: 'B1.neg', to: 'U1.GND' },
+    { from: 'U1.5V', to: 'H1.VCC' },
+    { from: 'U1.D5', to: 'H1.ENA' },
+    { from: 'U1.D7', to: 'H1.IN1' },
+    { from: 'U1.D8', to: 'H1.IN2' },
+    { from: 'H1.OUT1', to: 'M1.a' },
+    { from: 'H1.OUT2', to: 'M1.b' },
+  ],
+  drive: [
+    { pin: 'U1.D5', mode: 'pwm', value: duty },
+    { pin: 'U1.D7', mode: 'high' },
+    { pin: 'U1.D8', mode: 'low' },
+  ],
+});
+
+describe('electronics over time', () => {
+  it('waters only when the analog reading says the soil is dry, and drying soil is not a failure', () => {
+    const spec = wateringRig('U1.A0', 300);
+    expect(electronics.validate(spec).filter((i) => i.repair)).toEqual([]);
+    const run = runFor(spec, 20);
+    expect(run.read('U1.A0')).toBeGreaterThan(600);
+    expect(run.isRunning(spec.parts[2])).toBe(false);
+    run.inject({ type: 'set_reading', target: 'S1', value: 20 });
+    for (let i = 0; i < 20; i++) run.step();
+    expect(run.read('U1.A0')).toBeLessThan(250);
+    expect(run.speeds.get('P1')!).toBeGreaterThan(0.5);
+    expect(run.telemetry()[0].value).toBe('1/1');
+  });
+
+  it('treats a stuck sensor as a failure because the pump runs when it should not', () => {
+    const run = runFor(wateringRig('S1', 30), 20);
+    expect(run.telemetry()[0].value).toBe('1/1');
+    run.inject({ type: 'sensor_fault', target: 'S1', value: 0 });
+    for (let i = 0; i < 20; i++) run.step();
+    expect(run.speeds.get('P1')!).toBeGreaterThan(0.5);
+    expect(run.telemetry()[0].value).toBe('0/1');
+    run.apply([{ op: 'replace_part', part: 'S1' }]);
+    for (let i = 0; i < 40; i++) run.step();
+    expect(run.telemetry()[0].value).toBe('1/1');
+  });
+
+  it('turns a servo to the angle the sketch asks for, and a design change is not a failure', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'U1', type: 'arduino' },
+        customPart('SV1', {
+          label: 'Servo',
+          pins: ['VCC', 'GND', 'SIG'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 25 }],
+          supply: { pos: 'VCC', neg: 'GND', minVolts: 4, maxVolts: 6 },
+          actuator: { quantity: 'angle', pin: 'SIG', min: 0, max: 180 },
+        }),
+      ],
+      wires: [
+        { from: 'U1.5V', to: 'SV1.VCC' },
+        { from: 'U1.GND', to: 'SV1.GND' },
+        { from: 'U1.D9', to: 'SV1.SIG' },
+      ],
+      drive: [{ pin: 'U1.D9', mode: 'angle', value: 45 }],
+    };
+    expect(electronics.validate(spec)).toEqual([]);
+    const run = runFor(spec, 3);
+    expect(run.outputs.get('SV1')).toBeCloseTo(45);
+    run.apply([{ op: 'set_drive', pin: 'U1.D9', mode: 'angle', value: 120 }]);
+    run.step();
+    expect(run.outputs.get('SV1')).toBeCloseTo(120);
+    expect(run.telemetry()[0].value).toBe('1/1');
+  });
+
+  it('shows live readings on a display, and flags a display nothing writes to', () => {
+    const lcd = customPart('L1', {
+      label: 'LCD',
+      pins: ['VCC', 'GND'],
+      paths: [{ a: 'VCC', b: 'GND', ohms: 250 }],
+      supply: { pos: 'VCC', neg: 'GND', minVolts: 4.5, maxVolts: 5.5 },
+      actuator: { quantity: 'text', min: 0, max: 0 },
+    });
+    const spec: CircuitSpec = {
+      parts: [{ id: 'U1', type: 'arduino' }, soil(), lcd],
+      wires: [
+        { from: 'U1.5V', to: 'S1.VCC' },
+        { from: 'U1.GND', to: 'S1.GND' },
+        { from: 'U1.5V', to: 'L1.VCC' },
+        { from: 'U1.GND', to: 'L1.GND' },
+      ],
+      drive: [],
+      program: [{ then: [{ show: 'L1', text: 'Soil {S1}' }] }],
+    };
+    expect(electronics.validate(spec)).toEqual([]);
+    const run = runFor(spec, 3);
+    expect(run.texts.get('L1')).toBe('Soil 60%');
+    run.inject({ type: 'set_reading', target: 'S1', value: 35 });
+    run.step();
+    expect(run.texts.get('L1')).toBe('Soil 35%');
+    const silent = electronics.validate({ ...spec, program: [] });
+    expect(silent.some((i) => i.repair && i.message.includes('no program rule shows anything'))).toBe(true);
+  });
+
+  it('charges a capacitor with the RC time constant', () => {
+    const run = runFor(
+      {
+        parts: [
+          { id: 'B1', type: 'battery', volts: 5 },
+          { id: 'R1', type: 'resistor', ohms: 1000 },
+          { id: 'C1', type: 'capacitor', farads: 0.001 },
+        ],
+        wires: [
+          { from: 'B1.pos', to: 'R1.a' },
+          { from: 'R1.b', to: 'C1.a' },
+          { from: 'C1.b', to: 'B1.neg' },
+        ],
+        drive: [],
+      },
+      12,
+    );
+    expect(run.capVolts.get('C1')!).toBeCloseTo(5 * (1 - Math.exp(-1)), 1);
+  });
+
+  it('browns out a board on VIN when its battery sags, unless USB is plugged in', () => {
+    const spec = ledCircuit(220, {});
+    spec.parts.push({ id: 'B1', type: 'battery', volts: 9 });
+    spec.wires.push({ from: 'B1.pos', to: 'U1.VIN' }, { from: 'B1.neg', to: 'U1.GND' });
+    const run = runFor(spec, 5);
+    expect(run.boardOn.get('U1')).toBe(true);
+    expect(run.isRunning(spec.parts[1])).toBe(true);
+    run.inject({ type: 'low_supply', target: 'B1', value: 5 });
+    for (let i = 0; i < 20; i++) run.step();
+    expect(run.boardOn.get('U1')).toBe(false);
+    expect(run.telemetry()[0].value).toBe('0/1');
+    run.apply([{ op: 'set_usb', part: 'U1', usb: true }]);
+    for (let i = 0; i < 20; i++) run.step();
+    expect(run.boardOn.get('U1')).toBe(true);
+    expect(run.isRunning(spec.parts[1])).toBe(true);
+  });
+
+  it('sets motor speed with PWM through the enable pin', () => {
+    const speed = (duty: number) => runFor(pwmMotor(duty), 48).speeds.get('M1')!;
+    const full = speed(1);
+    const half = speed(0.5);
+    expect(full).toBeGreaterThan(0.5);
+    expect(half).toBeGreaterThan(full * 0.3);
+    expect(half).toBeLessThan(full * 0.9);
+    expect(speed(0)).toBeLessThan(0.05);
+  });
+
+  it('draws inrush current when a motor starts, then less once it spins', () => {
+    const run = runFor(pwmMotor(1), 1);
+    const inrush = run.readings.get('M1')!.amps;
+    for (let i = 0; i < 40; i++) run.step();
+    expect(run.readings.get('M1')!.amps).toBeLessThan(inrush / 2);
+  });
+
+  it('rejects a program that reads or drives something that is not there', () => {
+    const reads = wateringRig('S9', 30);
+    expect(electronics.validate(reads).some((i) => i.severity === 'error' && i.message.includes('reads S9'))).toBe(true);
+    const drives = wateringRig('S1', 30);
+    drives.program![0].then = [{ pin: 'K1.IN', mode: 'high' }];
+    expect(electronics.validate(drives).some((i) => i.severity === 'error' && i.message.includes('K1.IN'))).toBe(true);
+  });
+});
+
 describe('electronics', () => {
   it('runs a component it has never seen from its own definition', () => {
     const spec: CircuitSpec = {
@@ -186,11 +404,9 @@ describe('electronics', () => {
     const spec = (maxAmps?: number): CircuitSpec => ({
       parts: [
         { id: 'B1', type: 'battery', volts: 6, maxAmps },
-        { id: 'M1', type: 'motor' },
-        { id: 'M2', type: 'motor' },
-        { id: 'M3', type: 'motor' },
+        ...['M1', 'M2', 'M3', 'M4'].map((id) => ({ id, type: 'motor' as const, volts: 6 })),
       ],
-      wires: ['M1', 'M2', 'M3'].flatMap((m) => [
+      wires: ['M1', 'M2', 'M3', 'M4'].flatMap((m) => [
         { from: 'B1.pos', to: `${m}.a` },
         { from: `${m}.b`, to: 'B1.neg' },
       ]),
@@ -199,15 +415,15 @@ describe('electronics', () => {
     const issues = electronics.validate(spec());
     const battery = issues.find((i) => i.target === 'B1');
     expect(battery?.repair).toBe(true);
-    expect(battery?.message).toMatch(/\d+ mA, above its 1000 mA rating/);
+    expect(battery?.message).toMatch(/\d+ mA.* its 1000 mA rating/);
     expect(electronics.validate(spec(4)).filter((i) => i.repair)).toEqual([]);
   });
 
   it('rates a motor for the voltage it was built for', () => {
-    const pump = (ohms?: number, maxAmps?: number): CircuitSpec => ({
+    const pump = (ohms?: number, maxAmps?: number, volts?: number): CircuitSpec => ({
       parts: [
         { id: 'B1', type: 'battery', volts: 12, maxAmps: 3 },
-        { id: 'P1', type: 'motor', ohms, maxAmps },
+        { id: 'P1', type: 'motor', ohms, maxAmps, volts },
       ],
       wires: [
         { from: 'B1.pos', to: 'P1.a' },
@@ -216,7 +432,8 @@ describe('electronics', () => {
       drive: [],
     });
     expect(electronics.validate(pump()).some((i) => i.target === 'P1' && i.repair)).toBe(true);
-    expect(electronics.validate(pump(12, 1.5)).filter((i) => i.repair)).toEqual([]);
+    expect(electronics.validate(pump(12, 1.5)).find((i) => i.target === 'P1')?.message).toMatch(/too much for a 6 V motor/);
+    expect(electronics.validate(pump(12, 1.5, 12)).filter((i) => i.repair)).toEqual([]);
   });
 
   it('rejects a custom part that uses a pin it does not have', () => {

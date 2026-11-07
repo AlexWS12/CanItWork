@@ -258,19 +258,21 @@ export function ChatPanel() {
         </div>
         <h2>{environment.name}</h2>
         <p>{environment.summary}</p>
-        <details className="limits">
-          <summary>What this doesn't model ({environment.unmodelled.length + domain.limits.length})</summary>
-          <ul>
-            {environment.unmodelled.map((item) => (
-              <li key={item} className="unmodelled">
-                {item}
-              </li>
-            ))}
-            {domain.limits.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </details>
+        {environment.unmodelled.length > 0 ? (
+          <details className="limits">
+            <summary>Not modelled in this design ({environment.unmodelled.length})</summary>
+            <ul>
+              {environment.unmodelled.map((item) => (
+                <li key={item} className="unmodelled">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+        <p className="limits" title={domain.limits.join('\n')}>
+          {domain.label} simulator limits
+        </p>
       </header>
       <div className="messages">
         {messages.map((m, i) => (

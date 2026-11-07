@@ -1,7 +1,10 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
-import { CircuitSpecSchema, PINS, isOutput, pinsOf, type CircuitSpec, type Part } from './parts';
+import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, type CircuitSpec, type Part } from './parts';
+
+const CHECK_TICKS = 70;
+const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer']);
 
 const pinExists = (spec: CircuitSpec, key: string) => {
   const [id, pin] = key.split('.');
@@ -9,7 +12,35 @@ const pinExists = (spec: CircuitSpec, key: string) => {
   return Boolean(part && pinsOf(part).includes(pin));
 };
 
-function validateCircuit(spec: CircuitSpec): Issue[] {
+const drivable = (spec: CircuitSpec, key: string) => {
+  const [id, pin] = key.split('.');
+  const part = spec.parts.find((p) => p.id === id);
+  return part?.type === 'arduino' ? GPIO.includes(pin) : Boolean(part?.custom?.gpio.includes(pin));
+};
+
+const actionsOf = (spec: CircuitSpec) => (spec.program ?? []).flatMap((rule) => [...rule.then, ...(rule.else ?? [])]);
+
+function checkProgram(spec: CircuitSpec): Issue[] {
+  const issues: Issue[] = [];
+  const sensorIds = new Set(spec.parts.filter((p) => p.custom?.sensor).map((p) => p.id));
+  for (const drive of spec.drive) {
+    if (!drivable(spec, drive.pin)) issues.push({ severity: 'error', message: `The sketch drives ${drive.pin}, which isn't a pin a board can drive` });
+  }
+  for (const rule of spec.program ?? []) {
+    const read = rule.if?.read;
+    if (read && !sensorIds.has(read) && !pinExists(spec, read)) issues.push({ severity: 'error', message: `The program reads ${read}, which isn't a sensor or a pin` });
+  }
+  for (const action of actionsOf(spec)) {
+    if ('show' in action) {
+      if (!spec.parts.some((p) => p.id === action.show && p.custom?.actuator?.quantity === 'text')) issues.push({ severity: 'error', message: `The program shows text on ${action.show}, which isn't a display` });
+    } else if (!drivable(spec, action.pin)) {
+      issues.push({ severity: 'error', message: `The program drives ${action.pin}, which isn't a pin a board can drive` });
+    }
+  }
+  return issues;
+}
+
+function checkParts(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
   const ids = new Set<string>();
   for (const part of spec.parts) {
@@ -21,18 +52,66 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
       issues.push({ severity: 'error', message: `${part.id} is custom but has no definition`, target: part.id });
       continue;
     }
-    const named = [...custom.paths.flatMap((p) => [p.a, p.b]), ...custom.switches.flatMap((s) => [s.a, s.b, s.when, s.ref]), ...custom.drivers.flatMap((d) => [d.pin, d.high, d.low, d.when, d.ref]), ...custom.sources.flatMap((s) => [s.pos, s.neg]), ...custom.gpio, ...(custom.supply ? [custom.supply.pos, custom.supply.neg] : [])];
+    const named = [
+      ...custom.paths.flatMap((p) => [p.a, p.b]),
+      ...custom.switches.flatMap((s) => [s.a, s.b, s.when, s.ref]),
+      ...custom.drivers.flatMap((d) => [d.pin, d.high, d.low, d.when, d.ref]),
+      ...custom.sources.flatMap((s) => [s.pos, s.neg, ...(s.from ? [s.from] : [])]),
+      ...custom.gpio,
+      ...(custom.supply ? [custom.supply.pos, custom.supply.neg] : []),
+      ...(custom.sensor?.pin ? [custom.sensor.pin] : []),
+      ...(custom.actuator?.pin ? [custom.actuator.pin] : []),
+    ];
     const unknown = named.find((pin) => !custom.pins.includes(pin));
     if (unknown) issues.push({ severity: 'error', message: `${part.id} uses pin ${unknown}, which isn't in its pin list`, target: part.id });
+    if (custom.sensor && custom.sensor.max <= custom.sensor.min) issues.push({ severity: 'error', message: `${part.id}'s sensor range is empty`, target: part.id });
   }
+  return issues;
+}
+
+function scenarios(spec: CircuitSpec) {
+  const out: Array<{ incident?: Incident; when: string }> = [{ when: '' }];
+  for (const part of spec.parts) {
+    const sensor = part.custom?.sensor;
+    if (!sensor) continue;
+    for (const value of [sensor.min, sensor.max]) {
+      out.push({ incident: { type: 'set_reading', target: part.id, value }, when: ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}` });
+    }
+  }
+  return out.slice(0, 7);
+}
+
+function explore(spec: CircuitSpec) {
+  const burned = new Map<string, string>();
+  const overloads = new Map<string, string>();
+  const ran = new Set<string>();
+  for (const { incident, when } of scenarios(spec)) {
+    const run = new CircuitRun(spec, 1, true);
+    if (incident) run.inject(incident);
+    for (let i = 0; i < CHECK_TICKS; i++) {
+      run.step();
+      for (const part of spec.parts) if (isOutput(part) && run.isRunning(part)) ran.add(part.id);
+    }
+    for (const key of run.burned) {
+      const cause = run.burnCauses.get(key);
+      if (!burned.has(key)) burned.set(key, `${key} burns out${when || ' when powered'}${cause ? `: ${cause}` : ''}`);
+    }
+    for (const part of spec.parts) {
+      const overload = run.burned.has(part.id) || overloads.has(part.id) ? null : describeOverload(part, run);
+      if (overload) overloads.set(part.id, `${overload}${when}`);
+    }
+  }
+  return { burned, overloads, ran };
+}
+
+function validateCircuit(spec: CircuitSpec): Issue[] {
+  const issues = checkParts(spec);
   spec.wires.forEach((wire, i) => {
     for (const end of [wire.from, wire.to]) {
       if (!pinExists(spec, end)) issues.push({ severity: 'error', message: `${wireId(i)} connects to ${end}, which doesn't exist`, target: wireId(i) });
     }
   });
-  for (const drive of spec.drive) {
-    if (!pinExists(spec, drive.pin)) issues.push({ severity: 'error', message: `Program drives ${drive.pin}, which doesn't exist` });
-  }
+  issues.push(...checkProgram(spec));
   if (!spec.parts.some((p) => p.type === 'arduino' || p.type === 'battery' || p.custom?.sources.length)) {
     issues.push({ severity: 'error', message: 'There is no power source' });
   }
@@ -41,20 +120,20 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
     issues.push({ severity: 'warning', message: 'Nothing in this circuit does anything observable, so there is nothing to simulate', repair: true });
   }
 
-  const run = new CircuitRun(spec, 1);
-  for (let i = 0; i < 70; i++) run.step();
-  for (const key of run.burned) {
-    const cause = run.burnCauses.get(key);
-    issues.push({ severity: 'warning', message: `${key} burns out when powered${cause ? `: ${cause}` : ''}`, target: key.split('.')[0], repair: true });
-  }
+  const { burned, overloads, ran } = explore(spec);
+  for (const [key, message] of burned) issues.push({ severity: 'warning', message, target: key.split('.')[0], repair: true });
+  const shown = new Set(actionsOf(spec).flatMap((a) => ('show' in a ? [a.show] : [])));
+  const sensed = spec.parts.some((p) => p.custom?.sensor);
   for (const part of spec.parts) {
-    const overload = run.burned.has(part.id) ? null : describeOverload(part, run);
+    const overload = overloads.get(part.id);
     if (overload) {
       issues.push({ severity: 'warning', message: overload, target: part.id, repair: true });
-    } else if (isOutput(part) && !run.burned.has(part.id) && !run.isHealthy(part)) {
-      issues.push({ severity: 'warning', message: `${part.id} never turns on with this wiring`, target: part.id, repair: true });
+    } else if (isOutput(part) && !burned.has(part.id) && !ran.has(part.id)) {
+      const display = part.custom?.actuator?.quantity === 'text' && !shown.has(part.id);
+      const message = display ? `${part.id} is a display, but no program rule shows anything on it` : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}`;
+      issues.push({ severity: 'warning', message, target: part.id, repair: true });
     }
-    if (part.type === 'resistor' || part.type === 'led' || part.type === 'motor' || part.type === 'buzzer') {
+    if (TWO_PINS.has(part.type)) {
       const open = PINS[part.type].filter((pin) => !spec.wires.some((w) => w.from === `${part.id}.${pin}` || w.to === `${part.id}.${pin}`));
       if (open.length) issues.push({ severity: 'warning', message: `${part.id} has an unconnected pin: ${open.join(', ')}`, target: part.id });
     }
@@ -66,9 +145,9 @@ function describeOverload(part: Part, run: CircuitRun) {
   const reading = run.readings.get(part.id);
   if (!reading || reading.load <= 1) return null;
   const maxVolts = part.custom?.supply?.maxVolts;
-  if (maxVolts && reading.volts > maxVolts) {
-    return `${part.id} gets ${reading.volts.toFixed(1)} V, above its ${maxVolts} V maximum`;
-  }
+  if (maxVolts && reading.volts > maxVolts) return `${part.id} gets ${reading.volts.toFixed(1)} V, above its ${maxVolts} V maximum`;
+  const rated = part.volts ?? 6;
+  if (part.type === 'motor' && reading.volts > rated * 1.25) return `${part.id} gets ${reading.volts.toFixed(1)} V, too much for a ${rated} V motor`;
   if (part.type === 'resistor') return `${part.id} dissipates more than its ${reading.rated} rating`;
   return `${part.id} carries ${Math.round(reading.amps * 1000)} mA, above its ${reading.rated} rating`;
 }
@@ -115,7 +194,7 @@ function buildCircuit(prompt: string): CircuitSpec {
       const [a, b, out1, out2] = i === 0 ? ['IN1', 'IN2', 'OUT1', 'OUT2'] : ['IN3', 'IN4', 'OUT3', 'OUT4'];
       const high = `U1.${pins.shift()}`;
       const low = `U1.${pins.shift()}`;
-      parts.push({ id: `MOT${i + 1}`, type: 'motor' });
+      parts.push({ id: `MOT${i + 1}`, type: 'motor', volts: 9 });
       wire(high, `M1.${a}`);
       wire(low, `M1.${b}`);
       wire(`M1.${out1}`, `MOT${i + 1}.a`);
@@ -142,8 +221,10 @@ function buildCircuit(prompt: string): CircuitSpec {
 
 function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
-  const run = new CircuitRun(spec, 1);
-  for (let i = 0; i < 10; i++) run.step();
+  const sensor = spec.parts.find((p) => p.custom?.sensor && (spec.program ?? []).some((r) => r.if?.read === p.id));
+  if (sensor?.custom?.sensor) {
+    out.push({ claim: `If ${sensor.id} fails and reads ${sensor.custom.sensor.min}, the program acts on a false reading.`, incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min } });
+  }
   for (const part of spec.parts.filter(isOutput).slice(0, 2)) {
     const wire = wireTouching(spec, part.id);
     if (wire) out.push({ claim: `${part.id} depends on ${wire}: one loose wire takes it out.`, incident: { type: 'loose_wire', target: wire } });
@@ -151,7 +232,7 @@ function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const resistor = spec.parts.find((p) => p.type === 'resistor');
   if (resistor) out.push({ claim: `If ${resistor.id} shorts, nothing limits the current through its LED and pin.`, incident: { type: 'short_part', target: resistor.id } });
   const battery = spec.parts.find((p) => p.type === 'battery');
-  if (battery) out.push({ claim: `A sagging ${battery.id} drops the motors below their working voltage.`, incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 3 } });
+  if (battery) out.push({ claim: `A sagging ${battery.id} drops everything it powers below working voltage.`, incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 3 } });
   return out.slice(0, 3);
 }
 
@@ -167,6 +248,8 @@ function recoveries(spec: CircuitSpec, incident: Incident | undefined): Recovery
       return [{ author: 'Bench rules', title: `Reseat ${target}`, rationale: 'Reconnect the loose wire.', patches: [{ op: 'secure_wire', wire: target }] }];
     case 'low_supply':
       return [{ author: 'Bench rules', title: 'Fit a fresh battery', rationale: 'Restore the rated supply voltage.', patches: [{ op: 'set_volts', part: target, volts: spec.parts.find((p) => p.id === target)?.volts ?? 9 }] }];
+    case 'sensor_fault':
+      return [replace];
     case 'burn_part':
     case 'short_part':
       return limited ? [replace, limited] : [replace];
@@ -178,48 +261,60 @@ function recoveries(spec: CircuitSpec, incident: Incident | undefined): Recovery
 export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   id: 'electronics',
   label: 'Electronics',
-  blurb: 'Arduino projects and DC circuits, with real voltages and currents',
-  capabilities: 'DC power and wiring of any electronics project. Built-in parts cover Arduino-style boards, resistors, LEDs, buttons, buzzers, DC motors, H-bridge drivers, ultrasonic sensors and batteries, and any other component or board (servos, ESP32s, relays, displays, sensors, regulators, drivers) can be defined from its pins, electrical paths, voltage range and current rating. Solves voltages and currents, checks ratings and burns out overloaded parts.',
-  limits: ['DC only: no AC, capacitors, inductors or transients', 'Boards are assumed powered', 'Sketches are modelled as pin states, not real code', 'Custom parts model power and wiring, not their internal logic or signals', 'Motor back-EMF is ignored'],
+  blurb: 'Arduino projects and circuits, with real voltages, currents and sketch logic over time',
+  capabilities:
+    'Electronics projects of any kind. Built-in parts cover Arduino-style boards, resistors, capacitors, LEDs, buttons, buzzers, DC motors, H-bridge drivers, ultrasonic sensors and batteries, and any other component or board (servos, ESP32s, relays, displays, sensors, regulators, drivers) is defined from its pins, electrical paths, ratings, sensor reading or actuator output. Simulates over time: voltages and currents, PWM, capacitor charging, motor spin-up and back-EMF, board power and brownout, sensor readings, servo angles, display text and the sketch as rules that react to readings. Checks ratings and burns out overloaded parts.',
+  limits: ['Time runs in 1/12 s steps, so radio, audio and fast signal waveforms are averaged', 'Sketches are rules over readings and pin states, not compiled code', 'Mechanical load, heat and physical motion beyond rotation are not simulated'],
   examples: ['An Arduino with a motor driver, two motors and an ultrasonic sensor', 'A blinking LED wired to an Arduino with no resistor'],
   suggestions: ['What happens if the battery runs low?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
-  keywords: /arduino|circuit|breadboard|\bleds?\b|resistor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
+  keywords: /arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
   ticksPerSecond: 12,
   horizon: 300,
   seeds: 1,
   responseDelay: 10,
   specSchema: CircuitSpecSchema,
   specDoc: `{
-  "parts": [{"id": unique string, "type": type, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
+  "parts": [{"id": unique string, "type": type, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "farads"?: number, "usb"?: boolean, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
   "wires": [{"from": "PartId.pin", "to": "PartId.pin"}],
-  "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink", "period"?: ticks}]
+  "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink"|"pwm"|"angle", "value"?: number, "period"?: ticks}],
+  "program": [{"if"?: {"read": sensor id or "PartId.pin", "op": "<"|">"|"<="|">="|"=="|"!=", "value": number}, "then": [Action], "else"?: [Action]}]
 }
 Types and their pins:
 ${Object.entries(PINS).filter(([type]) => type !== 'custom').map(([type, pins]) => `${type}: ${pins.join(', ')}`).join('\n')}
-Give every motor, pump or fan its winding "ohms" and rated "maxAmps" for the voltage it runs at: a 12 V pump drawing 1 A is 12 ohms and maxAmps 1.5, a small 6 V hobby motor is 6 ohms and 1.2. Give every battery the "maxAmps" it can really supply: a 9 V PP3 is about 0.5, AA packs about 2, LiPo packs and 12 V adapters 3 to 10. Size it for everything it powers at once.
+Give every motor, pump or fan its rated "volts", winding "ohms" and rated "maxAmps": a 12 V pump drawing 1 A is volts 12, ohms 12, maxAmps 1.5; a small hobby motor is volts 6, ohms 6, maxAmps 1.2. Motors spin up over time and draw less once turning. Give every battery the "maxAmps" it can really supply: a 9 V PP3 is about 0.5, AA packs about 2, LiPo packs and 12 V adapters 3 to 10. Size it for everything it powers at once. A capacitor needs "farads" (100 uF is 0.0001) and charges and discharges over time.
+An arduino runs from USB unless its VIN is wired; through VIN it needs about 6 V or more or it browns out and resets. Set "usb": true on a board that is plugged into USB as well. A battery powers a board through VIN, never its 5V or 3V3 pins.
 motor_driver is only an L298N-style dual H-bridge; any other driver chip (A4988, DRV8825, TB6612, ULN2003) is custom.
 custom: any other component or board. Never leave out a component the user named: if it isn't a type above, define it with type "custom" and a "custom" object, using realistic datasheet values:
-{"label": name, "pins": [names], "paths": [{"a": pin, "b": pin, "ohms": number}], "switches": [{"a": pin, "b": pin, "ohms": number, "when": control pin, "ref": its reference pin, "aboveVolts": number}], "drivers": [{"pin": output pin, "high": pin, "low": pin, "when": control pin, "ref": its reference pin, "aboveVolts": number, "ohms": number, "invert": boolean}], "sources": [{"pos": pin, "neg": pin, "volts": number, "ohms": number}], "gpio": [pins the program can drive], "gpioVolts": number, "supply": {"pos": pin, "neg": pin, "minVolts": number, "maxVolts": number}, "maxAmps": number, "output": true if it does something observable, "visual": [{"shape": "box"|"cylinder"|"sphere", "size": [x,y,z], "at": [x,y,z], "color": "#rrggbb", "moves": true for a moving part}]}
-"paths" are its resistive paths: model what it draws as a path between its power pins (a part drawing 100 mA at 5 V is 50 ohms), and a pass-through such as a driver's power rail as a very low value. "switches" are paths that only conduct when a control pin is high, for relay contacts and transistors. A relay is {"a":"COM","b":"NO","ohms":0.05,"when":"IN","ref":"GND","aboveVolts":2}. "drivers" are outputs that swing between two rails from a control pin, for motor drivers, H-bridges and stepper drivers. A coil or motor needs its two ends on opposite rails, so give each pair one normal and one inverted output: {"pin":"1A","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1} and {"pin":"1B","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1,"invert":true}. "maxAmps" is the part's highest rated current, including what its outputs carry. "sources" are voltages it produces, such as a regulator or a board's 3.3 V rail. "visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. For another board such as an ESP32, use custom with sources for its rails and gpio for its pins. Use Part "custom" field only with type "custom".
-"drive" lists what the sketch does to each output pin, and every pin that controls something must appear in it, including motor driver IN and EN pins. Wire electrically real circuits: use a current-limiting resistor with LEDs (220 ohms is typical), drive motors through motor_driver with a battery on VS, and share ground between the board and any battery. A battery powers a board through VIN, never its 5V or 3V3 pins. Signals on bus and data pins (I2C, SPI, PWM, UART) aren't simulated, so never make a part's power depend on them: a servo driver passes its V+ power straight through to the servo with low-ohm "paths", and its outputs need no switches. Wire exactly what the user asks for, even if it is a mistake: the checks that follow will catch it. "unmodelled" is only for behaviour this can't capture, such as a servo's angle or a display's contents, never for leaving a part out.`,
-  incidentTypes: ['burn_part', 'short_part', 'loose_wire', 'low_supply'],
+{"label": name, "pins": [names], "paths": [{"a": pin, "b": pin, "ohms": number}], "switches": [{"a": pin, "b": pin, "ohms": number, "when": control pin, "ref": its reference pin, "aboveVolts": number}], "drivers": [{"pin": output pin, "high": pin, "low": pin, "when": control pin, "ref": its reference pin, "aboveVolts": number, "ohms": number, "invert": boolean}], "sources": [{"pos": pin, "neg": pin, "volts": number, "ohms": number, "from"?: input pin, "dropout"?: volts}], "gpio": [pins the program can drive], "gpioVolts": number, "supply": {"pos": pin, "neg": pin, "minVolts": number, "maxVolts": number}, "maxAmps": number, "output": true if it does something observable, "sensor"?: Sensor, "actuator"?: Actuator, "visual": [{"shape": "box"|"cylinder"|"sphere", "size": [x,y,z], "at": [x,y,z], "color": "#rrggbb", "moves": true for a moving part}]}
+"paths" are its resistive paths: model what it draws as a path between its power pins (a part drawing 100 mA at 5 V is 50 ohms), and a pass-through such as a driver's power rail as a very low value. "switches" are paths that only conduct when a control pin is high, for relay contacts and transistors. A relay is {"a":"COM","b":"NO","ohms":0.05,"when":"IN","ref":"GND","aboveVolts":2}. "drivers" are outputs that swing between two rails from a control pin, for motor drivers, H-bridges and stepper drivers. A coil or motor needs its two ends on opposite rails, so give each pair one normal and one inverted output: {"pin":"1A","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1} and {"pin":"1B","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1,"invert":true}. "maxAmps" is the part's highest rated current, including what its outputs carry. "sources" are voltages it produces, such as a board's 3.3 V rail; a regulator takes "from" its input pin and "dropout", so it fails when its input sags. For another board such as an ESP32, use custom with sources for its rails and gpio for its pins.
+Sensor: {"quantity": what it measures, "unit": "%"|"C"|"cm"|..., "min": number, "max": number, "value": a typical reading, "pin"?: its analog output pin}. With "pin" it outputs a voltage proportional to the reading (wire it to an analog pin); without, it is read over I2C, SPI or 1-wire by its id. Give it a "supply" so it only reads when powered.
+Actuator: {"quantity": "angle"|"speed"|"brightness"|"text", "pin"?: its control pin, "min": number, "max": number}. A servo is angle, min 0, max 180, on its signal pin, which the sketch drives with mode "angle" and value in degrees. A display (LCD, OLED, 7-segment) is text and shows what the program writes to it.
+"visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. Use Part "custom" field only with type "custom".
+"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop: every tick each rule checks its "if" and runs "then" or "else". Leave "if" out for a rule that always runs. An Action is {"pin": "U1.D9", "mode": ..., "value"?: number} or {"show": display id, "text": "Soil {S1}"}, where {S1} becomes that sensor's reading. Reading an arduino analog pin gives 0 to 1023, a digital pin 0 or 1, any other board's pin its voltage. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
+Wire electrically real circuits: use a current-limiting resistor with LEDs (220 ohms is typical), drive motors through a driver with a battery on its motor supply, and share ground between the board and any battery. A servo driver passes its V+ power straight through to the servo with low-ohm "paths". Wire exactly what the user asks for, even if it is a mistake: the checks that follow will catch it. "unmodelled" is only for behaviour none of this can represent, such as a radio link or a mechanical load, never for leaving a part out.`,
+  incidentTypes: ['burn_part', 'short_part', 'loose_wire', 'low_supply', 'sensor_fault', 'set_reading'],
   incidentDoc: `{"type":"burn_part","target":"D1"}
 {"type":"short_part","target":"R1"}
 {"type":"loose_wire","target":"W3"} (wires are numbered from W1 in spec order)
-{"type":"low_supply","target":"B1","value":volts}`,
+{"type":"low_supply","target":"B1","value":volts}
+{"type":"sensor_fault","target":"S1","value":the wrong reading it gets stuck at}
+{"type":"set_reading","target":"S1","value":reading} (a change in conditions, such as the soil drying out, not a failure)`,
   patchSchema: CircuitPatchSchema,
   patchDoc: `{"op":"set_ohms","part":"R1","ohms":number}
 {"op":"insert_resistor","wire":"W1","ohms":number}
 {"op":"set_volts","part":"B1","volts":number}
+{"op":"set_farads","part":"C1","farads":number}
+{"op":"set_usb","part":"U1","usb":boolean}
 {"op":"replace_part","part":"D1"}
 {"op":"secure_wire","wire":"W3"}
 {"op":"rewire","wire":"W3","from":"PartId.pin","to":"PartId.pin"}
-{"op":"set_drive","pin":"U1.D13","mode":"high"|"low"|"blink","period":ticks}
+{"op":"set_drive","pin":"U1.D13","mode":"high"|"low"|"blink"|"pwm"|"angle","value"?:number,"period"?:ticks}
+{"op":"set_program","program":[Rule]} (replaces the whole program)
 A burned part stays dead until replace_part, and that includes the board (use its part id) if a pin burned. Combine patches when a fix needs both a replacement and a design change.`,
   council: [
     { name: 'CircuitDesigner', brief: 'current limiting, wiring and part values' },
     { name: 'PowerEngineer', brief: 'supply voltage, current budget and motor power' },
-    { name: 'BenchTechnician', brief: 'replacing or reseating what actually failed' },
+    { name: 'FirmwareEngineer', brief: 'the sketch logic, sensor handling and fail-safe behaviour' },
   ],
   compile: (spec) => spec,
   validate: validateCircuit,
@@ -228,6 +323,7 @@ A burned part stays dead until replace_part, and that includes the board (use it
       parts: spec.parts,
       wires: spec.wires.map((w, i) => `${wireId(i)}: ${w.from} -> ${w.to}`),
       drive: spec.drive,
+      program: spec.program ?? [],
     }),
   createRun: (spec, seed) => new CircuitRun(spec, seed),
   variants: (spec) =>

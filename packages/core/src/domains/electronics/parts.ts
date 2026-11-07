@@ -1,9 +1,25 @@
 import { z } from 'zod';
 
-const PART_TYPES = ['arduino', 'battery', 'resistor', 'led', 'button', 'motor', 'motor_driver', 'ultrasonic', 'buzzer', 'custom'] as const;
+const PART_TYPES = ['arduino', 'battery', 'resistor', 'capacitor', 'led', 'button', 'motor', 'motor_driver', 'ultrasonic', 'buzzer', 'custom'] as const;
 export type PartType = (typeof PART_TYPES)[number];
 
 const SupplySchema = z.object({ pos: z.string(), neg: z.string(), minVolts: z.number().nonnegative(), maxVolts: z.number().positive() });
+
+export const SensorSchema = z.object({
+  quantity: z.string().min(1).max(30),
+  unit: z.string().max(10).default(''),
+  min: z.number(),
+  max: z.number(),
+  value: z.number().optional(),
+  pin: z.string().optional(),
+});
+
+export const ActuatorSchema = z.object({
+  quantity: z.enum(['angle', 'speed', 'brightness', 'text']),
+  pin: z.string().optional(),
+  min: z.number().default(0),
+  max: z.number().default(180),
+});
 
 export const CustomPartSchema = z.object({
   label: z.string().min(1).max(40),
@@ -42,6 +58,8 @@ export const CustomPartSchema = z.object({
         neg: z.string(),
         volts: z.number().positive().max(60),
         ohms: z.number().positive().default(1),
+        from: z.string().optional(),
+        dropout: z.number().nonnegative().optional(),
       }),
     )
     .default([]),
@@ -50,6 +68,8 @@ export const CustomPartSchema = z.object({
   supply: SupplySchema.optional(),
   maxAmps: z.number().positive().optional(),
   output: z.boolean().default(false),
+  sensor: SensorSchema.optional(),
+  actuator: ActuatorSchema.optional(),
   visual: z
     .array(
       z.object({
@@ -71,10 +91,30 @@ export const PartSchema = z.object({
   ohms: z.number().positive().optional(),
   volts: z.number().positive().max(48).optional(),
   maxAmps: z.number().positive().max(100).optional(),
+  farads: z.number().positive().max(10).optional(),
+  usb: z.boolean().optional(),
   color: z.enum(['red', 'yellow', 'green', 'blue', 'white']).optional(),
   custom: CustomPartSchema.optional(),
 });
 export type Part = z.infer<typeof PartSchema>;
+
+export const ActionSchema = z.union([
+  z.object({
+    pin: z.string(),
+    mode: z.enum(['high', 'low', 'blink', 'pwm', 'angle']),
+    value: z.number().optional(),
+    period: z.number().int().min(2).max(200).optional(),
+  }),
+  z.object({ show: z.string(), text: z.string().max(60) }),
+]);
+export type Action = z.infer<typeof ActionSchema>;
+
+export const RuleSchema = z.object({
+  if: z.object({ read: z.string(), op: z.enum(['<', '>', '<=', '>=', '==', '!=']), value: z.number() }).optional(),
+  then: z.array(ActionSchema).min(1).max(8),
+  else: z.array(ActionSchema).max(8).optional(),
+});
+export type Rule = z.infer<typeof RuleSchema>;
 
 export const CircuitSpecSchema = z.object({
   parts: z.array(PartSchema).min(1).max(30),
@@ -83,11 +123,13 @@ export const CircuitSpecSchema = z.object({
     .array(
       z.object({
         pin: z.string(),
-        mode: z.enum(['high', 'low', 'blink']),
+        mode: z.enum(['high', 'low', 'blink', 'pwm', 'angle']),
+        value: z.number().optional(),
         period: z.number().int().min(2).max(200).optional(),
       }),
     )
     .default([]),
+  program: z.array(RuleSchema).max(20).optional(),
 });
 export type CircuitSpec = z.infer<typeof CircuitSpecSchema>;
 
@@ -100,6 +142,7 @@ export const PINS: Record<PartType, string[]> = {
   arduino: ['5V', '3V3', 'GND', 'VIN', ...GPIO],
   battery: ['pos', 'neg'],
   resistor: ['a', 'b'],
+  capacitor: ['a', 'b'],
   led: ['anode', 'cathode'],
   button: ['a', 'b'],
   motor: ['a', 'b'],
@@ -111,11 +154,13 @@ export const PINS: Record<PartType, string[]> = {
 
 export const pinsOf = (part: Part) => (part.type === 'custom' ? (part.custom?.pins ?? []) : PINS[part.type]);
 
+export const withUnit = (value: number, unit: string) => `${Math.round(value * 10) / 10}${!unit || /^[%°]/.test(unit) ? '' : ' '}${unit}`;
+
 export const FORWARD_VOLTS = { red: 1.9, yellow: 2.0, green: 2.2, blue: 3.0, white: 3.0 };
 
 const OUTPUTS: PartType[] = ['led', 'motor', 'buzzer', 'ultrasonic'];
 
-export const isOutput = (part: Part) => OUTPUTS.includes(part.type) || Boolean(part.custom?.output);
+export const isOutput = (part: Part) => OUTPUTS.includes(part.type) || Boolean(part.custom?.output || part.custom?.actuator);
 
 export const LIMITS: Partial<Record<PartType, { rated: number; burn: number }>> = {
   battery: { rated: 1, burn: 2.5 },

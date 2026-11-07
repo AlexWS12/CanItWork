@@ -10,7 +10,7 @@ Built at SharkByte 2026.
 
 | Domain | Simulator | View |
 |---|---|---|
-| Electronics | Solves DC circuits for real voltages and currents, checks ratings and burns out overloaded parts | Workbench with boards, parts and live wires |
+| Electronics | Simulates circuits and sketches over time: voltages and currents, PWM, capacitors, motor spin-up, board brownout, sensor readings, servo angles and display text, with ratings that burn out overloaded parts | Workbench with boards, parts, live wires and live readings |
 | Software systems | Traffic, capacity, latency, retries, timeouts and cascading failures | Racks, databases and queues with live packets |
 | Databases | Query cost, indexes, data growth, locks and broken dependencies | Table cards with keys and relationships |
 | Warehouses | Robots, routing, conveyors, charging and order flow | 3D warehouse floor |

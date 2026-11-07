@@ -511,6 +511,12 @@ p {
   color: var(--cargo);
 }
 
+p.limits {
+  width: fit-content;
+  cursor: help;
+  text-decoration: underline dotted;
+}
+
 .tag[data-engine='gemini'] {
   color: #8ab4ff;
   border-color: #8ab4ff66;
@@ -976,6 +982,13 @@ p {
   border: 1px solid color-mix(in srgb, var(--tag) 40%, transparent);
   pointer-events: none;
   user-select: none;
+}
+
+.screen-tag {
+  font-size: 12px;
+  padding: 3px 8px;
+  background: #052e16;
+  letter-spacing: 0.04em;
 }
 
 .scene-tag[data-failed='true'] {
