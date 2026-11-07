@@ -44,10 +44,10 @@ The three domains:
 
 Tests:
 
-- `packages/core/test/domains.test.ts` covers software and database. Its "meets the platform contract" block runs automatically for every registered domain, new ones included.
+- `packages/core/test/software.test.ts` and `database.test.ts` cover those domains. `contract.test.ts` runs automatically for every registered domain, new ones included.
 - `packages/core/test/sim.test.ts` covers the warehouse compiler and simulator.
 - `warehouse-layout.test.ts`, `software-zones.test.ts` and `database-partitions.test.ts` cover the new layout features.
-- All 130 tests pass on `nickolas/domain-layouts`.
+- All 138 tests pass on `nickolas/domain-layouts`.
 
 ## 2. Decisions made and rationale
 
