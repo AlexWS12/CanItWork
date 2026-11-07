@@ -474,6 +474,8 @@ export class CircuitRun implements Run {
     const sag = this.sag.get(part.id);
     const limit = sag !== undefined ? Math.min(sag, source.volts) : source.volts;
     if (!source.from) return limit;
+    // A board whose regulator input isn't wired runs from USB, like an Arduino with nothing on VIN.
+    if (part.custom?.gpio.length && part.usb !== false && !this.wired.has(`${part.id}.${source.from}`)) return limit;
     const input = this.volt(`${part.id}.${source.from}`) - this.volt(`${part.id}.${source.neg}`);
     return clamp(input - (source.dropout ?? 0), 0, limit);
   }

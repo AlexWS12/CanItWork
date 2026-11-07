@@ -50,6 +50,20 @@ function checkProgram(spec: CircuitSpec): Issue[] {
       issues.push({ severity: 'error', message: `The program can't read "${expr}": ${(error as Error).message}` });
     }
   };
+  // Reading a sensor by its id already gives its own unit; scaling that by 1023 is a raw-ADC conversion applied twice.
+  const exprs = [...(spec.program ?? []).flatMap((r) => [r.when]), ...actionsOf(spec).flatMap((a) => ('to' in a ? [a.to] : 'value' in a ? [a.value] : []))];
+  for (const expr of exprs) {
+    if (typeof expr !== 'string' || !/\b102[34](\.0+)?\b/.test(expr)) continue;
+    for (const id of sensorIds) {
+      if (!new RegExp(`(^|[^.\\w])${id}(?![.\\w])`).test(expr)) continue;
+      const sensor = sensorOf(spec.parts.find((p) => p.id === id)!)!;
+      issues.push({
+        severity: 'warning',
+        message: `"${expr}" converts ${id} from 0-1023, but reading ${id} by its id already gives ${sensor.unit || 'its own unit'} (${sensor.min} to ${sensor.max}); use ${id} directly`,
+        repair: true,
+      });
+    }
+  }
   for (const rule of spec.program ?? []) {
     const read = rule.if?.read;
     if (read && !sensorIds.has(read) && !pinExists(spec, read)) issues.push({ severity: 'error', message: `The program reads ${read}, which isn't a sensor or a pin` });
@@ -299,8 +313,22 @@ export function runTests(spec: CircuitSpec) {
   return { passed, total: spec.tests?.length ?? 0, failures };
 }
 
+const hasLogic = (spec: CircuitSpec) =>
+  spec.parts.some((p) => p.custom?.state || [...(p.custom?.drivers ?? []), ...(p.custom?.switches ?? [])].some((c) => !pinsOf(p).includes(c.when)));
+
 function checkTests(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
+  const inputs = spec.parts.filter(isInput);
+  if (!spec.tests?.length && !spec.program?.length && (hasLogic(spec) || inputs.length) && spec.parts.some(isOutput)) {
+    const rows = Math.min(16, 2 ** Math.max(1, inputs.length));
+    return [
+      {
+        severity: 'warning',
+        message: `This circuit has ${inputs.length ? 'inputs' : 'logic'} but no behaviour tests, so nothing confirms it does what was asked. Add "tests" with ${rows === 16 && inputs.length > 4 ? 'the 16 most telling' : `all ${rows}`} input combinations, each listing every output as on or off`,
+        repair: true,
+      },
+    ];
+  }
   const ids = new Set(spec.parts.map((p) => p.id));
   const settable = new Set(spec.parts.filter((p) => sensorOf(p)).map((p) => p.id));
   for (const test of spec.tests ?? []) {

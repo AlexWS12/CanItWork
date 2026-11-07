@@ -48,6 +48,11 @@ const selfTested = (n: number): Check => [
 ];
 const nodes = (s: Spec): Array<{ kind: string; label: string }> => s.nodes ?? [];
 const tables = (s: Spec): Array<{ name: string; rows: number }> => s.tables ?? [];
+// Flow-network domains: how many units of a kind the design has (count, default 1, summed over nodes).
+const units = (kind: string) => (s: Spec) => (s.nodes ?? []).filter((n: { kind: string }) => n.kind === kind).reduce((a: number, n: { count?: number }) => a + (n.count ?? 1), 0);
+const kind = (k: string): Check => [k, (s) => units(k)(s) > 0];
+const atLeast = (k: string, n: number): Check => [`${n}+ ${k}`, (s) => units(k)(s) >= n];
+const exactly = (k: string, n: number): Check => [`${n} ${k}`, (s) => units(k)(s) === n];
 
 const CASES: Case[] = [
   // Electronics: standalone circuits a student would build, most with no microcontroller.
@@ -189,6 +194,46 @@ const CASES: Case[] = [
     prompt: 'An orders table with 5 million rows that is slow to query by customer',
     checks: [['orders 5M', (s) => tables(s).some((t) => /order/i.test(t.name) && t.rows >= 4_000_000)]],
   },
+  // Flow-network domains (PR #17). Cases for a domain that isn't installed are skipped.
+  { id: 'h-er', domain: 'hospital', prompt: 'An ER with 3 triage nurses, 30 beds and one CT scanner', checks: [exactly('triage', 3), atLeast('er', 30), exactly('imaging', 1)] },
+  { id: 'h-full', domain: 'hospital', prompt: 'A hospital with an ICU that keeps filling up', checks: [kind('icu'), kind('triage')] },
+  { id: 'a-gates', domain: 'airport', prompt: 'An airport with two runways and 20 gates', checks: [exactly('runway', 2), exactly('gates', 20)] },
+  { id: 'c-agents', domain: 'callcenter', prompt: 'A customer support call center with an IVR menu and 25 agents', checks: [kind('ivr'), exactly('agents', 25)] },
+  { id: 'f-car', domain: 'factory', prompt: 'A car factory with welding, painting and final assembly', checks: [kind('welding'), kind('paint'), kind('assembly')] },
+  {
+    id: 'p-grid',
+    domain: 'power',
+    prompt: 'A power grid with a gas plant, a solar farm and two substations feeding a city',
+    checks: [kind('gas'), kind('solar'), atLeast('substation', 2), kind('city')],
+  },
+  {
+    id: 'sc-ports',
+    domain: 'supply',
+    prompt: 'A supply chain from two suppliers through a port to five retail stores',
+    checks: [atLeast('supplier', 2), kind('port'), atLeast('store', 5)],
+  },
+  {
+    id: 'wt-city',
+    domain: 'water',
+    prompt: 'A city water system with a reservoir, a treatment plant and a water tower',
+    checks: [kind('reservoir'), kind('treatment'), kind('tank')],
+  },
+  // Routing collisions: words that belong to another domain's vocabulary.
+  { id: 'x-flights-app', domain: 'software', prompt: 'A web app for booking airline flights with a payment service and a database', checks: [] },
+  {
+    id: 'x-patients-db',
+    domain: 'database',
+    prompt: 'A clinic database schema with patients, doctors and appointments',
+    checks: [['patients table', (s) => tables(s).some((t) => /patient/i.test(t.name))]],
+  },
+  { id: 'x-solar-circuit', domain: 'electronics', prompt: 'A small solar panel charging a battery through a diode, lighting an LED', checks: [] },
+  { id: 'x-pump-arduino', domain: 'electronics', prompt: 'An Arduino that runs a water pump when the tank level sensor reads low', checks: [] },
+  {
+    id: 'x-factory-conveyor',
+    domain: 'factory',
+    prompt: 'A production line with CNC machines, inspection and packing',
+    checks: [kind('machine'), kind('inspection'), kind('packing')],
+  },
   // Warehouse
   {
     id: 'w-basic',
@@ -211,7 +256,16 @@ const CASES: Case[] = [
 ];
 
 const filters = process.argv.slice(2);
-const chosen = filters.length ? CASES.filter((c) => filters.some((f) => c.id === f || c.domain === f)) : CASES;
+const { DOMAINS } = await import('@tv/core');
+const installed = CASES.filter((c) => c.domain in DOMAINS);
+const chosen = filters.length
+  ? installed.filter((c) =>
+      filters.some(
+        (f) =>
+          c.id === f || c.domain === f || (f === 'new' && !['electronics', 'software', 'database', 'warehouse'].includes(c.domain)) || (f === 'routing' && c.id.startsWith('x-')),
+      ),
+    )
+  : installed;
 const BUDGET_USD = Number(process.env.EVAL_BUDGET_USD ?? 0.5);
 const before = totals().usd;
 
@@ -243,7 +297,8 @@ async function runCase(c: Case) {
   return {
     id: c.id,
     prompt: c.prompt,
-    passed: Boolean(spec) && env?.domain === c.domain && results.every((r) => r.ok),
+    // A design shipped with checks still failing is a failure, whatever parts it has.
+    passed: Boolean(spec) && env?.domain === c.domain && results.every((r) => r.ok) && !env?.unmodelled.some((u) => u.startsWith('Still failing')),
     domain: env?.domain,
     wanted: c.domain,
     seconds: (Date.now() - started) / 1000,
@@ -269,7 +324,16 @@ const workers = Array.from({ length: Number(process.env.EVAL_CONCURRENCY ?? 3) }
     const c = queue.shift()!;
     const r = await runCase(c);
     out.push(r);
-    const why = r.passed ? '' : r.refusal ? `refused: ${r.refusal.slice(0, 160)}` : r.domain !== r.wanted ? `routed to ${r.domain}` : `missing: ${r.failed.join(', ')}`;
+    const still = r.unmodelled?.filter((u) => u.startsWith('Still failing')) ?? [];
+    const why = r.passed
+      ? ''
+      : still.length && !r.failed.length
+        ? still.join('; ').slice(0, 220)
+        : r.refusal
+          ? `refused: ${r.refusal.slice(0, 160)}`
+          : r.domain !== r.wanted
+            ? `routed to ${r.domain}`
+            : `missing: ${r.failed.join(', ')}`;
     console.log(`${r.passed ? 'PASS' : 'FAIL'} ${r.id.padEnd(14)} ${r.calls} calls $${r.usd.toFixed(4)} ${r.seconds.toFixed(0)}s  ${why}`);
     if (!r.passed && r.parts.length) console.log(`     parts: ${r.parts.join(' ')}`);
   }

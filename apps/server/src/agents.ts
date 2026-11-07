@@ -30,7 +30,7 @@ import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } f
 export type Emit = (event: StreamEvent) => void;
 type Step = ReturnType<typeof stepper>;
 
-const MAX_REPAIRS = 2;
+const MAX_REPAIRS = 3;
 const DOMAIN_IDS = domainList().map((d) => d.id) as [DomainId, ...DomainId[]];
 
 // Starting points for Jev's routing; tune them with `npm run eval:interpreter`.
