@@ -65,12 +65,7 @@ function num(value: unknown): number | null {
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
 
-async function complete(
-  route: Route,
-  model: string,
-  messages: Array<{ role: string; content: string }>,
-  feature: string,
-): Promise<{ text: string; usage: Usage }> {
+async function complete(route: Route, model: string, messages: Array<{ role: string; content: string }>, feature: string): Promise<{ text: string; usage: Usage }> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     authorization: `Bearer ${route.key}`,
@@ -134,7 +129,10 @@ async function completeWithRetry(...args: Parameters<typeof complete>) {
 }
 
 function extractJson(text: string): unknown {
-  const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
+  const trimmed = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/```$/, '');
   const start = trimmed.search(/[[{]/);
   const end = Math.max(trimmed.lastIndexOf('}'), trimmed.lastIndexOf(']'));
   if (start < 0 || end < start) throw new Error('No JSON found in model reply');
@@ -175,11 +173,7 @@ export async function chatJson<S extends z.ZodTypeAny>(opts: {
       const repair = await complete(
         route,
         model,
-        [
-          ...messages,
-          { role: 'assistant', content: first.text },
-          { role: 'user', content: `That JSON was invalid: ${problem}. Reply with corrected JSON only.` },
-        ],
+        [...messages, { role: 'assistant', content: first.text }, { role: 'user', content: `That JSON was invalid: ${problem}. Reply with corrected JSON only.` }],
         `${opts.feature}-repair`,
       );
       opts.onUsage(repair.usage);

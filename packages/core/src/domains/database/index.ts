@@ -22,7 +22,8 @@ function validateSchema(spec: DatabaseSpec): Issue[] {
       }
     }
     for (const index of t.indexes) {
-      for (const name of index) if (!t.columns.some((c) => c.name === name)) issues.push({ severity: 'error', message: `Index on ${t.name} uses ${name}, which doesn't exist`, target: t.name });
+      for (const name of index)
+        if (!t.columns.some((c) => c.name === name)) issues.push({ severity: 'error', message: `Index on ${t.name} uses ${name}, which doesn't exist`, target: t.name });
     }
   }
   for (const query of spec.workload) {
@@ -31,10 +32,13 @@ function validateSchema(spec: DatabaseSpec): Issue[] {
       issues.push({ severity: 'error', message: `Query ${query.name} uses table ${query.table}, which doesn't exist` });
       continue;
     }
-    for (const name of query.where) if (!t.columns.some((c) => c.name === name)) issues.push({ severity: 'error', message: `Query ${query.name} filters on ${query.table}.${name}, which doesn't exist` });
+    for (const name of query.where)
+      if (!t.columns.some((c) => c.name === name)) issues.push({ severity: 'error', message: `Query ${query.name} filters on ${query.table}.${name}, which doesn't exist` });
     for (const join of query.joins) {
-      if (!table(join.table)?.columns.some((c) => c.name === join.foreign)) issues.push({ severity: 'error', message: `Query ${query.name} joins on ${join.table}.${join.foreign}, which doesn't exist` });
-      if (!t.columns.some((c) => c.name === join.local)) issues.push({ severity: 'error', message: `Query ${query.name} joins from ${query.table}.${join.local}, which doesn't exist` });
+      if (!table(join.table)?.columns.some((c) => c.name === join.foreign))
+        issues.push({ severity: 'error', message: `Query ${query.name} joins on ${join.table}.${join.foreign}, which doesn't exist` });
+      if (!t.columns.some((c) => c.name === join.local))
+        issues.push({ severity: 'error', message: `Query ${query.name} joins from ${query.table}.${join.local}, which doesn't exist` });
     }
   }
   if (issues.some((i) => i.severity === 'error')) return issues;
@@ -52,7 +56,12 @@ function validateSchema(spec: DatabaseSpec): Issue[] {
   run.step();
   for (const query of spec.workload) {
     const state = run.queries.get(query.name);
-    if (state && !state.ok) issues.push({ severity: 'warning', message: `${query.name} misses its budget at ${Math.round(state.latency)} ms${state.scanned ? ', and it scans a whole table' : ''}`, target: query.table });
+    if (state && !state.ok)
+      issues.push({
+        severity: 'warning',
+        message: `${query.name} misses its budget at ${Math.round(state.latency)} ms${state.scanned ? ', and it scans a whole table' : ''}`,
+        target: query.table,
+      });
   }
   return issues;
 }
@@ -101,7 +110,10 @@ function hypotheses(spec: DatabaseSpec): Hypothesis[] {
     const table = spec.tables.find((t) => t.name === query.table);
     const column = query.where.find((c) => table?.indexes.some((ix) => ix[0] === c));
     if (!table || !column) continue;
-    out.push({ claim: `${query.name} relies on the index on ${table.name}.${column}: without it, it falls to a full scan.`, incident: { type: 'drop_index', target: `${table.name}.${column}` } });
+    out.push({
+      claim: `${query.name} relies on the index on ${table.name}.${column}: without it, it falls to a full scan.`,
+      incident: { type: 'drop_index', target: `${table.name}.${column}` },
+    });
     break;
   }
   const biggest = [...spec.tables].sort((a, b) => b.rows - a.rows)[0];
@@ -117,11 +129,28 @@ function recoveries(spec: DatabaseSpec, incident: Incident | undefined): Recover
   const replica = { author: 'Capacity rules', title: 'Add a read replica', rationale: 'Double the capacity for reads.', patches: [{ op: 'add_replica' }] };
   switch (incident?.type) {
     case 'drop_index':
-      return [{ author: 'Schema rules', title: `Rebuild the index on ${target}`, rationale: 'Put the index back so reads can seek.', patches: [{ op: 'add_index', table: tableName, columns: [column] }] }, replica];
+      return [
+        {
+          author: 'Schema rules',
+          title: `Rebuild the index on ${target}`,
+          rationale: 'Put the index back so reads can seek.',
+          patches: [{ op: 'add_index', table: tableName, columns: [column] }],
+        },
+        replica,
+      ];
     case 'drop_column':
-      return [{ author: 'Schema rules', title: `Restore ${target}`, rationale: 'Queries and foreign keys still depend on it.', patches: [{ op: 'restore_column', table: tableName, column }] }];
+      return [
+        {
+          author: 'Schema rules',
+          title: `Restore ${target}`,
+          rationale: 'Queries and foreign keys still depend on it.',
+          patches: [{ op: 'restore_column', table: tableName, column }],
+        },
+      ];
     case 'lock_table':
-      return [{ author: 'Operations rules', title: `Release the lock on ${tableName}`, rationale: 'Let blocked queries through.', patches: [{ op: 'unlock_table', table: tableName }] }];
+      return [
+        { author: 'Operations rules', title: `Release the lock on ${tableName}`, rationale: 'Let blocked queries through.', patches: [{ op: 'unlock_table', table: tableName }] },
+      ];
     case 'row_surge': {
       const unindexed = spec.workload.flatMap((q) => {
         const t = spec.tables.find((x) => x.name === q.table);
@@ -129,10 +158,16 @@ function recoveries(spec: DatabaseSpec, incident: Incident | undefined): Recover
         return col ? [{ op: 'add_index', table: q.table, columns: [col] }] : [];
       });
       const options = [
-        { author: 'Data rules', title: `Archive old ${tableName} rows`, rationale: 'Shrink the table back down.', patches: [{ op: 'archive_rows', table: tableName, fraction: 0.8 }] },
+        {
+          author: 'Data rules',
+          title: `Archive old ${tableName} rows`,
+          rationale: 'Shrink the table back down.',
+          patches: [{ op: 'archive_rows', table: tableName, fraction: 0.8 }],
+        },
         replica,
       ];
-      if (unindexed.length) options.unshift({ author: 'Schema rules', title: 'Index every filtered column', rationale: 'Seeks barely notice growth; scans do.', patches: unindexed });
+      if (unindexed.length)
+        options.unshift({ author: 'Schema rules', title: 'Index every filtered column', rationale: 'Seeks barely notice growth; scans do.', patches: unindexed });
       return options;
     }
     default:
@@ -144,7 +179,8 @@ export const database: Domain<DatabaseSpec, DatabaseSpec> = {
   id: 'database',
   label: 'Databases',
   blurb: 'Relational schemas with keys, indexes and a query workload',
-  capabilities: 'Relational schemas: tables, columns, primary and foreign keys, indexes, row counts and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load and how they change with data growth.',
+  capabilities:
+    'Relational schemas: tables, columns, primary and foreign keys, indexes, row counts and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load and how they change with data growth.',
   limits: ['Costs are estimates from a simple scan and seek model, not a real query planner', 'No transactions, isolation or replication lag', 'Relational schemas only'],
   examples: ['A university database with students, courses, instructors and enrollments'],
   suggestions: ['What happens if the enrollments table grows ten times?', 'What happens if a migration locks the busiest table?', 'Which queries need an index?'],

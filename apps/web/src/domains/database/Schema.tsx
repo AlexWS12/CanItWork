@@ -133,7 +133,10 @@ function Card({ table, at }: { table: Table; at: THREE.Vector3 }) {
       run.locked.has(table.name),
       [...run.droppedColumns].join(),
       Math.round((run.tableLoad.get(table.name) ?? 0) / 100),
-      run.spec.workload.filter((q) => q.table === table.name).map((q) => run.queries.get(q.name)?.scanned).join(),
+      run.spec.workload
+        .filter((q) => q.table === table.name)
+        .map((q) => run.queries.get(q.name)?.scanned)
+        .join(),
     ].join('|');
     if (signature !== last.current) {
       last.current = signature;
@@ -178,7 +181,10 @@ function Relations({ spec, positions }: { spec: DatabaseSpec; positions: Map<str
         const rowZ = (t: Table, origin: THREE.Vector3, i: number) => origin.z - cardHeight(t) / 2 + HEADER + (i + 0.5) * ROW;
         const side = b.x >= a.x ? 1 : -1;
         const start = new THREE.Vector3(a.x + (side * WIDTH) / 2, 0.18, rowZ(table, a, index));
-        const target = Math.max(0, parent.columns.findIndex((c) => c.name === ref.column));
+        const target = Math.max(
+          0,
+          parent.columns.findIndex((c) => c.name === ref.column),
+        );
         const sameColumn = Math.abs(a.x - b.x) < 0.1;
         const end = new THREE.Vector3(b.x + (sameColumn ? (side * WIDTH) / 2 : (-side * WIDTH) / 2), 0.18, rowZ(parent, b, target));
         const reach = sameColumn ? 2.2 : Math.max(1.2, Math.abs(end.x - start.x) / 2);

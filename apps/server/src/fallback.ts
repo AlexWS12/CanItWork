@@ -8,10 +8,7 @@ export function routePrompt(prompt: string): DomainId | null {
 }
 
 export type RuleIntent =
-  | { intent: 'patch'; patches: unknown[]; reply: string }
-  | { intent: 'inject' | 'whatif'; incident: Incident }
-  | { intent: 'optimize' }
-  | { intent: 'answer' };
+  { intent: 'patch'; patches: unknown[]; reply: string } | { intent: 'inject' | 'whatif'; incident: Incident } | { intent: 'optimize' } | { intent: 'answer' };
 
 function matchIncident(text: string, options: Breakable[]) {
   const scored = options

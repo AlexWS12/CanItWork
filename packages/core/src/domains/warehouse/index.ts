@@ -27,7 +27,10 @@ export class WarehouseRun implements Run {
   readonly sim: Sim;
   readonly log: TimedEvent[] = [];
 
-  constructor(readonly world: World, seed: number) {
+  constructor(
+    readonly world: World,
+    seed: number,
+  ) {
     this.sim = new Sim(world, seed);
   }
 
@@ -271,23 +274,47 @@ export const warehouse: Domain<WorldSpec, World> = {
     },
     recoveries(_, incident) {
       const spare = { author: 'Capacity rules', title: 'Bring a spare robot online', rationale: 'Restore fleet capacity and rebalance zones.', patches: [{ op: 'add_robot' }] };
-      const pooled = { author: 'Dispatch rules', title: 'Switch to pooled dispatch', rationale: 'Let any free robot take any order.', patches: [{ op: 'set_policy', dispatch: 'pooled' }] };
+      const pooled = {
+        author: 'Dispatch rules',
+        title: 'Switch to pooled dispatch',
+        rationale: 'Let any free robot take any order.',
+        patches: [{ op: 'set_policy', dispatch: 'pooled' }],
+      };
       if (incident?.type === 'fail_robot') {
         return [
-          { author: 'Dispatch rules', title: 'Split the zone across survivors', rationale: 'Hand the failed robot\'s shelves to the remaining fleet.', patches: [{ op: 'reassign_zone', fromRobotId: incident.target }] },
+          {
+            author: 'Dispatch rules',
+            title: 'Split the zone across survivors',
+            rationale: "Hand the failed robot's shelves to the remaining fleet.",
+            patches: [{ op: 'reassign_zone', fromRobotId: incident.target }],
+          },
           pooled,
           spare,
         ];
       }
       if (incident?.type === 'block_conveyor') {
         return [
-          { author: 'Reliability rules', title: 'Hand packages straight to the sorter', rationale: 'Robots bypass the belt.', patches: [{ op: 'set_policy', conveyorBypass: true }] },
-          { author: 'Reliability rules', title: 'Bypass with pooled dispatch', rationale: 'Combine the hand-off with pooled dispatch.', patches: [{ op: 'set_policy', conveyorBypass: true, dispatch: 'pooled' }] },
+          {
+            author: 'Reliability rules',
+            title: 'Hand packages straight to the sorter',
+            rationale: 'Robots bypass the belt.',
+            patches: [{ op: 'set_policy', conveyorBypass: true }],
+          },
+          {
+            author: 'Reliability rules',
+            title: 'Bypass with pooled dispatch',
+            rationale: 'Combine the hand-off with pooled dispatch.',
+            patches: [{ op: 'set_policy', conveyorBypass: true, dispatch: 'pooled' }],
+          },
           spare,
         ];
       }
       if (incident?.type === 'offline_charger') {
-        return [{ author: 'Reliability rules', title: 'Lower the charge threshold', rationale: 'Keep robots working longer.', patches: [{ op: 'set_policy', chargeThreshold: 0.1 }] }, pooled, spare];
+        return [
+          { author: 'Reliability rules', title: 'Lower the charge threshold', rationale: 'Keep robots working longer.', patches: [{ op: 'set_policy', chargeThreshold: 0.1 }] },
+          pooled,
+          spare,
+        ];
       }
       return [pooled, spare];
     },

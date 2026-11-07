@@ -294,13 +294,30 @@ export class SystemRun implements Run {
   breakables(): Breakable[] {
     const out: Breakable[] = [];
     const add = (node: SystemNode | undefined, verb: string, type: string, value?: number) => {
-      if (node) out.push({ label: `${verb} ${node.label ?? node.id}`, incident: { type, target: node.id, value }, keywords: [node.id.toLowerCase(), (node.label ?? '').toLowerCase(), node.kind, verb.toLowerCase()].filter(Boolean) });
+      if (node)
+        out.push({
+          label: `${verb} ${node.label ?? node.id}`,
+          incident: { type, target: node.id, value },
+          keywords: [node.id.toLowerCase(), (node.label ?? '').toLowerCase(), node.kind, verb.toLowerCase()].filter(Boolean),
+        });
     };
     const live = this.spec.nodes.filter((n) => !this.states.get(n.id)?.down);
-    add(live.find((n) => n.kind === 'database'), 'Kill', 'node_down');
-    add(live.find((n) => n.kind === 'service'), 'Kill', 'node_down');
+    add(
+      live.find((n) => n.kind === 'database'),
+      'Kill',
+      'node_down',
+    );
+    add(
+      live.find((n) => n.kind === 'service'),
+      'Kill',
+      'node_down',
+    );
     add(live.find((n) => n.kind === 'external') ?? live.filter((n) => n.kind === 'service')[1], 'Slow', 'node_slow', 5);
-    add(live.find((n) => n.kind === 'cache'), 'Flush', 'cache_flush');
+    add(
+      live.find((n) => n.kind === 'cache'),
+      'Flush',
+      'cache_flush',
+    );
     out.push({ label: 'Traffic ×3', incident: { type: 'traffic_spike', value: 3 }, keywords: ['traffic', 'spike', 'surge', 'load', 'double'] });
     return out.slice(0, 5);
   }

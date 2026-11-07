@@ -48,7 +48,10 @@ button {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 6px 11px;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 }
 
 button:hover:not(:disabled) {

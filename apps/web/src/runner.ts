@@ -58,7 +58,10 @@ class Runner {
       breakables: run.breakables(),
       running: this.running,
       speed: this.speed,
-      history: run.evaluation().series.slice(-60).map((p) => p.value),
+      history: run
+        .evaluation()
+        .series.slice(-60)
+        .map((p) => p.value),
     });
   }
 

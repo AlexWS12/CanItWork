@@ -24,8 +24,7 @@ export function mockFetch(handler: (url: string, init: RequestInit) => Response,
   return calls;
 }
 
-export const ask = (usage: Usage[] = []) =>
-  chatJson({ system: 's', user: 'u', schema, feature: 'test', onUsage: (u) => usage.push(u) });
+export const ask = (usage: Usage[] = []) => chatJson({ system: 's', user: 'u', schema, feature: 'test', onUsage: (u) => usage.push(u) });
 
 export function isolateEnv() {
   beforeEach(() => {

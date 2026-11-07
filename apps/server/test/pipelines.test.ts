@@ -63,7 +63,20 @@ describe('agent pipelines', () => {
   it('sends a rejected design back to the Architect once, then builds the fix', async () => {
     process.env.GEMINI_API_KEY = 'g';
     const route = { domain: 'database', reason: 'A schema', closest: null };
-    const bad = { tables: [{ name: 'a', rows: 10, columns: [{ name: 'id', type: 'int', primary: true }, { name: 'b_id', type: 'int', references: { table: 'ghost', column: 'id' } }], indexes: [] }], workload: [] };
+    const bad = {
+      tables: [
+        {
+          name: 'a',
+          rows: 10,
+          columns: [
+            { name: 'id', type: 'int', primary: true },
+            { name: 'b_id', type: 'int', references: { table: 'ghost', column: 'id' } },
+          ],
+          indexes: [],
+        },
+      ],
+      workload: [],
+    };
     const good = { tables: [{ name: 'a', rows: 10, columns: [{ name: 'id', type: 'int', primary: true }], indexes: [] }], workload: [] };
     const drafts = [bad, good];
     const bodies: string[] = [];
@@ -83,9 +96,20 @@ describe('agent pipelines', () => {
 
   it('asks the Architect to fix outputs that can never turn on', async () => {
     process.env.GEMINI_API_KEY = 'g';
-    const parts = [{ id: 'U1', type: 'arduino' }, { id: 'D1', type: 'led' }, { id: 'R1', type: 'resistor', ohms: 220 }];
-    const wires = [{ from: 'U1.D13', to: 'R1.a' }, { from: 'R1.b', to: 'D1.anode' }, { from: 'D1.cathode', to: 'U1.GND' }];
-    const drafts = [{ parts, wires, drive: [] }, { parts, wires, drive: [{ pin: 'U1.D13', mode: 'high' }] }];
+    const parts = [
+      { id: 'U1', type: 'arduino' },
+      { id: 'D1', type: 'led' },
+      { id: 'R1', type: 'resistor', ohms: 220 },
+    ];
+    const wires = [
+      { from: 'U1.D13', to: 'R1.a' },
+      { from: 'R1.b', to: 'D1.anode' },
+      { from: 'D1.cathode', to: 'U1.GND' },
+    ];
+    const drafts = [
+      { parts, wires, drive: [] },
+      { parts, wires, drive: [{ pin: 'U1.D13', mode: 'high' }] },
+    ];
     const bodies: string[] = [];
     mockFetch((_, init) => {
       const body = String(init.body);

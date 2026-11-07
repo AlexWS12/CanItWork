@@ -32,12 +32,7 @@ const DOMAIN_IDS = domainList().map((d) => d.id) as [DomainId, ...DomainId[]];
 
 function stepper(emit: Emit) {
   let n = 0;
-  return async function step<T>(
-    agent: AgentId,
-    engine: Engine,
-    title: string,
-    work: (setDetail: (d: string) => void) => Promise<T>,
-  ): Promise<T> {
+  return async function step<T>(agent: AgentId, engine: Engine, title: string, work: (setDetail: (d: string) => void) => Promise<T>): Promise<T> {
     const id = `${agent}-${++n}`;
     emit({ type: 'step', id, agent, engine, title, status: 'running' });
     await new Promise((resolve) => setImmediate(resolve));
@@ -163,13 +158,23 @@ async function architect(prompt: string, domain: Domain, emit: Emit, step: Step)
   }
   try {
     return await step('architect', 'gemini', 'Designing the environment', async (detail) => {
-      const draft = (await chatJson({ feature: 'architect', model: architectModel(), schema: draftSchema(domain), onUsage: onUsage(emit), system: architectPrompt(domain), user: prompt })) as Draft;
+      const draft = (await chatJson({
+        feature: 'architect',
+        model: architectModel(),
+        schema: draftSchema(domain),
+        onUsage: onUsage(emit),
+        system: architectPrompt(domain),
+        user: prompt,
+      })) as Draft;
       detail(draft.name);
       return draft;
     });
   } catch (error) {
     if (error instanceof ShieldBlock) throw error;
-    emit({ type: 'refusal', refusal: { reason: "The design step failed, so I haven't built anything rather than show you the wrong thing. Please try again.", closest: domain.id } });
+    emit({
+      type: 'refusal',
+      refusal: { reason: "The design step failed, so I haven't built anything rather than show you the wrong thing. Please try again.", closest: domain.id },
+    });
     return null;
   }
 }
@@ -183,7 +188,12 @@ async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, 
     });
   const redTeam = redTeamModel();
   if (!swarmsConfigured(redTeam)) return rules();
-  const schema = z.object({ hypotheses: z.array(z.object({ claim: z.string(), incident: IncidentSchema })).min(1).max(3) });
+  const schema = z.object({
+    hypotheses: z
+      .array(z.object({ claim: z.string(), incident: IncidentSchema }))
+      .min(1)
+      .max(3),
+  });
   return orRules(
     () =>
       step('redteam', 'swarms', 'Attacking the design', async (detail) => {
@@ -231,7 +241,14 @@ export async function build(prompt: string, emit: Emit) {
   const check = (candidate: Draft) => domain.validate(domain.compile(candidate.spec));
   let issues = await step('validator', 'simulator', 'Checking the design', async (detail) => {
     const found = check(draft);
-    detail(found.length ? found.map((i) => i.message).slice(0, 4).join('; ') : 'No problems found');
+    detail(
+      found.length
+        ? found
+            .map((i) => i.message)
+            .slice(0, 4)
+            .join('; ')
+        : 'No problems found',
+    );
     return found;
   });
   const errorsOf = () => issues.filter((i) => i.severity === 'error').map((i) => i.message);
@@ -242,21 +259,32 @@ export async function build(prompt: string, emit: Emit) {
     const found = toRepair();
     draft = await orRules(
       () =>
-        step('architect', 'gemini', 'Fixing what the checks found', async () =>
-          (await chatJson({
-            feature: 'architect-repair',
-            model: architectModel(),
-            schema: draftSchema(domain),
-            onUsage: onUsage(emit),
-            system: architectPrompt(domain),
-            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Keep a flaw only if the user explicitly asked for it.`,
-          })) as Draft,
+        step(
+          'architect',
+          'gemini',
+          'Fixing what the checks found',
+          async () =>
+            (await chatJson({
+              feature: 'architect-repair',
+              model: architectModel(),
+              schema: draftSchema(domain),
+              onUsage: onUsage(emit),
+              system: architectPrompt(domain),
+              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Keep a flaw only if the user explicitly asked for it.`,
+            })) as Draft,
         ),
       async () => previous,
     );
     issues = await step('validator', 'simulator', 'Rechecking the design', async (detail) => {
       const result = check(draft);
-      detail(result.length ? result.map((i) => i.message).slice(0, 4).join('; ') : 'No problems found');
+      detail(
+        result.length
+          ? result
+              .map((i) => i.message)
+              .slice(0, 4)
+              .join('; ')
+          : 'No problems found',
+      );
       return result;
     });
   }
@@ -274,7 +302,14 @@ export async function build(prompt: string, emit: Emit) {
     detail(`${result.score} ${result.scoreLabel}`);
     return result;
   });
-  const claims = await hypotheses(domain, model, baseline, issues.map((i) => i.message), emit, step);
+  const claims = await hypotheses(
+    domain,
+    model,
+    baseline,
+    issues.map((i) => i.message),
+    emit,
+    step,
+  );
   const findings = await step('simulator', 'simulator', 'Testing each claim', async (detail) => {
     const tested = claims.map((c) => testClaim(domain, model, baseline, c));
     detail(`${tested.filter((f) => f.verdict === 'confirmed').length} of ${tested.length} confirmed`);
@@ -382,7 +417,8 @@ export async function recover(input: LiveState, emit: Emit) {
         feature: 'analyst',
         schema: z.object({ summary: z.string() }),
         onUsage: onUsage(emit),
-        system: 'You are the Analyst. Explain in two plain sentences why the winning recovery beat the others. Use only the numbers provided. Reply with JSON only: {"summary":"..."}',
+        system:
+          'You are the Analyst. Explain in two plain sentences why the winning recovery beat the others. Use only the numbers provided. Reply with JSON only: {"summary":"..."}',
         user: JSON.stringify({
           incident,
           measure: unit,

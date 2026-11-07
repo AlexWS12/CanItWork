@@ -53,9 +53,7 @@ describe('LLM gateway', () => {
   it('falls back to the direct key when Prune is down', async () => {
     process.env.PRUNE_API_KEY = 'prune_test';
     process.env.GEMINI_API_KEY = 'g';
-    const calls = mockFetch((url) =>
-      url.includes('withprune') ? new Response('down', { status: 503 }) : json(openAiReply('{"ok":true}')),
-    );
+    const calls = mockFetch((url) => (url.includes('withprune') ? new Response('down', { status: 503 }) : json(openAiReply('{"ok":true}'))));
     const usage: Usage[] = [];
     expect(await ask(usage)).toEqual({ ok: true });
     expect(calls).toHaveLength(2);
@@ -74,9 +72,7 @@ describe('LLM gateway', () => {
     process.env.GEMINI_API_KEY = 'g';
     vi.useFakeTimers();
     let n = 0;
-    mockFetch(() =>
-      n++ ? json(openAiReply('{"ok":true}')) : new Response('{"error":{"code":429,"details":[{"retryDelay":"3s"}]}}', { status: 429 }),
-    );
+    mockFetch(() => (n++ ? json(openAiReply('{"ok":true}')) : new Response('{"error":{"code":429,"details":[{"retryDelay":"3s"}]}}', { status: 429 })));
     const pending = ask();
     await vi.advanceTimersByTimeAsync(3000);
     expect(await pending).toEqual({ ok: true });
@@ -108,5 +104,4 @@ describe('LLM gateway', () => {
     mockFetch(() => json(openAiReply('```json\n{"ok":true}\n```')));
     expect(await ask()).toEqual({ ok: true });
   });
-
 });

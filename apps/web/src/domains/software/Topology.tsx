@@ -76,7 +76,13 @@ function NodeBody({ node }: { node: SystemNode }) {
     case 'client':
       return (
         <group>
-          {[[-0.6, -0.4], [0.5, -0.5], [0, 0.45], [-0.75, 0.55], [0.8, 0.4]].map(([x, z], i) => (
+          {[
+            [-0.6, -0.4],
+            [0.5, -0.5],
+            [0, 0.45],
+            [-0.75, 0.55],
+            [0.8, 0.4],
+          ].map(([x, z], i) => (
             <mesh key={i} position={[x, 0.4, z]} castShadow>
               <capsuleGeometry args={[0.2, 0.35, 6, 12]} />
               <meshStandardMaterial color="#9fb3d4" />

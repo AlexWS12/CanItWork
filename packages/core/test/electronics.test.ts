@@ -4,11 +4,7 @@ import { CircuitRun, DOMAINS, evaluate, type CircuitSpec } from '../src';
 const { electronics } = DOMAINS;
 
 const ledCircuit = (ohms: number | null, extra: Partial<CircuitSpec> = {}): CircuitSpec => ({
-  parts: [
-    { id: 'U1', type: 'arduino' },
-    { id: 'D1', type: 'led', color: 'red' },
-    ...(ohms ? [{ id: 'R1', type: 'resistor' as const, ohms }] : []),
-  ],
+  parts: [{ id: 'U1', type: 'arduino' }, { id: 'D1', type: 'led', color: 'red' }, ...(ohms ? [{ id: 'R1', type: 'resistor' as const, ohms }] : [])],
   wires: ohms
     ? [
         { from: 'U1.D13', to: 'R1.a' },
@@ -296,7 +292,22 @@ describe('electronics', () => {
   it('lets a custom board power and drive things at its own logic level', () => {
     const spec: CircuitSpec = {
       parts: [
-        { id: 'E1', type: 'custom', custom: { label: 'ESP32', pins: ['3V3', 'GND', 'IO2'], paths: [], switches: [], drivers: [], sources: [{ pos: '3V3', neg: 'GND', volts: 3.3, ohms: 0.5 }], gpio: ['IO2'], gpioVolts: 3.3, output: false, visual: [] } },
+        {
+          id: 'E1',
+          type: 'custom',
+          custom: {
+            label: 'ESP32',
+            pins: ['3V3', 'GND', 'IO2'],
+            paths: [],
+            switches: [],
+            drivers: [],
+            sources: [{ pos: '3V3', neg: 'GND', volts: 3.3, ohms: 0.5 }],
+            gpio: ['IO2'],
+            gpioVolts: 3.3,
+            output: false,
+            visual: [],
+          },
+        },
         { id: 'R1', type: 'resistor', ohms: 220 },
         { id: 'D1', type: 'led', color: 'red' },
       ],
@@ -401,10 +412,7 @@ describe('electronics', () => {
 
   it('names the root cause when a battery is overloaded, and lets a bigger pack fix it', () => {
     const spec = (maxAmps?: number): CircuitSpec => ({
-      parts: [
-        { id: 'B1', type: 'battery', volts: 6, maxAmps },
-        ...['M1', 'M2', 'M3', 'M4'].map((id) => ({ id, type: 'motor' as const, volts: 6 })),
-      ],
+      parts: [{ id: 'B1', type: 'battery', volts: 6, maxAmps }, ...['M1', 'M2', 'M3', 'M4'].map((id) => ({ id, type: 'motor' as const, volts: 6 }))],
       wires: ['M1', 'M2', 'M3', 'M4'].flatMap((m) => [
         { from: 'B1.pos', to: `${m}.a` },
         { from: `${m}.b`, to: 'B1.neg' },
@@ -443,11 +451,18 @@ describe('electronics', () => {
   });
 
   it('flags a circuit where nothing does anything, so it gets redesigned', () => {
-    const spec: CircuitSpec = { parts: [{ id: 'U1', type: 'arduino' }, { id: 'B1', type: 'battery' }], wires: [], drive: [] };
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'U1', type: 'arduino' },
+        { id: 'B1', type: 'battery' },
+      ],
+      wires: [],
+      drive: [],
+    };
     expect(electronics.validate(spec).some((i) => i.repair && i.message.includes('Nothing in this circuit'))).toBe(true);
   });
 
-  it('solves an LED and resistor to the current Ohm\'s law predicts', () => {
+  it("solves an LED and resistor to the current Ohm's law predicts", () => {
     const run = runFor(ledCircuit(220), 3);
     expect(run.readings.get('D1')!.amps).toBeCloseTo((5 - 1.9) / (25 + 220 + 12), 3);
     expect(run.burned.size).toBe(0);

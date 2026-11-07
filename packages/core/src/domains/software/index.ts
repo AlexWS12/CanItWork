@@ -12,7 +12,7 @@ function validateSystem(spec: SystemSpec): Issue[] {
   if (!spec.nodes.some((n) => n.kind === 'client')) issues.push({ severity: 'error', message: 'Nothing sends traffic: add a client' });
   if (issues.length) return issues;
   if (topoOrder(spec).length !== spec.nodes.length) {
-    issues.push({ severity: 'error', message: 'The call graph has a cycle, which this model can\'t simulate' });
+    issues.push({ severity: 'error', message: "The call graph has a cycle, which this model can't simulate" });
     return issues;
   }
 
@@ -91,7 +91,12 @@ function recoveries(spec: SystemSpec, incident: Incident | undefined): RecoveryO
   const target = incident?.target ?? '';
   const node = spec.nodes.find((n) => n.id === target);
   const callers = spec.edges.filter((e) => e.to === target);
-  const stopRetries = { author: 'Resilience rules', title: 'Stop retrying', rationale: 'Retries multiply load on a struggling dependency.', patches: [{ op: 'set_retries', retries: 0 }] };
+  const stopRetries = {
+    author: 'Resilience rules',
+    title: 'Stop retrying',
+    rationale: 'Retries multiply load on a struggling dependency.',
+    patches: [{ op: 'set_retries', retries: 0 }],
+  };
   if (incident?.type === 'traffic_spike') {
     const busiest = spec.nodes.filter((n) => n.kind === 'service').map((n) => ({ op: 'scale', node: n.id, replicas: (n.replicas ?? 1) * 3 }));
     return [{ author: 'Capacity rules', title: 'Scale every service', rationale: 'Add replicas to absorb the spike.', patches: busiest }, stopRetries];
@@ -102,7 +107,12 @@ function recoveries(spec: SystemSpec, incident: Incident | undefined): RecoveryO
     stopRetries,
   ];
   if (callers.length) {
-    options.push({ author: 'Architecture rules', title: `Degrade gracefully without ${node.label ?? node.id}`, rationale: 'Treat the dependency as optional so callers keep working.', patches: callers.map((e) => ({ op: 'make_optional', from: e.from, to: e.to })) });
+    options.push({
+      author: 'Architecture rules',
+      title: `Degrade gracefully without ${node.label ?? node.id}`,
+      rationale: 'Treat the dependency as optional so callers keep working.',
+      patches: callers.map((e) => ({ op: 'make_optional', from: e.from, to: e.to })),
+    });
   }
   return options;
 }
@@ -111,8 +121,14 @@ export const software: Domain<SystemSpec, SystemSpec> = {
   id: 'software',
   label: 'Software systems',
   blurb: 'Services, databases, caches and queues under live traffic',
-  capabilities: 'Distributed software: clients, gateways, services, databases, caches, queues and external APIs. Simulates traffic, capacity, latency, retries, timeouts, retry storms and how failures cascade.',
-  limits: ['Models request volume, not individual requests or business logic', 'The call graph must have no cycles', 'No data consistency or partition modelling', 'Latency comes from a simple queueing estimate'],
+  capabilities:
+    'Distributed software: clients, gateways, services, databases, caches, queues and external APIs. Simulates traffic, capacity, latency, retries, timeouts, retry storms and how failures cascade.',
+  limits: [
+    'Models request volume, not individual requests or business logic',
+    'The call graph must have no cycles',
+    'No data consistency or partition modelling',
+    'Latency comes from a simple queueing estimate',
+  ],
   examples: ['A distributed payment system with an API gateway, payment service, card processor, database and event queue'],
   suggestions: ['What happens if the database goes down?', 'What happens if traffic triples?', 'Where is the single point of failure?'],
   keywords: /microservice|distributed|payment system|architecture|load balancer|kubernetes|backend|api gateway|message queue|\bkafka\b|services? (and|with|that)|web app/i,

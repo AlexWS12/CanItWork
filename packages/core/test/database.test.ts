@@ -5,7 +5,15 @@ const { database } = DOMAINS;
 
 const shop = (): DatabaseSpec => ({
   tables: [
-    { name: 'users', rows: 100000, columns: [{ name: 'id', type: 'bigint', primary: true }, { name: 'email', type: 'text' }], indexes: [] },
+    {
+      name: 'users',
+      rows: 100000,
+      columns: [
+        { name: 'id', type: 'bigint', primary: true },
+        { name: 'email', type: 'text' },
+      ],
+      indexes: [],
+    },
     {
       name: 'orders',
       rows: 5000000,
@@ -65,7 +73,7 @@ describe('database', () => {
     expect(database.validate(missing).some((i) => i.severity === 'error' && i.message.includes("doesn't exist"))).toBe(true);
     const mismatch = shop();
     mismatch.tables[1].columns[1].type = 'text';
-    expect(database.validate(mismatch).some((i) => i.severity === 'error' && i.message.includes('references text') || i.message.includes('is text'))).toBe(true);
+    expect(database.validate(mismatch).some((i) => (i.severity === 'error' && i.message.includes('references text')) || i.message.includes('is text'))).toBe(true);
   });
 
   it('points out a table with no primary key and an unindexed foreign key', () => {
