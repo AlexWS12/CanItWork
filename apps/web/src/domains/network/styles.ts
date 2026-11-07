@@ -89,6 +89,17 @@ export const NET_STYLES: Partial<Record<DomainId, NetStyle>> = {
       departure: { shape: 'crowd', color: '#7fbf8f' },
     },
   },
+  queues: {
+    flow: '#fbbf24',
+    kinds: {
+      arrivals: { shape: 'crowd', color: '#9fb3d4' },
+      check: { shape: 'desk', color: '#6f8fbf' },
+      station: { shape: 'desk', color: '#5f8fbf' },
+      lane: { shape: 'strip', color: '#3a4152' },
+      elevator: { shape: 'tower', color: '#8fa3bf' },
+      exit: { shape: 'crowd', color: '#7fbf8f' },
+    },
+  },
   callcenter: {
     flow: '#5eead4',
     kinds: {

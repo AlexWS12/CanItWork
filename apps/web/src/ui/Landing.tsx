@@ -1,5 +1,5 @@
 import { DOMAINS, domainList, type DomainId } from '@tv/core';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
 import { Building } from './Building';
@@ -7,12 +7,43 @@ import './Landing.css';
 
 const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
+const HARDWARE: DomainId[] = ['electronics'];
+const SOFTWARE: DomainId[] = ['software', 'database'];
+const groupOf = (id: DomainId) => (HARDWARE.includes(id) ? 0 : SOFTWARE.includes(id) ? 1 : 2);
+
 // One example each from hardware, software and operations, so three prompts still show the range
 function featuredExamples() {
-  const hardware = domainList().filter((d) => d.id === 'electronics');
-  const software = domainList().filter((d) => d.id === 'software' || d.id === 'database');
-  const operations = domainList().filter((d) => !hardware.includes(d) && !software.includes(d));
-  return [hardware, software, operations].filter((group) => group.length).map((group) => pick(pick(group).examples));
+  const groups: Array<ReturnType<typeof domainList>> = [[], [], []];
+  for (const d of domainList()) groups[groupOf(d.id)].push(d);
+  return groups.filter((group) => group.length).map((group) => pick(pick(group).examples));
+}
+
+// The server lists prompts it can rebuild from verified designs: they open instantly and cost no model calls, so they are featured when there is one for each group.
+function useFeatured() {
+  const [featured, setFeatured] = useState(featuredExamples);
+  useEffect(() => {
+    let live = true;
+    fetch('/api/examples')
+      .then((res) => (res.ok ? (res.json() as Promise<{ examples?: Array<{ prompt: string; domain: DomainId }> }>) : null))
+      .then((body) => {
+        const verified = body?.examples ?? [];
+        if (!live || !verified.length) return;
+        const fallback = featuredExamples();
+        setFeatured(
+          [0, 1, 2]
+            .map((group, i) => {
+              const options = verified.filter((v) => v.domain in DOMAINS && groupOf(v.domain) === group);
+              return options.length ? pick(options).prompt : fallback[i];
+            })
+            .filter(Boolean),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return featured;
 }
 
 function Refusal() {
@@ -34,7 +65,7 @@ function Refusal() {
 
 export function Landing() {
   const [text, setText] = useState('');
-  const [featured] = useState(featuredExamples);
+  const featured = useFeatured();
   const [selected, setSelected] = useState<DomainId | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const building = useStore((s) => s.building);

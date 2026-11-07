@@ -2,7 +2,8 @@ import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
 import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
-import { compile, namesIn, type Expr } from './sketch';
+import { netsOf } from './nets';
+import { aliasPins, compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
 const TIMED_CHECK_TICKS = 720;
@@ -10,7 +11,7 @@ const TARGET_SHARE = 80;
 const RESPONSE_TICKS = 24;
 const WARMUP_TICKS = 20;
 const SUSTAINED_TICKS = 10;
-const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer']);
+const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer', 'diode', 'ldr', 'thermistor']);
 
 const pinExists = (spec: CircuitSpec, key: string) => {
   const [id, pin] = key.split('.');
@@ -50,6 +51,20 @@ function checkProgram(spec: CircuitSpec): Issue[] {
       issues.push({ severity: 'error', message: `The program can't read "${expr}": ${(error as Error).message}` });
     }
   };
+  // Reading a sensor by its id already gives its own unit; scaling that by 1023 is a raw-ADC conversion applied twice.
+  const exprs = [...(spec.program ?? []).flatMap((r) => [r.when]), ...actionsOf(spec).flatMap((a) => ('to' in a ? [a.to] : 'value' in a ? [a.value] : []))];
+  for (const expr of exprs) {
+    if (typeof expr !== 'string' || !/\b102[34](\.0+)?\b/.test(expr)) continue;
+    for (const id of sensorIds) {
+      if (!new RegExp(`(^|[^.\\w])${id}(?![.\\w])`).test(expr)) continue;
+      const sensor = sensorOf(spec.parts.find((p) => p.id === id)!)!;
+      issues.push({
+        severity: 'warning',
+        message: `"${expr}" converts ${id} from 0-1023, but reading ${id} by its id already gives ${sensor.unit || 'its own unit'} (${sensor.min} to ${sensor.max}); use ${id} directly`,
+        repair: true,
+      });
+    }
+  }
   for (const rule of spec.program ?? []) {
     const read = rule.if?.read;
     if (read && !sensorIds.has(read) && !pinExists(spec, read)) issues.push({ severity: 'error', message: `The program reads ${read}, which isn't a sensor or a pin` });
@@ -85,6 +100,19 @@ function checkWorld(spec: CircuitSpec): Issue[] {
     for (const effect of q.effects) {
       if (!spec.parts.some((p) => p.id === effect.from)) issues.push({ severity: 'error', message: `${q.id} is changed by ${effect.from}, which isn't a part` });
     }
+    // A quantity that leaves its target on its own, with nothing able to push it back, can't be held by any control loop.
+    if (q.target && q.drift) {
+      // Drift and the pull toward ambient balance where drift + rate x (value - x) = 0.
+      const rest = Math.min(q.max, Math.max(q.min, q.toward ? q.toward.value + q.drift / q.toward.rate : q.drift < 0 ? q.min : q.max));
+      const leaves = q.drift < 0 ? rest < q.target.min : rest > q.target.max;
+      const counters = q.effects.some((e) => Math.sign(e.rate) === -Math.sign(q.drift!));
+      if (leaves && !counters)
+        issues.push({
+          severity: 'warning',
+          message: `${q.label} ${q.drift < 0 ? 'falls' : 'rises'} by ${Math.abs(q.drift)} ${q.unit}/s on its own and nothing in the circuit ${q.drift < 0 ? 'raises' : 'lowers'} it, so no program can keep it within ${q.target.min}-${q.target.max}. "drift" is change with every part off: a distance to a wall doesn't change by itself, so set drift 0 and let the motors' effects move it`,
+          repair: true,
+        });
+    }
   }
   for (const part of spec.parts) {
     if (!part.measures) continue;
@@ -106,11 +134,45 @@ function checkParts(spec: CircuitSpec): Issue[] {
       issues.push({ severity: 'error', message: `${part.id} is custom but has no definition`, target: part.id });
       continue;
     }
+    const isPin = (name: string) => custom.pins.includes(name);
+    const twice = custom.pins.filter((pin, i) => custom.pins.indexOf(pin) !== i);
+    if (twice.length)
+      issues.push({
+        severity: 'error',
+        message: `${part.id} lists pin ${[...new Set(twice)].join(', ')} more than once; every pin needs its own name (2Q and 2Qbar, not 2Q twice)`,
+        target: part.id,
+      });
+    const stateVars = new Set([...Object.keys(custom.state?.vars ?? {}), ...(custom.state?.rules ?? []).map((r) => r.set)]);
+    const checkLogic = (expr: Expr, where: string) => {
+      if (typeof expr === 'number') return;
+      try {
+        const aliased = aliasPins(expr, custom.pins);
+        for (const raw of namesIn(compile(aliased.source))) {
+          const name = aliased.unalias(raw);
+          const pin = name.startsWith('v.') ? name.slice(2) : name;
+          if (!isPin(pin) && !stateVars.has(name))
+            issues.push({
+              severity: 'error',
+              message: `${part.id}'s ${where} "${expr}" uses ${name}, which isn't one of its pins (${custom.pins.join(', ')}) or state variables${custom.gpio.length ? `. ${part.id} is a board: drive its pins from the "program" (list them in "gpio"), not with drivers` : ''}`,
+              target: part.id,
+            });
+        }
+      } catch (error) {
+        issues.push({ severity: 'error', message: `${part.id}'s ${where} "${expr}" can't be read: ${(error as Error).message}`, target: part.id });
+      }
+    };
+    for (const c of [...custom.switches, ...custom.drivers]) if (!isPin(c.when)) checkLogic(c.when, 'logic');
+    for (const rule of custom.state?.rules ?? []) {
+      if (rule.when) checkLogic(rule.when, 'state rule');
+      checkLogic(rule.to, 'state rule');
+    }
     const named = [
       ...custom.paths.flatMap((p) => [p.a, p.b]),
-      ...custom.switches.flatMap((s) => [s.a, s.b, s.when, s.ref]),
-      ...custom.drivers.flatMap((d) => [d.pin, d.high, d.low, d.when, d.ref]),
+      ...custom.switches.flatMap((s) => [s.a, s.b, ...(isPin(s.when) ? [s.when] : []), s.ref]),
+      ...custom.drivers.flatMap((d) => [d.pin, d.high, d.low, ...(isPin(d.when) ? [d.when] : []), d.ref]),
+      ...(custom.state ? [custom.state.ref, ...custom.state.rules.flatMap((r) => (r.edge ? [r.edge] : []))] : []),
       ...custom.sources.flatMap((s) => [s.pos, s.neg, ...(s.from ? [s.from] : [])]),
+      ...(custom.amplifiers ?? []).flatMap((a) => [a.out, a.plus, a.minus, a.high, a.low]),
       ...custom.gpio,
       ...(custom.supply ? [custom.supply.pos, custom.supply.neg] : []),
       ...(custom.sensor?.pin ? [custom.sensor.pin] : []),
@@ -123,16 +185,28 @@ function checkParts(spec: CircuitSpec): Issue[] {
   return issues;
 }
 
+const isInput = (part: Part) => part.type === 'button' || part.type === 'switch';
+
 function scenarios(spec: CircuitSpec) {
-  const out: Array<{ incident?: Incident; when: string; sensor?: string }> = [{ when: '' }];
+  const out: Array<{ incident?: Incident; also?: Incident[]; when: string; sensor?: string }> = [{ when: '' }];
+  const inputs = spec.parts.filter(isInput);
+  // Every input flipped at once, so outputs that need several inputs together (an AND gate, a carry bit) get a chance to turn on.
+  if (inputs.length > 1) {
+    const [first, ...rest] = inputs.map((p): Incident => ({ type: 'set_reading', target: p.id, value: p.closed ? 0 : 1 }));
+    out.push({ incident: first, also: rest, when: ` with every switch and button flipped` });
+  }
   for (const part of spec.parts) {
     const sensor = sensorOf(part);
     if (!sensor) continue;
-    for (const value of [sensor.min, sensor.max]) {
-      out.push({ incident: { type: 'set_reading', target: part.id, value }, when: ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}`, sensor: part.id });
+    const values = isInput(part) ? [part.closed ? 0 : 1] : [sensor.min, sensor.max];
+    for (const value of values) {
+      const when = isInput(part)
+        ? ` when ${part.id} is ${value ? (part.type === 'switch' ? 'on' : 'pressed') : 'off'}`
+        : ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}`;
+      out.push({ incident: { type: 'set_reading', target: part.id, value }, when, sensor: isInput(part) ? undefined : part.id });
     }
   }
-  return out.slice(0, 7);
+  return out.slice(0, 12);
 }
 
 function explore(spec: CircuitSpec) {
@@ -141,12 +215,12 @@ function explore(spec: CircuitSpec) {
   const ran = new Set<string>();
   const offTarget = new Map<string, string>();
   const targets = (spec.world ?? []).filter((q) => q.target);
-  const controls = spec.parts.flatMap((part) => (part.custom?.switches ?? []).map((sw) => ({ part, sw, reached: -Infinity })));
+  const controls = spec.parts.flatMap((part) => (part.custom?.switches ?? []).filter((sw) => pinsOf(part).includes(sw.when)).map((sw) => ({ part, sw, reached: -Infinity })));
   const responses = new Map<string, Array<{ value: number; pins: string }>>();
   const pinsRead = [...new Set((JSON.stringify(spec.program ?? []).match(/[A-Za-z_]\w*\.\w+/g) ?? []).filter((key) => pinExists(spec, key)))];
-  for (const { incident, when, sensor } of scenarios(spec)) {
+  for (const { incident, also, when, sensor } of scenarios(spec)) {
     const run = new CircuitRun(spec, 1, true);
-    if (incident) run.inject(incident);
+    for (const each of incident ? [incident, ...(also ?? [])] : []) run.inject(each);
     const over = new Map<string, { ticks: number; message: string }>();
     const ticks = !incident && (timed(spec) || targets.length) ? TIMED_CHECK_TICKS : CHECK_TICKS;
     const held = new Map<string, number>();
@@ -231,6 +305,162 @@ function explore(spec: CircuitSpec) {
   return { burned, overloads, ran, offTarget, stuck, deaf };
 }
 
+const TEST_TICKS = 24;
+
+// Follows a wrong output back to the chip output driving it, with that output's logic and the level each of its inputs had, so a repair knows where the logic breaks.
+function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
+  const { find, members } = netsOf(spec);
+  const part = spec.parts.find((p) => p.id === outputId);
+  if (!part) return '';
+  const nets = new Set(pinsOf(part).map((pin) => find(`${part.id}.${pin}`)));
+  // Step through series resistors, the usual LED current limiter.
+  for (const net of [...nets]) {
+    for (const key of members.get(net) ?? []) {
+      const [id, pin] = key.split('.');
+      const passive = spec.parts.find((p) => p.id === id && p.type === 'resistor');
+      if (passive && passive.id !== outputId) nets.add(find(`${id}.${pin === 'a' ? 'b' : 'a'}`));
+    }
+  }
+  const sourceOf = (key: string) =>
+    (members.get(find(key)) ?? []).find((k) => {
+      if (k === key) return false;
+      const [id, pin] = k.split('.');
+      const p = spec.parts.find((x) => x.id === id);
+      return p && (p.type === 'switch' || p.type === 'button' || p.custom?.drivers.some((d) => d.pin === pin));
+    });
+  const found: string[] = [];
+  for (const chip of spec.parts) {
+    for (const driver of chip.custom?.drivers ?? []) {
+      if (!nets.has(find(`${chip.id}.${driver.pin}`))) continue;
+      let inputs = '';
+      try {
+        const aliased = aliasPins(driver.when, pinsOf(chip));
+        const names = [...namesIn(compile(aliased.source))].map(aliased.unalias).filter((n) => pinsOf(chip).includes(n));
+        inputs = names
+          .map((n) => {
+            const level = run.voltsBetween(`${chip.id}.${n}`, `${chip.id}.${driver.ref}`) >= driver.aboveVolts ? 1 : 0;
+            const from = sourceOf(`${chip.id}.${n}`);
+            return `${n}=${level}${from ? ` from ${from}` : ' (unconnected)'}`;
+          })
+          .join(', ');
+      } catch {
+        inputs = '';
+      }
+      found.push(`${outputId} is driven by ${chip.id}.${driver.pin} = "${driver.when}"${inputs ? ` with ${inputs}` : ''}`);
+    }
+  }
+  // A transistor or relay in the output's path: is it closed, and what is its control pin getting?
+  for (const sw of spec.parts) {
+    for (const c of sw.custom?.switches ?? []) {
+      if (sw.id === outputId || !(nets.has(find(`${sw.id}.${c.a}`)) || nets.has(find(`${sw.id}.${c.b}`)))) continue;
+      if (!pinsOf(sw).includes(c.when)) continue;
+      const got = Math.round(run.voltsBetween(`${sw.id}.${c.when}`, `${sw.id}.${c.ref}`) * 100) / 100;
+      const closed = got >= c.aboveVolts;
+      const feed = (members.get(find(`${sw.id}.${c.when}`)) ?? []).filter((k) => !k.startsWith(`${sw.id}.`)).slice(0, 3);
+      found.push(
+        `${sw.id}'s ${c.a}-${c.b} switch is ${closed ? 'closed' : 'open'}: ${c.when} is ${got} V above ${c.ref}${closed ? '' : `, needs ${c.aboveVolts} V`}${feed.length ? `, and ${c.when} joins ${feed.join(', ')}` : ''}`,
+      );
+    }
+  }
+  if (found.length) return found.join('; ');
+  // No chip drives it: say what each of its pins is wired to and at what voltage, so a passive or sketch-driven circuit can be traced too.
+  const pins = pinsOf(part).map((pin) => {
+    const key = `${part.id}.${pin}`;
+    const others = (members.get(find(key)) ?? []).filter((k) => k !== key);
+    const volts = Math.round(run.voltsBetween(key, `${part.id}.${pinsOf(part).at(-1)}`) * 10) / 10;
+    return `${pin} (${volts} V) joins ${others.length ? others.slice(0, 4).join(', ') : 'nothing'}`;
+  });
+  return `${outputId}'s ${pins.join('; ')}`;
+}
+
+const LOGIC_HIGH = 2;
+
+// What a test entry names: a part that is running, a display segment that is lit, or any other pin that is high.
+function observed(spec: CircuitSpec, run: CircuitRun, id: string): boolean | null {
+  const part = spec.parts.find((p) => p.id === id);
+  if (part) return run.isRunning(part);
+  const [partId, pin] = id.split('.');
+  const owner = spec.parts.find((p) => p.id === partId);
+  if (!owner || !pin || !pinsOf(owner).includes(pin)) return null;
+  if (owner.type === 'seven_segment' && pin !== 'com') return run.litSegments(owner).includes(pin as never);
+  return run.read(id) >= LOGIC_HIGH;
+}
+
+// Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
+export function runTests(spec: CircuitSpec) {
+  const failures: string[] = [];
+  const traces: string[] = [];
+  let passed = 0;
+  // A test with no inputs on a clocked circuit only samples wherever the clock happens to be, so it proves nothing.
+  const clocked = spec.parts.some((p) => p.custom?.state) || Boolean(spec.program?.some((r) => r.every));
+  for (const [i, test] of (spec.tests ?? []).entries()) {
+    if (clocked && !Object.keys(test.set).length) continue;
+    const run = new CircuitRun(spec, 1, true);
+    for (const [target, value] of Object.entries(test.set)) run.inject({ type: 'set_reading', target, value });
+    for (let t = 0; t < TEST_TICKS; t++) run.step();
+    const bad: Array<[string, string]> = [
+      ...test.on.flatMap((id): Array<[string, string]> => (observed(spec, run, id) === false ? [[id, `${id} should be on but is off`]] : [])),
+      ...test.off.flatMap((id): Array<[string, string]> => (observed(spec, run, id) === true ? [[id, `${id} should be off but is on`]] : [])),
+    ];
+    if (!bad.length) {
+      passed++;
+      continue;
+    }
+    const inputs = Object.entries(test.set)
+      .map(([id, v]) => `${id}=${v}`)
+      .join(', ');
+    failures.push(`Test ${test.name ? `"${test.name}"` : i + 1} (${inputs || 'no inputs'}): ${bad.map(([, m]) => m).join(', ')}`);
+    if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0].split('.')[0])}`);
+  }
+  return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces };
+}
+
+const hasLogic = (spec: CircuitSpec) =>
+  spec.parts.some((p) => p.custom?.state || [...(p.custom?.drivers ?? []), ...(p.custom?.switches ?? [])].some((c) => !pinsOf(p).includes(c.when)));
+
+function checkTests(spec: CircuitSpec): Issue[] {
+  const issues: Issue[] = [];
+  const inputs = spec.parts.filter(isInput);
+  if (!spec.tests?.length && !spec.program?.length && inputs.length && spec.parts.some(isOutput)) {
+    const rows = Math.min(16, 2 ** Math.max(1, inputs.length));
+    return [
+      {
+        severity: 'warning',
+        message: `This circuit has ${inputs.length ? 'inputs' : 'logic'} but no behaviour tests, so nothing confirms it does what was asked. Add "tests" with ${rows === 16 && inputs.length > 4 ? 'the 16 most telling' : `all ${rows}`} input combinations, each listing every output as on or off`,
+        repair: true,
+      },
+    ];
+  }
+  const ids = new Set(spec.parts.map((p) => p.id));
+  // A test can set an input part or a world quantity (the room's temperature), as an incident can.
+  const settable = new Set([...spec.parts.filter((p) => sensorOf(p)).map((p) => p.id), ...(spec.world ?? []).map((q) => q.id)]);
+  for (const test of spec.tests ?? []) {
+    for (const id of Object.keys(test.set))
+      if (!settable.has(id)) issues.push({ severity: 'error', message: `A test sets ${id}, which isn't a switch, button, sensor or world quantity` });
+    for (const id of [...test.on, ...test.off])
+      if (!ids.has(id) && !pinExists(spec, id)) issues.push({ severity: 'error', message: `A test checks ${id}, which isn't a part or a part's pin` });
+  }
+  if (issues.length) return issues;
+  const wanted = 2 ** inputs.length;
+  // Only logic can make outputs depend on combinations of inputs; separate buttons each lighting their own LED need a row per input, not all 16.
+  if (!spec.program?.length && hasLogic(spec) && inputs.length && inputs.length <= 4 && (spec.tests?.length ?? 0) < wanted) {
+    issues.push({
+      severity: 'warning',
+      message: `There are ${inputs.length} inputs (${inputs.map((p) => p.id).join(', ')}) but only ${spec.tests?.length ?? 0} behaviour tests; list all ${wanted} combinations so every case is checked`,
+      repair: true,
+    });
+  }
+  const { failures, total, traces } = runTests(spec);
+  // Report a few in full, so a repair has concrete rows to fix without drowning in them.
+  if (failures.length)
+    issues.push({
+      severity: 'warning',
+      message: `${failures.length} of ${total} behaviour tests fail. ${failures.slice(0, 5).join('; ')}${failures.length > 5 ? `; and ${failures.length - 5} more` : ''}. ${traces.join('. ')}. Fix the wiring or the chip logic so every row passes`,
+      repair: true,
+    });
+  return issues;
+}
+
 function validateCircuit(spec: CircuitSpec): Issue[] {
   const issues = checkParts(spec);
   spec.wires.forEach((wire, i) => {
@@ -242,6 +472,8 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
   if (!spec.parts.some((p) => p.type === 'arduino' || p.type === 'battery' || p.custom?.sources.length)) {
     issues.push({ severity: 'error', message: 'There is no power source' });
   }
+  if (issues.some((i) => i.severity === 'error')) return issues;
+  issues.push(...checkTests(spec));
   if (issues.some((i) => i.severity === 'error')) return issues;
   if (!spec.parts.some(isOutput)) {
     issues.push({ severity: 'warning', message: 'Nothing in this circuit does anything observable, so there is nothing to simulate', repair: true });
@@ -444,7 +676,53 @@ function buildCircuit(prompt: string): CircuitSpec {
   return { parts, wires, drive };
 }
 
+// The behaviour-test row that turns on the most outputs: attacks from there show their damage, where the default state may have everything off.
+function busiestRow(spec: CircuitSpec) {
+  const rows = (spec.tests ?? []).filter((t) => Object.keys(t.set).length && t.on.length);
+  return rows.sort((a, b) => b.on.length - a.on.length)[0];
+}
+
+function attacksFromTests(spec: CircuitSpec): Hypothesis[] {
+  const row = busiestRow(spec);
+  if (!row) return [];
+  const setup: Incident[] = Object.entries(row.set).map(([target, value]) => ({ type: 'set_reading', target, value }));
+  const lit = row.on.map((id) => id.split('.')[0]);
+  const out: Hypothesis[] = [];
+  const { find, members } = netsOf(spec);
+  // The chip whose outputs reach the most of the lit parts, through at most one resistor.
+  const reach = (chip: Part) =>
+    lit.filter((id) => {
+      const part = spec.parts.find((p) => p.id === id);
+      if (!part) return false;
+      const nets = new Set(pinsOf(part).map((pin) => find(`${id}.${pin}`)));
+      for (const net of [...nets])
+        for (const key of members.get(net) ?? []) {
+          const [rid, pin] = key.split('.');
+          if (spec.parts.find((p) => p.id === rid)?.type === 'resistor') nets.add(find(`${rid}.${pin === 'a' ? 'b' : 'a'}`));
+        }
+      return (chip.custom?.drivers ?? []).some((d) => nets.has(find(`${chip.id}.${d.pin}`)));
+    }).length;
+  const chip = spec.parts
+    .filter((p) => p.custom?.drivers.length)
+    .map((p) => ({ p, n: reach(p) }))
+    .sort((a, b) => b.n - a.n)[0];
+  const label = row.name ? `"${row.name}"` : 'the busiest test case';
+  if (chip?.n) out.push({ claim: `In ${label}, if ${chip.p.id} burns out, ${lit.slice(0, 3).join(' and ')} go dark.`, incident: { type: 'burn_part', target: chip.p.id }, setup });
+  const wire = wireTouching(spec, lit[0]);
+  if (wire) out.push({ claim: `In ${label}, ${lit[0]} depends on ${wire}: one loose wire takes it out.`, incident: { type: 'loose_wire', target: wire }, setup });
+  const battery = spec.parts.find((p) => p.type === 'battery');
+  if (battery)
+    out.push({
+      claim: `In ${label}, a sagging ${battery.id} drops the logic below its threshold and the result is lost.`,
+      incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 3 },
+      setup,
+    });
+  return out;
+}
+
 function hypotheses(spec: CircuitSpec): Hypothesis[] {
+  const fromTests = attacksFromTests(spec);
+  if (fromTests.length) return fromTests.slice(0, 3);
   const out: Hypothesis[] = [];
   const rules = spec.program ?? [];
   const sensed = spec.parts.filter((p) => sensorOf(p));
@@ -511,9 +789,9 @@ function recoveries(spec: CircuitSpec, incident: Incident | undefined): Recovery
 export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   id: 'electronics',
   label: 'Electronics',
-  blurb: 'Arduino projects and circuits, with real voltages, currents and sketch logic over time',
+  blurb: 'Circuits from a battery and a bulb to logic chips, op-amps and microcontrollers, with real voltages, currents and logic over time',
   capabilities:
-    'Electronics projects of any kind. Built-in parts cover Arduino-style boards, resistors, capacitors, LEDs, buttons, buzzers, DC motors, H-bridge drivers, ultrasonic sensors and batteries, and any other component or board (servos, ESP32s, relays, displays, sensors, regulators, drivers) is defined from its pins, electrical paths, ratings, sensor reading or actuator output. Simulates over time: voltages and currents, PWM, capacitor charging, motor spin-up and back-EMF, board power and brownout, sensor readings, servo angles, display text and the sketch as rules that react to readings. Checks ratings and burns out overloaded parts.',
+    'Electronics of any kind, from a battery and a bulb to digital logic to microcontroller projects. Built-in parts cover batteries, resistors, capacitors, LEDs, switches, buttons, buzzers, DC motors, H-bridge drivers, ultrasonic sensors and Arduino boards, and any other component or board (logic gates and other chips, 555 timers, counters, transistors, relays, servos, displays, sensors, regulators, and boards such as a Seeed XIAO, Raspberry Pi Pico or ESP32) is defined from its real pins, electrical paths, ratings and logic. Simulates over time: voltages and currents, digital logic and chip state, PWM, capacitor charging, motor spin-up and back-EMF, board power and brownout, sensor readings, servo angles, display text and microcontroller sketches. Circuits can be laid out on a breadboard. Checks ratings and burns out overloaded parts.',
   limits: [
     'Time runs in 1/12 s steps, so radio, audio and fast signal waveforms are averaged',
     'Sketches are rules over readings and pin states, not compiled code',
@@ -524,7 +802,7 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
     'An Arduino with a motor driver, two motors and an ultrasonic sensor',
     'A blinking LED wired to an Arduino with no resistor',
   ],
-  suggestions: ['What happens if the battery runs low?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
+  suggestions: ['What happens if the power supply sags?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
   keywords:
     /planter|soil|greenhouse|irrigat|thermostat|relay|pump|arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
   ticksPerSecond: 12,
@@ -538,8 +816,12 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink"|"pwm"|"angle", "value"?: number, "period"?: ticks}],
   "vars"?: {"name": starting number},
   "world"?: [{"id": name, "label": string, "unit": string, "start": number, "min": number, "max": number, "drift"?: change per second on its own, "toward"?: {"value": ambient level, "rate": share of the gap closed per second}, "effects"?: [{"from": part id, "rate": change per second at that part's full output}], "target"?: {"min": number, "max": number}}],
-  "program": [{"every"?: seconds, "when"?: expression, "then": [Action], "else"?: [Action]}]
+  "program": [{"every"?: seconds, "when"?: expression, "then": [Action], "else"?: [Action]}],
+  "layout"?: "breadboard" | "bench"
 }
+Build what the user asked for, the way a person would really build it. Only use a microcontroller when the user names one or the behaviour needs code; a lamp, a logic circuit, a 555 blinker, a transistor switch or a calculator made of gates is built from batteries, switches, chips and discrete parts, with no board, no "drive" and no "program". Use type "arduino" only for an Arduino Uno or Nano.
+Set "layout": "breadboard" when the user mentions a breadboard, or when the circuit is low-voltage signal work only: LEDs, logic chips, 555 timers, small transistors, switches and resistors. Use "bench" for anything that drives a real load (heaters, lamps and bulbs, motors, pumps, fans, relays switching power) or is built around a board and modules. The layout only changes how it is drawn, never what is simulated.
+Give every part a "package" for how it looks: "dip" for chips in a DIP package, "module" for boards and breakout modules, "to92" for small transistors and regulators, "to220" for power transistors and regulators, "axial" for diodes, "radial" for electrolytic capacitors, "bulb" for lamps, "display" for LCDs, OLEDs and 7-segment displays, "pot" for potentiometers, "relay", "motor" for motors, pumps, fans and servos, "speaker" for buzzers and speakers, "sensor" for sensors.
 Types and their pins:
 ${Object.entries(PINS)
   .filter(([type]) => type !== 'custom')
@@ -550,12 +832,19 @@ An arduino runs from USB unless its VIN is wired; through VIN it needs about 6 V
 motor_driver is only an L298N-style dual H-bridge; any other driver chip (A4988, DRV8825, TB6612, ULN2003) is custom.
 custom: any other component or board. Never leave out a component the user named: if it isn't a type above, define it with type "custom" and a "custom" object, using realistic datasheet values:
 {"label": name, "pins": [names], "paths": [{"a": pin, "b": pin, "ohms": number}], "switches": [{"a": pin, "b": pin, "ohms": number, "when": control pin, "ref": its reference pin, "aboveVolts": number}], "drivers": [{"pin": output pin, "high": pin, "low": pin, "when": control pin, "ref": its reference pin, "aboveVolts": number, "ohms": number, "invert": boolean}], "sources": [{"pos": pin, "neg": pin, "volts": number, "ohms": number, "from"?: input pin, "dropout"?: volts}], "gpio": [pins the program can drive], "gpioVolts": number, "supply": {"pos": pin, "neg": pin, "minVolts": number, "maxVolts": number}, "maxAmps": number, "output": true if it does something observable, "sensor"?: Sensor, "actuator"?: Actuator, "visual": [{"shape": "box"|"cylinder"|"sphere", "size": [x,y,z], "at": [x,y,z], "color": "#rrggbb", "moves": true for a moving part}]}
-"paths" are its resistive paths: model what it draws as a path between its power pins (a part drawing 100 mA at 5 V is 50 ohms), and a pass-through such as a driver's power rail as a very low value. "switches" are paths that only conduct when a control pin is high, for relay contacts and transistors. A relay is {"a":"COM","b":"NO","ohms":0.05,"when":"IN","ref":"GND","aboveVolts":2}. "drivers" are outputs that swing between two rails from a control pin, for motor drivers, H-bridges and stepper drivers. A coil or motor needs its two ends on opposite rails, so give each pair one normal and one inverted output: {"pin":"1A","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1} and {"pin":"1B","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1,"invert":true}. "maxAmps" is the part's highest rated current, including what its outputs carry. "sources" are voltages it produces, such as a board's 3.3 V rail; a regulator takes "from" its input pin and "dropout", so it fails when its input sags. For another board such as an ESP32, use custom with sources for its rails and gpio for its pins.
+"paths" are its resistive paths: model what it draws as a path between its power pins (a part drawing 100 mA at 5 V is 50 ohms), and a pass-through such as a driver's power rail as a very low value. "switches" are paths that only conduct when a control pin is high, for relay contacts and transistors. A relay is {"a":"COM","b":"NO","ohms":0.05,"when":"IN","ref":"GND","aboveVolts":2}. "drivers" are outputs that swing between two rails from a control pin, for motor drivers, H-bridges and stepper drivers. A coil or motor needs its two ends on opposite rails, so give each pair one normal and one inverted output: {"pin":"1A","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1} and {"pin":"1B","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1,"invert":true}. "maxAmps" is the part's highest rated current, including what its outputs carry. "sources" are voltages it produces, such as a board's 3.3 V rail; a regulator takes "from" its input pin and "dropout", so it fails when its input sags. For any board other than an Arduino Uno or Nano (Seeed XIAO, Raspberry Pi Pico, ESP32, STM32 and so on) use custom with "package": "module", the board's exact name as "label", its real pin names, "sources" for its rails (a 3V3 regulator "from" its 5V or VIN pin), "gpio" for its I/O pins and "gpioVolts": 3.3; the sketch drives those pins as "PartId.pin" exactly like an Arduino's.
+Logic: the "when" of a switch or driver can also be a logic expression over the part's own pins, where each pin name is 1 when it is at least "aboveVolts" over "ref", "v.PIN" is that pin's voltage over "ref", and != is XOR. Name chip pins so they work in expressions (letters first, such as A1, B1, Y1). List a DIP chip's pins in datasheet order, every one from pin 1 to the last, including power and unused pins, so the breadboard layout and the build guide match the real part. A 74HC08 quad AND gate is {"label":"74HC08 quad AND","pins":["A1","B1","Y1","A2","B2","Y2","GND","Y3","A3","B3","Y4","A4","B4","VCC"],"paths":[{"a":"VCC","b":"GND","ohms":5000}],"drivers":[{"pin":"Y1","high":"VCC","low":"GND","when":"A1 && B1","ref":"GND","aboveVolts":2.5,"ohms":50},{"pin":"Y2","high":"VCC","low":"GND","when":"A2 && B2","ref":"GND","aboveVolts":2.5,"ohms":50}],"supply":{"pos":"VCC","neg":"GND","minVolts":2,"maxVolts":6}}; a 74HC86 XOR output is "when":"A1 != B1", a 74HC32 OR is "A1 || B1", a NOT is "!A1". When the user names a gate (AND, OR, XOR, NAND, NOT), build it with that gate chip, not with switches in series or parallel. Give drivers only to the gates you wire; the other pins stay listed but unconnected. Wire chips to each other directly, output pin to input pin, and power every chip's VCC and GND. Arithmetic from gates: a half adder is S = A XOR B and C = A AND B; a full adder is S = (A XOR B) XOR Cin and Cout = (A AND B) OR (Cin AND (A XOR B)); a 2-bit adder is a half adder on bit 0 whose carry feeds a full adder on bit 1, giving S0, S1 and the carry as the 4s bit. Before writing wires, write down which gate output each signal comes from.
+Every wire end is "PartId.pin". Chips with memory (flip-flops, counters, shift registers, 555 timers) add "state" (state variable names start with a letter, such as q0, never 1q0): {"ref": pin, "aboveVolts": number, "vars": {"name": start}, "rules": [{"edge"?: pin that must have just risen, "when"?: expression, "set": var, "to": expression}]}, and their outputs' "when" read those vars. A 4-bit counter is "state":{"ref":"GND","aboveVolts":2.5,"vars":{"n":0},"rules":[{"edge":"CLK","set":"n","to":"(n + 1) % 16"}]} with outputs "when":"n % 2 >= 1", "n % 4 >= 2", "n % 8 >= 4", "n % 16 >= 8". A 555 timer has pins GND, TRIG, OUT, RST, CV, THR, DIS, VCC, a path VCC to GND of 1500 ohms, "state":{"ref":"GND","aboveVolts":2,"vars":{"q":1},"rules":[{"when":"v.TRIG < v.VCC / 3","set":"q","to":1},{"when":"v.THR > v.VCC * 2 / 3","set":"q","to":0}]}, a driver OUT "when":"q" between VCC and GND, and a switch DIS to GND "when":"!q"; in astable mode RA runs from VCC to DIS, RB from DIS to THR, THR joins TRIG and the capacitor to ground, RST to VCC, and it blinks at 1.44 / ((RA + 2 RB) C) Hz, so choose a rate a person can see (about 1 Hz: RA 1k, RB 4.7k, C 100 uF).
+Transistors are built in: "npn" and "pnp" (pins C, B, E; the base-emitter junction is a 0.65 V diode, and once it conducts the transistor saturates and closes C to E) need a base resistor (1k to 10k) from whatever drives them; "nmos" and "pmos" MOSFETs (pins D, G, S; "volts" is the gate threshold, 2 by default for logic-level parts) draw no gate current, so give the gate a pull-down. Put a flyback "diode" across any motor or relay coil a transistor switches. Use "custom" only for transistor arrays and other parts these don't cover.
+"tests" are checked in simulation, so add them for anything with defined behaviour (logic, calculators, counters' first states, switches or buttons controlling outputs): [{"name": short label, "set": {"input part id": 1 or 0, a sensor id or world quantity id: reading}, "on": [output ids that must be on], "off": [output ids that must be off]}], with every input not listed left at its default. A 2-bit adder needs all 16 input combinations, each listing every sum LED as on or off; an AND gate needs all 4. Work out each expected row from what the circuit is for, not from your wiring, then make the wiring pass them.
+Inputs: "switch" is a toggle or slide switch that stays where it is set ("closed": true to start on), and "button" a momentary push button; the user flips them by clicking. Every logic input needs a pull-down resistor (10k to ground) so it reads 0 when open, and every LED needs its series resistor. For a DIP switch bank use one "switch" per position. A lamp or bulb is custom "bulb" with a path between its two pins and "output": true.
+More built-in parts: "diode" conducts only from anode to cathode with "volts" forward drop (0.7 silicon, 0.3 Schottky), for rectifiers, reverse protection, solar charging and flyback diodes; give it "zener": volts for a Zener, which also conducts backwards at that voltage (a 5.1 V Zener with a series resistor regulates 9 V down to 5.1 V). "pot" is a potentiometer of "ohms" total with its wiper at a position the user turns (0-100%); at 100% the wiper is at its "a" end, so wire "a" to the supply for "turn up for more". "ldr" is a light sensor whose resistance falls from about 1 MOhm in the dark to 1 kOhm in bright light (0-100%), and "thermistor" a 10k NTC ("ohms" at 25 C) reading temperature in C; wire either in a divider with a fixed resistor, and give it "measures" when it senses a world quantity. "seven_segment" is a display with segment pins a-g and "com", "common": "cathode" or "anode"; each segment is an LED and needs its own resistor, and it shows the digit its lit segments spell, so drive it from a decoder chip (a CD4511 or 74HC47 is custom, with each segment output's "when" written over its BCD input pins) or from a board's pins.
+An op-amp (LM358, TL072, LM741) is custom with "amplifiers": [{"out": pin, "plus": pin, "minus": pin, "high": positive supply pin, "low": negative supply or ground pin, "gain"?: open-loop gain, default 100000}] plus a "paths" entry between its supply pins for its quiescent draw; it is solved exactly, so wire real feedback: a non-inverting amplifier has R2 from OUT to IN- and R1 from IN- to ground (gain 1 + R2/R1), a buffer ties OUT to IN-, and with no feedback it saturates at a rail like a comparator. A comparator chip (LM393) can also be a driver whose "when" compares voltages, such as "v.INP > v.INN", which is how a night light, thermostat or battery alarm works without a board.
 Sensor: {"quantity": what it measures, "unit": "%"|"C"|"cm"|..., "min": number, "max": number, "value": a typical reading, "pin"?: its analog output pin}. With "pin" it outputs a voltage proportional to the reading (wire it to an analog pin); without, it is read over I2C, SPI or 1-wire by its id. Give it a "supply" so it only reads when powered.
 Actuator: {"quantity": "angle"|"speed"|"brightness"|"text", "pin"?: its control pin, "min": number, "max": number}. A servo is angle, min 0, max 180, on its signal pin, which the sketch drives with mode "angle" and value in degrees. A display (LCD, OLED, 7-segment) is text and shows what the program writes to it.
-"visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. Use Part "custom" field only with type "custom".
+A part with a "package" is drawn from it and needs no "visual". Only when no package fits, "visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. Use Part "custom" field only with type "custom".
 "drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop and runs every tick, rule by rule. A rule with "every" runs once per that many seconds; one with "when" runs "then" while the expression is true and "else" while it is false; one with neither runs every tick. Actions: {"pin": "U1.D9", "mode": ..., "value"?: expression}, {"set": variable, "to": expression}, {"show": display id, "text": "Angle {angle} deg"}, where each {expression} becomes its value. An expression is a number or a string using numbers, "vars", t (seconds since the sketch started), sensor ids, "PartId.pin" readings, + - * / %, < > <= >= == !=, && || !, a ? b : c, and min, max, abs, round, floor, ceil, sqrt, sin, cos, clamp(x, lo, hi). Variables keep their value between ticks and reset when the board resets. A servo sweep is "vars": {"angle": 0, "step": 5} with rules {"every": 0.05, "then": [{"set": "angle", "to": "angle + step"}]}, {"when": "angle >= 180", "then": [{"set": "step", "to": -5}]}, {"when": "angle <= 0", "then": [{"set": "step", "to": 5}]}, {"then": [{"pin": "U1.D9", "mode": "angle", "value": "angle"}]}. Use variables and t for anything timed: sequences, timers, debouncing and state machines. Read a sensor by its id. Reading one of its pins, or a board pin wired to it, gives the same reading in the sensor's own unit (an ultrasonic gives distance in cm, 2 to 400), except an arduino analog pin wired to a sensor's analog output, which gives 0 to 1023. Any other arduino digital pin reads 0 or 1, and any other board's pin its voltage. A button is released until someone presses it; wire it with a pull-down or pull-up resistor so its pin reads 0 or 1. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
-"world" is the physical system the circuit senses and acts on, such as soil a pump wets, a room a heater warms and a window cools, the distance a robot drives toward a wall, or water in a tank. Add a world quantity for every physical thing the user's system is meant to control or react to, give each sensor that reads it "measures", and list every part that changes it in "effects" with a realistic rate: a pump at full speed might raise soil moisture 5 % per second while it dries 1 % per second, and motors at full speed close a gap by 30 to 60 cm per second. Effects add up, so a car driven by two wheel motors gives each half of its speed. Time runs in real seconds, so choose rates that show change within a minute. A heater, lamp, solenoid or other resistive load is custom with a path between its power pins and "output": true, never a motor or a resistor. A part's output is its speed for motors, its angle or level for actuators, its brightness for LEDs, and on or off for anything else. Give "target" for what the system is meant to keep in range; the checks reject a design whose sketch doesn't hold it there, so write a real control loop with hysteresis, and remember motors take a moment to stop: a motor coasts when its driver is disabled, so brake by driving both inputs to the same level with the driver enabled, and leave room to stop.
+"world" is the physical system the circuit senses and acts on, such as soil a pump wets, a room a heater warms and a window cools, the distance a robot drives toward a wall, or water in a tank. Add a world quantity for every physical thing the user's system is meant to control or react to, give each sensor that reads it "measures", and list every part that changes it in "effects" with a realistic rate: a pump at full speed might raise soil moisture 5 % per second while it dries 1 % per second, and motors at full speed close a gap by 30 to 60 cm per second. Effects add up, so a car driven by two wheel motors gives each half of its speed. Time runs in real seconds, so choose rates that show change within a minute. A heater, lamp, solenoid or other resistive load is custom with a path between its power pins and "output": true, never a motor or a resistor. A part's output is its speed for motors, its angle or level for actuators, its brightness for LEDs, and on or off for anything else. Give "target" only for what the system is meant to keep in range (soil moisture, room temperature, distance to a wall), never for conditions it only reacts to (daylight for a night light, someone at a door), which stay untargeted; the checks reject a design whose sketch doesn't hold it there, so write a real control loop with hysteresis, and remember motors take a moment to stop: a motor coasts when its driver is disabled, so brake by driving both inputs to the same level with the driver enabled, and leave room to stop.
 Wire electrically real circuits: use a current-limiting resistor with LEDs (220 ohms is typical), drive motors through a driver with a battery on its motor supply, and share ground between the board and any battery. A servo driver passes its V+ power straight through to the servo with low-ohm "paths". Wire exactly what the user asks for, even if it is a mistake: the checks that follow will catch it. "unmodelled" is only for behaviour none of this can represent, such as a radio link or a mechanical load, never for leaving a part out.`,
   incidentTypes: ['burn_part', 'short_part', 'loose_wire', 'low_supply', 'sensor_fault', 'set_reading'],
   incidentDoc: `{"type":"burn_part","target":"D1"}
@@ -583,6 +872,16 @@ A burned part stays dead until replace_part, and that includes the board (use it
   ],
   compile: (spec) => spec,
   validate: validateCircuit,
+  proof: (spec) => {
+    const facts: string[] = [];
+    const tests = runTests(spec);
+    if (tests.total) facts.push(`${tests.passed} of ${tests.total} behaviour tests pass`);
+    const targets = (spec.world ?? []).filter((q) => q.target).map((q) => q.label);
+    if (targets.length) facts.push(`${targets.join(' and ')} held in range`);
+    const settings = scenarios(spec).length;
+    facts.push(`no part over its rating${settings > 1 ? ` at any of the ${settings} input settings checked` : ''}`);
+    return `${facts.join(', ')}, checked in simulation`;
+  },
   describe: (spec) =>
     JSON.stringify({
       parts: spec.parts,

@@ -74,6 +74,8 @@ export async function runCouncil(opts: {
   model: string;
   agents: SwarmAgent[];
   feature: string;
+  description?: string;
+  maxTokens?: number;
   onUsage: (usage: Usage) => void;
 }): Promise<Array<{ agent: string; json: unknown }>> {
   const { model } = opts;
@@ -83,7 +85,7 @@ export async function runCouncil(opts: {
     headers: { 'content-type': 'application/json', 'x-api-key': apiKey() },
     body: JSON.stringify({
       name: opts.name,
-      description: 'Specialists proposing patches that a simulator scores',
+      description: opts.description ?? 'Specialists proposing patches that a simulator scores',
       swarm_type: 'ConcurrentWorkflow',
       task: opts.task,
       max_loops: 1,
@@ -91,15 +93,22 @@ export async function runCouncil(opts: {
         agent_name: a.agent_name,
         system_prompt: a.system_prompt,
         model_name: model,
-        max_tokens: 1200,
+        max_tokens: opts.maxTokens ?? 1200,
         temperature: 0.5,
         max_loops: 1,
       })),
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(opts.maxTokens && opts.maxTokens > 2000 ? 150_000 : 90_000),
   });
   if (!res.ok) throw new Error(`Swarms: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
   const body = (await res.json()) as SwarmResponse;
+  // SWARMS_DUMP=1 keeps each raw reply in .spend for debugging what agents actually sent.
+  if (process.env.SWARMS_DUMP === '1') {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const dir = new URL('../.spend/', import.meta.url);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(new URL(`swarms-${opts.feature}-${Date.now()}.json`, dir), JSON.stringify(body, null, 1));
+  }
 
   opts.onUsage({
     engine: 'swarms',

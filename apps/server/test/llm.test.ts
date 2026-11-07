@@ -105,3 +105,20 @@ describe('LLM gateway', () => {
     expect(await ask()).toEqual({ ok: true });
   });
 });
+
+describe('Prune rest period', () => {
+  isolateEnv();
+  it('skips Prune for a while after its upstream Gemini quota runs out, instead of failing through it on every call', async () => {
+    process.env.PRUNE_API_KEY = 'p';
+    process.env.GEMINI_API_KEY = 'g';
+    const calls = mockFetch((url) =>
+      url.includes('withprune')
+        ? new Response(JSON.stringify({ error: 'gemini rejected the request (429)', code: 'provider_upstream_4xx' }), { status: 429 })
+        : json(openAiReply(JSON.stringify({ ok: true }))),
+    );
+    await ask();
+    await ask();
+    expect(calls.filter((u) => u.includes('withprune')).length).toBe(1);
+    expect(calls.filter((u) => u.includes('googleapis')).length).toBe(2);
+  });
+});

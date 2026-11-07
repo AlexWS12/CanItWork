@@ -1,6 +1,6 @@
 import type { DomainId, Environment, Evaluation, Incident } from './domain';
 
-export type Engine = 'gemini' | 'jev' | 'swarms' | 'simulator' | 'rules';
+export type Engine = 'gemini' | 'jev' | 'swarms' | 'simulator' | 'rules' | 'cache';
 
 export interface Usage {
   engine: Engine;

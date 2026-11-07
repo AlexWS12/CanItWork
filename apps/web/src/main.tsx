@@ -3,7 +3,9 @@ import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { fetchStatus } from './actions';
+import * as actions from './actions';
+import { fetchStatus, openSharedRun } from './actions';
+import { runner } from './runner';
 import { Scene } from './scene/Scene';
 import { useStore } from './store';
 import './styles.css';
@@ -16,6 +18,9 @@ import { RightPanel } from './ui/RightPanel';
 import { TopBar } from './ui/TopBar';
 import { Transport } from './ui/Transport';
 
+// A handle for poking at the live run from the browser console during development.
+if (import.meta.env.DEV) Object.assign(window, { __tv: { runner, store: useStore, actions } });
+
 function App() {
   const environment = useStore((s) => s.environment);
   // The build screen stays up until the Red Team's claims are tested
@@ -24,6 +29,9 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.view = view;
   }, [view]);
+  useEffect(() => {
+    void openSharedRun();
+  }, []);
   useEffect(() => {
     void fetchStatus();
     const id = setInterval(fetchStatus, 15000);
