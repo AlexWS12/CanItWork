@@ -5,8 +5,8 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select } from '../../store';
-import { ClaimPin, pick } from '../shared';
-import { COLORS, robotColor, toScene, warehouseSim } from './palette';
+import { ClaimPin, Tag, pick } from '../shared';
+import { COLORS, ZONE_TINTS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
 const color = new THREE.Color();
@@ -256,6 +256,92 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
   );
 }
 
+const WALL_HEIGHT = 1.4;
+const SIDES = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
+
+/** Darkens the cells outside the building's outline and stands a wall wherever they meet the floor. */
+function Outline({ world }: { world: World }) {
+  const tiles = useRef<THREE.InstancedMesh>(null!);
+  const walls = useRef<THREE.InstancedMesh>(null!);
+  const edges = useMemo(() => {
+    const outside = new Set(world.walls.map((w) => `${w.x},${w.y}`));
+    const out: Array<{ x: number; y: number; across: boolean }> = [];
+    for (const w of world.walls) {
+      for (const [dx, dy] of SIDES) {
+        const nx = w.x + dx;
+        const ny = w.y + dy;
+        if (nx < 0 || ny < 0 || nx >= world.cols || ny >= world.rows || outside.has(`${nx},${ny}`)) continue;
+        out.push({ x: w.x + dx / 2, y: w.y + dy / 2, across: dx !== 0 });
+      }
+    }
+    return out;
+  }, [world]);
+
+  useLayoutEffect(() => {
+    if (!tiles.current || !walls.current) return;
+    dummy.rotation.set(0, 0, 0);
+    world.walls.forEach((w, i) => {
+      const [x, , z] = toScene(world, w);
+      dummy.position.set(x, 0.02, z);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      tiles.current.setMatrixAt(i, dummy.matrix);
+    });
+    edges.forEach((e, i) => {
+      const [x, , z] = toScene(world, e);
+      dummy.position.set(x, WALL_HEIGHT / 2, z);
+      dummy.scale.set(e.across ? 0.14 : 1.02, 1, e.across ? 1.02 : 0.14);
+      dummy.updateMatrix();
+      walls.current.setMatrixAt(i, dummy.matrix);
+    });
+    tiles.current.instanceMatrix.needsUpdate = true;
+    walls.current.instanceMatrix.needsUpdate = true;
+  }, [world, edges]);
+
+  if (!world.walls.length) return null;
+  return (
+    <group onClick={() => select(null)}>
+      <instancedMesh ref={tiles} args={[undefined, undefined, world.walls.length]} receiveShadow>
+        <boxGeometry args={[1, 0.04, 1]} />
+        <meshStandardMaterial color={COLORS.outside} roughness={0.9} />
+      </instancedMesh>
+      <instancedMesh ref={walls} args={[undefined, undefined, Math.max(1, edges.length)]} castShadow receiveShadow>
+        <boxGeometry args={[1, WALL_HEIGHT, 1]} />
+        <meshStandardMaterial color={COLORS.wall} metalness={0.3} roughness={0.7} />
+      </instancedMesh>
+    </group>
+  );
+}
+
+function Zones({ world }: { world: World }) {
+  return (
+    <group>
+      {world.zones.map((zone, i) => {
+        const tint = ZONE_TINTS[i % ZONE_TINTS.length];
+        const [x, , z] = toScene(world, { x: zone.x + zone.w / 2 - 0.5, y: zone.y + zone.h / 2 - 0.5 });
+        const [, , north] = toScene(world, { x: 0, y: zone.y - 1 });
+        const label = zone.share === undefined ? zone.name : `${zone.name} · ${Math.round(zone.share * 100)}% of orders`;
+        return (
+          <group key={zone.name}>
+            <mesh position={[x, 0.006, z]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[zone.w - 0.2, zone.h + 1.6]} />
+              <meshBasicMaterial color={tint} transparent opacity={0.1} toneMapped={false} depthWrite={false} />
+            </mesh>
+            <group position={[x, 0, north]}>
+              <Tag text={label} tint={tint} y={0.4} />
+            </group>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 export function Facility({ world }: { world: World }) {
   const size = useMemo(() => [world.cols + 1, world.rows + 1] as const, [world]);
   return (
@@ -275,6 +361,8 @@ export function Facility({ world }: { world: World }) {
         sectionColor="#3c4f74"
         fadeDistance={80}
       />
+      <Outline world={world} />
+      <Zones world={world} />
       <Shelves world={world} />
       {world.conveyors.map((c, i) => (
         <Conveyor key={c.id} world={world} index={i} />

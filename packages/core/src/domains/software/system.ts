@@ -1,6 +1,6 @@
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
 import { createRng, type Rng } from '../../rng';
-import { DEFAULT_CAPACITY, DEFAULT_LATENCY, type SystemEdge, type SystemNode, type SystemPatch, type SystemSpec } from './schema';
+import { DEFAULT_CAPACITY, DEFAULT_LATENCY, replicaZones, zonesOf, type SystemEdge, type SystemNode, type SystemPatch, type SystemSpec } from './schema';
 
 const TIMEOUT_MS = 1000;
 const CACHE_HIT = 0.8;
@@ -17,7 +17,12 @@ export interface NodeState {
   backlog: number;
   down: boolean;
   degraded: number;
+  /** Fraction of replicas whose zone is up. */
+  alive: number;
 }
+
+/** Down by itself, or every replica sits in a zone that is down. */
+export const isOut = (state: NodeState) => state.down || state.alive === 0;
 
 export const edgeKey = (e: Pick<SystemEdge, 'from' | 'to'>) => `${e.from}->${e.to}`;
 
@@ -44,6 +49,7 @@ export class SystemRun implements Run {
   readonly states = new Map<string, NodeState>();
   readonly flows = new Map<string, number>();
   readonly cut = new Set<string>();
+  readonly downZones = new Set<string>();
   tick = 0;
   success = 1;
   latency = 0;
@@ -63,10 +69,24 @@ export class SystemRun implements Run {
     this.rng = createRng(seed);
     for (const node of this.spec.nodes) this.states.set(node.id, this.blank());
     this.order = topoOrder(this.spec);
+    this.refreshZones();
   }
 
   private blank(): NodeState {
-    return { inflow: 0, served: 0, capacity: 0, utilization: 0, success: 1, latency: 0, backlog: 0, down: false, degraded: 1 };
+    return { inflow: 0, served: 0, capacity: 0, utilization: 0, success: 1, latency: 0, backlog: 0, down: false, degraded: 1, alive: 1 };
+  }
+
+  private refreshZones() {
+    for (const node of this.spec.nodes) {
+      const state = this.states.get(node.id);
+      if (!state) continue;
+      const placed = replicaZones(node);
+      state.alive = placed.length ? placed.filter((z) => !this.downZones.has(z)).length / placed.length : 1;
+    }
+  }
+
+  zones() {
+    return zonesOf(this.spec);
   }
 
   private node(id: string) {
@@ -74,8 +94,8 @@ export class SystemRun implements Run {
   }
 
   private capacityOf(node: SystemNode, state: NodeState) {
-    if (state.down) return 0;
-    return (node.replicas ?? 1) * (node.capacity ?? DEFAULT_CAPACITY[node.kind]) * state.degraded;
+    if (isOut(state)) return 0;
+    return (node.replicas ?? 1) * (node.capacity ?? DEFAULT_CAPACITY[node.kind]) * state.degraded * state.alive;
   }
 
   private hitRatio(node: SystemNode) {
@@ -101,7 +121,7 @@ export class SystemRun implements Run {
       state.capacity = this.capacityOf(node, state);
 
       if (node.kind === 'queue') {
-        state.served = state.down ? 0 : state.inflow;
+        state.served = isOut(state) ? 0 : state.inflow;
         state.backlog += state.served;
         const consumers = out.reduce((sum, e) => {
           const target = this.node(e.to);
@@ -141,13 +161,14 @@ export class SystemRun implements Run {
       const state = this.states.get(id);
       if (!node || !state) continue;
       const base = (node.latency ?? DEFAULT_LATENCY[node.kind]) / state.degraded;
-      state.utilization = state.capacity === Infinity || !state.capacity ? (state.down ? 1 : 0) : state.inflow / state.capacity;
+      const out = isOut(state);
+      state.utilization = state.capacity === Infinity || !state.capacity ? (out ? 1 : 0) : state.inflow / state.capacity;
       if (node.kind === 'queue') {
-        state.success = state.down ? 0 : 1;
-        state.latency = state.down ? TIMEOUT_MS : base;
+        state.success = out ? 0 : 1;
+        state.latency = out ? TIMEOUT_MS : base;
         continue;
       }
-      if (state.down) {
+      if (out) {
         state.success = 0;
         state.latency = TIMEOUT_MS;
         continue;
@@ -159,7 +180,10 @@ export class SystemRun implements Run {
       for (const e of this.spec.edges.filter((edge) => edge.from === id)) {
         if ((e.mode ?? 'sync') !== 'sync') continue;
         const dep = this.cut.has(edgeKey(e)) ? 0 : (this.states.get(e.to)?.success ?? 1);
-        const withRetries = 1 - Math.pow(1 - dep, this.spec.retries + 1);
+        // A cache's failures are misses its own retries to the store behind it already covered;
+        // retrying the cache misses again, so callers' retries add load but not success.
+        const cached = this.node(e.to)?.kind === 'cache' && !this.cut.has(edgeKey(e));
+        const withRetries = cached ? dep : 1 - Math.pow(1 - dep, this.spec.retries + 1);
         if (!e.optional) downstream *= withRetries;
         latency += (this.states.get(e.to)?.latency ?? 0) * (e.calls ?? 1) * (1 - hit);
       }
@@ -203,21 +227,27 @@ export class SystemRun implements Run {
       case 'cache_flush':
         this.coldUntil.set(target, this.tick + CACHE_WARMUP);
         break;
+      case 'zone_down':
+        this.downZones.add(target);
+        break;
       case 'recover':
         if (state) {
           state.down = false;
           state.degraded = 1;
         }
         this.cut.delete(target);
+        this.downZones.delete(target);
         if (!target) this.trafficFactor = 1;
         break;
     }
+    this.refreshZones();
   }
 
   apply(patches: unknown[]) {
     this.log.push({ at: this.tick, patches });
     for (const patch of patches as SystemPatch[]) this.applyPatch(patch);
     this.order = topoOrder(this.spec);
+    this.refreshZones();
   }
 
   private applyPatch(patch: SystemPatch) {
@@ -262,6 +292,13 @@ export class SystemRun implements Run {
         this.spec.edges.push({ from: id, to: patch.to, mode: 'async' });
         break;
       }
+      case 'add_zone': {
+        const node = this.node(patch.node);
+        if (!node || node.zones?.includes(patch.zone)) break;
+        node.zones = [...(node.zones ?? []), patch.zone];
+        node.replicas = Math.max(node.replicas ?? 1, node.zones.length);
+        break;
+      }
     }
   }
 
@@ -281,7 +318,7 @@ export class SystemRun implements Run {
 
   telemetry(): Metric[] {
     const pct = Math.round(this.success * 1000) / 10;
-    const down = [...this.states.values()].filter((s) => s.down).length;
+    const down = [...this.states.values()].filter(isOut).length;
     const backlog = [...this.states.values()].reduce((sum, s) => sum + s.backlog, 0);
     return [
       { label: 'requests succeeding', value: `${pct}%`, tone: pct < 90 ? 'danger' : pct < 99 ? 'warn' : undefined },
@@ -312,14 +349,26 @@ export class SystemRun implements Run {
       'Kill',
       'node_down',
     );
+    const zone = this.busiestZone();
+    if (zone)
+      out.push({ label: `Lose ${zone}`, incident: { type: 'zone_down', target: zone }, keywords: ['zone', 'region', 'outage', 'data center', 'datacenter', zone.toLowerCase()] });
     add(live.find((n) => n.kind === 'external') ?? live.filter((n) => n.kind === 'service')[1], 'Slow', 'node_slow', 5);
-    add(
-      live.find((n) => n.kind === 'cache'),
-      'Flush',
-      'cache_flush',
-    );
+    if (!zone)
+      add(
+        live.find((n) => n.kind === 'cache'),
+        'Flush',
+        'cache_flush',
+      );
     out.push({ label: 'Traffic ×3', incident: { type: 'traffic_spike', value: 3 }, keywords: ['traffic', 'spike', 'surge', 'load', 'double'] });
     return out.slice(0, 5);
+  }
+
+  /** The live zone running the most replicas, or null when the design uses fewer than two zones. */
+  busiestZone(): string | null {
+    const zones = this.zones().filter((z) => !this.downZones.has(z));
+    if (zones.length + this.downZones.size < 2 || !zones.length) return null;
+    const count = (z: string) => this.spec.nodes.reduce((sum, n) => sum + replicaZones(n).filter((r) => r === z).length, 0);
+    return zones.reduce((best, z) => (count(z) > count(best) ? z : best));
   }
 
   inspect(target: string): Inspection | null {
@@ -327,9 +376,19 @@ export class SystemRun implements Run {
     const state = this.states.get(target);
     if (!node || !state) return null;
     const broken = state.down || state.degraded !== 1;
+    const lostZones = (node.zones ?? []).filter((z) => this.downZones.has(z));
+    const status = state.down
+      ? 'Down'
+      : state.alive === 0
+        ? 'Zone down'
+        : state.degraded !== 1
+          ? 'Degraded'
+          : state.alive < 1
+            ? `${Math.round(state.alive * 100)}% of replicas up`
+            : 'Up';
     const rows: Array<[string, string | number]> = [
       ['Kind', node.kind],
-      ['Status', state.down ? 'Down' : state.degraded !== 1 ? 'Degraded' : 'Up'],
+      ['Status', status],
       ['Replicas', node.replicas ?? 1],
       ['Load', `${Math.round(state.inflow)} rps`],
       ['Utilization', `${Math.round(state.utilization * 100)}%`],
@@ -337,13 +396,16 @@ export class SystemRun implements Run {
       ['Latency', `${Math.round(state.latency)} ms`],
     ];
     if (node.kind === 'queue') rows.push(['Backlog', Math.round(state.backlog)]);
-    if (node.kind === 'client') return { title: node.label ?? node.id, rows, actions: [] };
+    if (node.zones?.length) rows.push(['Zones', node.zones.map((z) => (this.downZones.has(z) ? `${z} (down)` : z)).join(', ')]);
+    const restoreZones = lostZones.map((z) => ({ label: `Restore ${z}`, incident: { type: 'recover', target: z }, destructive: false }));
+    if (node.kind === 'client') return { title: node.label ?? node.id, rows, actions: restoreZones };
     return {
       title: node.label ?? node.id,
       rows,
       actions: broken
-        ? [{ label: 'Restore', incident: { type: 'recover', target }, destructive: false }]
+        ? [{ label: 'Restore', incident: { type: 'recover', target }, destructive: false }, ...restoreZones]
         : [
+            ...restoreZones,
             { label: 'Take it down', incident: { type: 'node_down', target }, destructive: true },
             { label: 'Slow it down', incident: { type: 'node_slow', target, value: 5 }, destructive: true },
           ],

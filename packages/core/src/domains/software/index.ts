@@ -1,6 +1,35 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
-import { SystemPatchSchema, SystemSpecSchema, type SystemSpec } from './schema';
+import { SystemPatchSchema, SystemSpecSchema, replicaZones, zonesOf, type SystemNode, type SystemSpec } from './schema';
 import { SystemRun, topoOrder } from './system';
+
+const name = (node: SystemNode) => node.label ?? node.id;
+const list = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
+/** Nodes with every replica in this zone, so losing it takes them down outright. */
+function strandedBy(spec: SystemSpec, zone: string) {
+  return spec.nodes.filter((n) => n.kind !== 'client' && n.zones?.length && replicaZones(n).every((z) => z === zone));
+}
+
+function zoneIssues(spec: SystemSpec, reached: Set<string>): Issue[] {
+  const issues: Issue[] = [];
+  if (zonesOf(spec).length < 2) return issues;
+  for (const node of spec.nodes) {
+    if (node.kind === 'client' || !reached.has(node.id) || !node.zones?.length) continue;
+    const placed = [...new Set(replicaZones(node))];
+    const replicas = node.replicas ?? 1;
+    if (node.zones.length > replicas) {
+      issues.push({
+        severity: 'warning',
+        repair: true,
+        target: node.id,
+        message: `${name(node)} lists ${node.zones.length} zones but has ${replicas} replica${replicas === 1 ? '' : 's'}, so it only runs in ${list(placed)}`,
+      });
+    } else if (placed.length === 1 && replicas > 1 && (node.kind === 'service' || node.kind === 'database' || node.kind === 'gateway')) {
+      issues.push({ severity: 'warning', target: node.id, message: `${name(node)} runs only in ${placed[0]}: losing that zone takes it down` });
+    }
+  }
+  return issues;
+}
 
 function validateSystem(spec: SystemSpec): Issue[] {
   const issues: Issue[] = [];
@@ -31,6 +60,7 @@ function validateSystem(spec: SystemSpec): Issue[] {
       issues.push({ severity: 'warning', message: `${node.label ?? node.id} has no consumer, so its backlog grows forever`, target: node.id, repair: true });
     }
   }
+  issues.push(...zoneIssues(spec, reached));
   const run = new SystemRun(spec, 1);
   for (let i = 0; i < 30; i++) run.step();
   for (const [id, state] of run.states) {
@@ -55,7 +85,8 @@ function buildSystem(prompt: string): SystemSpec {
       { id: main, label: payments ? 'Payment service' : 'API service', kind: 'service', replicas: 3 },
       { id: 'auth', label: 'Auth service', kind: 'service', replicas: 2 },
       { id: 'redis', label: 'Cache', kind: 'cache' },
-      { id: 'postgres', label: 'Primary database', kind: 'database' },
+      // Sized so normal load stays under 70% and a failover standby (60% capacity) can still carry it.
+      { id: 'postgres', label: 'Primary database', kind: 'database', capacity: 800 },
       { id: 'events', label: 'Event queue', kind: 'queue' },
       { id: 'worker', label: 'Worker', kind: 'service', replicas: 2 },
     ],
@@ -71,14 +102,38 @@ function buildSystem(prompt: string): SystemSpec {
     ],
   };
   if (payments) {
-    spec.nodes.push({ id: 'processor', label: 'Card processor', kind: 'external' });
+    // At the default 300 rps the processor would sit at 100% of normal traffic and retries would collapse it.
+    spec.nodes.push({ id: 'processor', label: 'Card processor', kind: 'external', capacity: 1000 });
     spec.edges.push({ from: main, to: 'processor' });
+  }
+  if (/region|\bzones?\b|multi-?az|data ?cent(er|re)|availability/.test(text)) {
+    const both = ['zone-a', 'zone-b'];
+    for (const node of spec.nodes) {
+      if (node.kind === 'gateway' || node.kind === 'service') node.zones = both;
+      if (node.kind === 'database' || node.kind === 'cache') node.zones = ['zone-a'];
+    }
   }
   return spec;
 }
 
+function zoneHypothesis(spec: SystemSpec): Hypothesis | null {
+  const zones = zonesOf(spec);
+  if (zones.length < 2) return null;
+  const worst = zones.map((zone) => ({ zone, nodes: strandedBy(spec, zone) })).sort((a, b) => b.nodes.length - a.nodes.length)[0];
+  if (worst.nodes.length) {
+    const names = worst.nodes.map(name);
+    return {
+      claim: `Losing ${worst.zone} takes down ${list(names)}, which ${names.length === 1 ? 'runs' : 'run'} nowhere else.`,
+      incident: { type: 'zone_down', target: worst.zone },
+    };
+  }
+  return { claim: `Losing ${zones[0]} cuts capacity on every service at once, and the survivors can't absorb the load.`, incident: { type: 'zone_down', target: zones[0] } };
+}
+
 function hypotheses(spec: SystemSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
+  const zone = zoneHypothesis(spec);
+  if (zone) out.push(zone);
   const database = spec.nodes.find((n) => n.kind === 'database' && (n.replicas ?? 1) === 1);
   if (database) out.push({ claim: `${database.label ?? database.id} has no replica: losing it takes the system down.`, incident: { type: 'node_down', target: database.id } });
   const external = spec.nodes.find((n) => n.kind === 'external');
@@ -101,6 +156,29 @@ function recoveries(spec: SystemSpec, incident: Incident | undefined): RecoveryO
     const busiest = spec.nodes.filter((n) => n.kind === 'service').map((n) => ({ op: 'scale', node: n.id, replicas: (n.replicas ?? 1) * 3 }));
     return [{ author: 'Capacity rules', title: 'Scale every service', rationale: 'Add replicas to absorb the spike.', patches: busiest }, stopRetries];
   }
+  if (incident?.type === 'zone_down') {
+    const options: RecoveryOption[] = [];
+    const survivor = zonesOf(spec).find((z) => z !== target);
+    const stranded = strandedBy(spec, target);
+    if (survivor && stranded.length) {
+      options.push({
+        author: 'Resilience rules',
+        title: `Run ${list(stranded.map(name))} in ${survivor} too`,
+        rationale: 'Put a replica of everything stranded in the surviving zone.',
+        patches: stranded.map((n) => ({ op: 'add_zone', node: n.id, zone: survivor })),
+      });
+    }
+    const partial = spec.nodes.filter((n) => replicaZones(n).includes(target) && !stranded.includes(n));
+    if (partial.length) {
+      options.push({
+        author: 'Capacity rules',
+        title: 'Scale up what survived',
+        rationale: 'Double replicas so the surviving zones carry the full load.',
+        patches: partial.map((n) => ({ op: 'scale', node: n.id, replicas: Math.min(50, (n.replicas ?? 1) * 2) })),
+      });
+    }
+    return [...options, stopRetries];
+  }
   if (!node) return [stopRetries];
   const options: RecoveryOption[] = [
     { author: 'Resilience rules', title: `Fail over ${node.label ?? node.id}`, rationale: 'Promote a standby at reduced capacity.', patches: [{ op: 'failover', node: target }] },
@@ -122,7 +200,7 @@ export const software: Domain<SystemSpec, SystemSpec> = {
   label: 'Software systems',
   blurb: 'Services, databases, caches and queues under live traffic',
   capabilities:
-    'Distributed software: clients, gateways, services, databases, caches, queues and external APIs. Simulates traffic, capacity, latency, retries, timeouts, retry storms and how failures cascade.',
+    'Distributed software: clients, gateways, services, databases, caches, queues and external APIs, with replicas spread across availability zones or regions. Simulates traffic, capacity, latency, retries, timeouts, retry storms, zone outages and how failures cascade.',
   limits: [
     'Models request volume, not individual requests or business logic',
     'The call graph must have no cycles',
@@ -140,23 +218,25 @@ export const software: Domain<SystemSpec, SystemSpec> = {
   specDoc: `{
   "traffic": requests per second from clients,
   "retries": integer 0-5,
-  "nodes": [{"id": string, "label": string, "kind": "client"|"gateway"|"service"|"database"|"cache"|"queue"|"external", "replicas"?: integer, "capacity"?: requests per second per replica, "latency"?: milliseconds}],
+  "nodes": [{"id": string, "label": string, "kind": "client"|"gateway"|"service"|"database"|"cache"|"queue"|"external", "replicas"?: integer, "capacity"?: requests per second per replica, "latency"?: milliseconds, "zones"?: [zone names, replicas spread round-robin]}],
   "edges": [{"from": node id, "to": node id, "mode"?: "sync"|"async", "calls"?: calls per request, "optional"?: boolean}]
 }
-Include at least one client. The graph must have no cycles. Use async edges into and out of queues, and give every queue a consumer. Size replicas and capacity so normal traffic stays under 70% of capacity on every component, unless the user asks for an overloaded system.`,
-  incidentTypes: ['node_down', 'node_slow', 'traffic_spike', 'cut_link', 'cache_flush'],
+Include at least one client. The graph must have no cycles. Use async edges into and out of queues, and give every queue a consumer. Size replicas and capacity so normal traffic stays under 70% of capacity on every component, unless the user asks for an overloaded system. Set zones only when the user mentions regions, availability zones or data centres.`,
+  incidentTypes: ['node_down', 'node_slow', 'traffic_spike', 'cut_link', 'cache_flush', 'zone_down'],
   incidentDoc: `{"type":"node_down","target":"node id"}
 {"type":"node_slow","target":"node id","value":slowdown factor}
 {"type":"traffic_spike","value":multiplier}
 {"type":"cut_link","target":"from->to"}
-{"type":"cache_flush","target":"cache node id"}`,
+{"type":"cache_flush","target":"cache node id"}
+{"type":"zone_down","target":"zone name"}`,
   patchSchema: SystemPatchSchema,
   patchDoc: `{"op":"scale","node":"id","replicas":integer}
 {"op":"failover","node":"id"}
 {"op":"set_retries","retries":integer}
 {"op":"make_optional","from":"id","to":"id"}
 {"op":"add_cache","before":"id"}
-{"op":"add_queue","from":"id","to":"id"}`,
+{"op":"add_queue","from":"id","to":"id"}
+{"op":"add_zone","node":"id","zone":"name"} (adds replicas so one runs there)`,
   council: [
     { name: 'SiteReliabilityLead', brief: 'failover and restoring the broken dependency' },
     { name: 'ResilienceEngineer', brief: 'retries, degradation and isolating the failure' },
@@ -171,7 +251,18 @@ Include at least one client. The graph must have no cycles. Use async edges into
       .filter((n) => (n.kind === 'database' || n.kind === 'service') && (n.replicas ?? 1) < 3)
       .slice(0, 3)
       .map((n) => ({ title: `Scale ${n.label ?? n.id}`, patches: [{ op: 'scale', node: n.id, replicas: 3 }] }));
-    return [...out, { title: 'Reduce retries', patches: [{ op: 'set_retries', retries: 1 }] }];
+    const zones = zonesOf(spec);
+    const spread =
+      zones.length < 2
+        ? []
+        : spec.nodes
+            .filter((n) => (n.kind === 'database' || n.kind === 'service') && n.zones?.length && new Set(replicaZones(n)).size === 1)
+            .slice(0, 2)
+            .map((n) => ({
+              title: `Spread ${name(n)} across zones`,
+              patches: zones.filter((z) => !replicaZones(n).includes(z)).map((zone) => ({ op: 'add_zone', node: n.id, zone })),
+            }));
+    return [...spread, ...out, { title: 'Reduce retries', patches: [{ op: 'set_retries', retries: 1 }] }];
   },
   rules: {
     spec: buildSystem,

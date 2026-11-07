@@ -1,9 +1,35 @@
 import type { Issue } from '../../domain';
+import { MIN_AISLES_FOR_SHAPE } from './compile';
 import { Grid } from './planner';
 import type { World } from './schema';
 
-export function validateWorld(world: World): Issue[] {
+function layoutIssues(world: World): Issue[] {
   const issues: Issue[] = [];
+  const { spec } = world;
+  const shape = spec.shape ?? 'rect';
+  if (spec.aisles < MIN_AISLES_FOR_SHAPE[shape]) {
+    issues.push({
+      severity: 'warning',
+      repair: true,
+      message: `A ${shape}-shaped floor needs at least ${MIN_AISLES_FOR_SHAPE[shape]} aisles; with ${spec.aisles} it was built as a rectangle`,
+    });
+  }
+  const zones = spec.zones ?? [];
+  const names = new Set(zones.map((z) => z.name));
+  if (names.size !== zones.length) issues.push({ severity: 'error', repair: true, message: 'Two zones share a name' });
+  const covered = zones.reduce((sum, z) => sum + z.aisles, 0);
+  if (covered > spec.aisles) {
+    issues.push({ severity: 'error', repair: true, message: `The zones cover ${covered} aisles but the floor has ${spec.aisles}: zone aisles must add up to "aisles" or less` });
+  }
+  const shared = zones.reduce((sum, z) => sum + (z.share ?? 0), 0);
+  if (shared > 1.001) {
+    issues.push({ severity: 'warning', repair: true, message: `Zone order shares add up to ${Math.round(shared * 100)}%, more than all orders` });
+  }
+  return issues;
+}
+
+export function validateWorld(world: World): Issue[] {
+  const issues: Issue[] = layoutIssues(world);
   const grid = new Grid(world);
   const start = grid.idx(world.robots[0].home.x, world.robots[0].home.y);
   const reach = (x: number, y: number) => grid.reachable(start, grid.idx(x, y));

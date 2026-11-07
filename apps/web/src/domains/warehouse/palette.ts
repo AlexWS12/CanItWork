@@ -13,7 +13,11 @@ export const COLORS = {
   crate: '#7c5a3a',
   danger: '#ff3b4e',
   energy: '#5dffb1',
+  outside: '#0a0f19',
+  wall: '#33415c',
 };
+
+export const ZONE_TINTS = ['#4cc3ff', '#ff7ac6', '#a3e635', '#ffb347', '#a58bff', '#67e8f9'];
 
 export const warehouseSim = () => (runner.run as WarehouseRun | null)?.sim ?? null;
 
