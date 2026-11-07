@@ -33,6 +33,15 @@ describe.each(domainList().map((d) => [d.id, d] as [string, Domain]))('%s edge c
   const spec = domain.rules.spec(domain.examples[0]);
   const model = domain.compile(spec);
 
+  it('starts its preset healthy, so a demo never opens on a broken system', () => {
+    const result = evaluate(domain, model, { seed: 1, ticks: Math.min(domain.horizon, 300), events: [] });
+    expectSane(result);
+    // Some presets start with one deliberate flaw to find (the university schema's unindexed roster query),
+    // so the bar is "mostly working", which still catches a design that collapses on its own.
+    if (result.scoreLabel.startsWith('%')) expect(result.score, `${domain.id}: ${result.score} ${result.scoreLabel}`).toBeGreaterThan(75);
+    else expect(result.score).toBeGreaterThan(0);
+  });
+
   it('scores a zero-tick run without dividing by zero', () => {
     const result = evaluate(domain, model, { seed: 1, ticks: 0, events: [] });
     expectSane(result);
