@@ -35,6 +35,7 @@ interface State {
   appliedId: string | null;
   selected: string | null;
   tab: 'agents' | 'usage';
+  view: 'scene' | 'chat' | 'agents';
   telemetry: Telemetry;
   set: (partial: Partial<State>) => void;
   setTelemetry: (t: Telemetry) => void;
@@ -62,6 +63,7 @@ export const useStore = create<State>((set) => ({
   appliedId: null,
   selected: null,
   tab: 'agents',
+  view: 'scene',
   telemetry: EMPTY_TELEMETRY,
   set: (partial) => set(partial),
   setTelemetry: (telemetry) => set({ telemetry }),

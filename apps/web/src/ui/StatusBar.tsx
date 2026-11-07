@@ -20,11 +20,15 @@ export function StatusBar() {
       <span className="wordmark">tv</span>
       {status && !live && <span className="offline">Local rules, no AI connected</span>}
       {!status && <span className="offline">Server offline</span>}
-      {chips.map(([name, on, how, check]) => (
-        <span key={name} className="chip" data-on={on} data-check={on ? check : undefined} title={`${name}: ${how}${on && check ? `, ${CHECK_LABEL[check]}` : ''}`}>
-          {name}
-        </span>
-      ))}
+      {chips.map(([name, on, how, check]) => {
+        const label = `${name}: ${how}${on && check ? `, ${CHECK_LABEL[check]}` : ''}`;
+        return (
+          <span key={name} className="chip" data-on={on} data-check={on ? check : undefined} title={label}>
+            {name}
+            {on && check === 'failing' ? <span className="chip-note"> key failing</span> : <span className="sr-only">{label.slice(name.length)}</span>}
+          </span>
+        );
+      })}
     </div>
   );
 }

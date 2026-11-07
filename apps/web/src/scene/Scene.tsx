@@ -4,6 +4,7 @@ import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { VIEWS } from '../domains';
+import { reducedMotion } from '../motion';
 import { runner } from '../runner';
 import { useStore } from '../store';
 
@@ -29,7 +30,7 @@ function ViewShift() {
   const shift = useRef(0);
   useFrame(({ camera, size }) => {
     const target = open ? size.height * 0.16 : 0;
-    shift.current += (target - shift.current) * 0.09;
+    shift.current = reducedMotion() ? target : shift.current + (target - shift.current) * 0.09;
     (camera as THREE.PerspectiveCamera).setViewOffset(size.width, size.height, 0, shift.current, size.width, size.height);
   });
   return null;
@@ -42,11 +43,13 @@ export function Scene() {
   return (
     <Canvas
       className="stage"
+      style={{ position: 'fixed' }}
       shadows
       dpr={[1, 1.75]}
       camera={{ fov: 30, near: 1, far: 400, position: [-6, 30, 30] }}
       gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.4 }}
     >
+      {/* Mirrors --color-bg, --color-accent and --color-teal in tokens.css */}
       <color attach="background" args={['#06090f']} />
       <fog attach="fog" args={['#06090f', 90, 220]} />
       <ambientLight intensity={1.1} color="#9db2e0" />
@@ -73,7 +76,7 @@ export function Scene() {
           <View />
         </group>
       )}
-      <OrbitControls enableDamping dampingFactor={0.08} maxPolarAngle={1.32} minDistance={10} maxDistance={160} target={[0, 0, 0]} />
+      <OrbitControls enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} minDistance={10} maxDistance={160} target={[0, 0, 0]} />
       <EffectComposer multisampling={0}>
         <Bloom intensity={0.75} luminanceThreshold={1} luminanceSmoothing={0.2} mipmapBlur />
         <Vignette eskil={false} offset={0.28} darkness={0.72} />

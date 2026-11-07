@@ -10,6 +10,7 @@ import './styles.css';
 import { ChatPanel } from './ui/ChatPanel';
 import { Inspector } from './ui/Inspector';
 import { Landing } from './ui/Landing';
+import { MobileNav } from './ui/MobileNav';
 import { RecoveryCard } from './ui/RecoveryCard';
 import { RightPanel } from './ui/RightPanel';
 import { StatusBar } from './ui/StatusBar';
@@ -17,6 +18,10 @@ import { Transport } from './ui/Transport';
 
 function App() {
   const environment = useStore((s) => s.environment);
+  const view = useStore((s) => s.view);
+  useEffect(() => {
+    document.documentElement.dataset.view = view;
+  }, [view]);
   useEffect(() => {
     void fetchStatus();
     const id = setInterval(fetchStatus, 15000);
@@ -28,6 +33,7 @@ function App() {
       <StatusBar />
       {environment ? (
         <>
+          <MobileNav />
           <ChatPanel />
           <RightPanel />
           <Inspector />

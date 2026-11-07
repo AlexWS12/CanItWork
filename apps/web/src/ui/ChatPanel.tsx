@@ -1,6 +1,7 @@
 import { DOMAINS } from '@tv/core';
 import { useEffect, useRef, useState } from 'react';
 import { sendChat, startOver } from '../actions';
+import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
 import './ChatPanel.css';
 
@@ -11,7 +12,7 @@ export function ChatPanel() {
   const [text, setText] = useState('');
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    end.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'end' });
   }, [messages]);
   if (!environment) return null;
   const domain = DOMAINS[environment.domain];
@@ -41,9 +42,16 @@ export function ChatPanel() {
             </ul>
           </details>
         ) : null}
-        <p className="limits" title={domain.limits.join('\n')}>
-          {domain.label} simulator limits
-        </p>
+        <details className="limits">
+          <summary>
+            {domain.label} simulator limits ({domain.limits.length})
+          </summary>
+          <ul>
+            {domain.limits.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </details>
       </header>
       <div className="messages">
         {messages.map((m, i) => (
@@ -53,7 +61,7 @@ export function ChatPanel() {
         ))}
         {chatting && (
           <div className="message" data-role="app" data-pending="true">
-            Working
+            Working…
           </div>
         )}
         <div ref={end} />

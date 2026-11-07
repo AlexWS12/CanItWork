@@ -1,20 +1,8 @@
-:root {
-  --bg: #06090f;
-  --panel: rgba(12, 17, 27, 0.78);
-  --panel-solid: #0c111b;
-  --line: rgba(148, 170, 214, 0.14);
-  --line-strong: rgba(148, 170, 214, 0.3);
-  --text: #e8edf6;
-  --muted: #8d9ab2;
-  --cargo: #ffb347;
-  --teal: #2fd4c2;
-  --danger: #ff5a68;
-  --ok: #5dffb1;
-  --mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
-  --sans: 'Space Grotesk Variable', system-ui, sans-serif;
-  --radius: 10px;
-  color-scheme: dark;
-}
+/* Hallmark · app-shell · genre: atmospheric · tone: technical · anchor hue: amber 72 + teal 184
+ * nav: N8-style status strip · footer: transport dock · enrichment: live 3D scene
+ * pre-emit critique: P4 H4 E4 S4 R4 V3
+ */
+@import './tokens.css';
 
 * {
   box-sizing: border-box;
@@ -27,11 +15,15 @@ body,
   margin: 0;
 }
 
+html,
 body {
-  background: var(--bg);
-  color: var(--text);
-  font: 14px/1.45 var(--sans);
-  overflow: hidden;
+  overflow: clip;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: var(--text-base) / 1.45 var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -44,19 +36,25 @@ textarea {
 
 button {
   cursor: pointer;
-  background: rgba(148, 170, 214, 0.08);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 6px 11px;
+  background: var(--color-fill);
+  border: var(--rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  min-height: 28px;
+  white-space: nowrap;
   transition:
-    background 0.15s,
-    border-color 0.15s,
-    color 0.15s;
+    background-color var(--dur-short) var(--ease-out),
+    border-color var(--dur-short) var(--ease-out),
+    color var(--dur-short) var(--ease-out);
 }
 
 button:hover:not(:disabled) {
-  background: rgba(148, 170, 214, 0.16);
-  border-color: var(--line-strong);
+  background: var(--color-fill-hover);
+  border-color: var(--color-line-strong);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
@@ -65,7 +63,7 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--teal);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -76,8 +74,15 @@ p {
   margin: 0;
 }
 
+.num,
+.stat b,
+.score,
+.step-ms,
+.tick {
+  font-variant-numeric: tabular-nums;
+}
+
 .stage {
-  position: fixed !important;
   inset: 0;
 }
 
@@ -85,19 +90,18 @@ p {
 .transport,
 .inspector,
 .recovery {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: var(--color-surface);
+  border: var(--rule);
+  border-radius: var(--radius-md);
   backdrop-filter: blur(14px);
 }
 
 /* Side panels */
-/* Side panels */
 .panel {
   position: fixed;
-  top: 12px;
-  bottom: 86px;
-  width: 292px;
+  top: var(--gutter);
+  bottom: calc(var(--dock-h) + var(--gutter) * 2);
+  width: var(--panel-w);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -105,26 +109,64 @@ p {
 
 /* Scene tags */
 .scene-tag {
-  font: 500 10.5px var(--mono);
-  padding: 1px 6px;
-  border-radius: 5px;
+  font: 500 var(--text-xs) var(--font-mono);
+  padding: var(--space-half) var(--space-2);
+  border-radius: var(--radius-xs);
   white-space: nowrap;
-  background: rgba(6, 9, 15, 0.75);
+  background: var(--color-bg-scrim);
   color: var(--tag);
-  border: 1px solid color-mix(in srgb, var(--tag) 40%, transparent);
+  border: 1px solid color-mix(in oklch, var(--tag) 40%, transparent);
   pointer-events: none;
   user-select: none;
 }
 
 .screen-tag {
-  font-size: 12px;
-  padding: 3px 8px;
-  background: #052e16;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-screen);
   letter-spacing: 0.04em;
 }
 
 .scene-tag[data-failed='true'] {
-  color: #fff;
-  background: #c81e33;
-  border-color: #ff5a68;
+  color: var(--color-text);
+  background: var(--color-danger-strong);
+  border-color: var(--color-danger);
+}
+
+/* The status strip needs its own row once the panels close in on it */
+@media (max-width: 1180px) {
+  .panel {
+    top: var(--top-h);
+  }
+}
+
+/* Narrow screens: one panel at a time, picked from the view switcher */
+@media (max-width: 900px) {
+  :root {
+    --gutter: var(--space-2);
+    --top-h: 92px;
+    --dock-h: 116px;
+  }
+
+  .panel {
+    left: var(--gutter);
+    right: var(--gutter);
+    width: auto;
+  }
+
+  :root[data-view='scene'] .panel,
+  :root[data-view='chat'] .panel.right,
+  :root[data-view='agents'] .panel.left {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }

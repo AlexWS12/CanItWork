@@ -1,94 +1,98 @@
+.recovery {
+  position: fixed;
+  left: calc(var(--panel-w) + var(--gutter) * 2);
+  right: calc(var(--panel-w) + var(--gutter) * 2);
+  bottom: calc(var(--dock-h) + var(--gutter) * 2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-opaque);
+  max-height: calc(100dvh - var(--dock-h) - var(--top-h) - var(--gutter) * 3);
+  overflow-y: auto;
+}
+
 .recovery > header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .recovery > header button {
-  padding: 0 8px;
-  font-size: 16px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-lg);
   line-height: 24px;
-}
-
-.recovery {
-  position: fixed;
-  left: 314px;
-  right: 314px;
-  bottom: 86px;
-  padding: 12px 14px;
-  background: rgba(10, 14, 23, 0.92);
-  max-height: calc(100vh - 110px);
-  overflow-y: auto;
 }
 
 .recovery.slim {
   left: 50%;
   right: auto;
+  max-width: calc(100% - var(--gutter) * 2);
   transform: translateX(-50%);
-  padding: 9px 16px;
-  color: var(--cargo);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-accent);
   white-space: nowrap;
-  overflow: visible;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recovery.slim.applied {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 8px 6px 14px;
-  color: var(--text);
-  border-color: rgba(47, 212, 194, 0.55);
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+  color: var(--color-text);
+  border-color: var(--color-teal-line);
+}
+
+.recovery.slim.applied > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recovery.slim.applied button {
-  padding: 2px 9px;
-  font-size: 12px;
+  padding: var(--space-half) var(--space-2);
+  font-size: var(--text-sm);
 }
 
 .eyebrow {
-  color: var(--danger);
-  font-family: var(--mono);
-  font-size: 11px;
+  color: var(--color-danger);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 
 .recovery h3 {
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
 .recovery-body {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  gap: 14px;
-  margin-top: 6px;
+  gap: var(--space-4);
+  margin-top: var(--space-2);
   align-items: start;
 }
 
 .candidates {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
 .candidate {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 12.5px;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: var(--rule);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
 }
 
 .candidate[data-winner='true'] {
-  border-color: rgba(47, 212, 194, 0.65);
-  background: rgba(47, 212, 194, 0.08);
-}
-
-.candidate b {
-  font-weight: 600;
+  border-color: var(--color-teal-line);
+  background: var(--color-teal-fill);
 }
 
 .candidate-text {
@@ -98,6 +102,7 @@
 
 .candidate b {
   display: block;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -105,36 +110,59 @@
 
 .candidate small {
   display: block;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10.5px;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.candidate-why {
+  margin-top: var(--space-half);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
 }
 
 .score {
-  font-family: var(--mono);
-  font-size: 16px;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
 }
 
 .candidate button {
-  font-size: 12px;
-  padding: 3px 9px;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
 }
 
 .candidate[data-winner='true'] button:not(:disabled) {
-  background: var(--teal);
-  color: #04201c;
+  background: var(--color-teal);
+  color: var(--color-on-teal);
   border: 0;
   font-weight: 600;
 }
 
 .summary {
-  font-size: 12.5px;
-  margin-top: 2px;
+  font-size: var(--text-sm);
+  margin-top: var(--space-half);
 }
 
 @media (max-width: 1100px) {
   .recovery {
-    left: 12px;
-    right: 12px;
+    left: var(--gutter);
+    right: var(--gutter);
+  }
+}
+
+@media (max-width: 900px) {
+  .recovery {
+    top: var(--top-h);
+    bottom: calc(var(--dock-h) + var(--gutter) * 2);
+    max-height: none;
+    z-index: 4;
+  }
+
+  .recovery.slim {
+    top: auto;
+  }
+
+  .recovery-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
