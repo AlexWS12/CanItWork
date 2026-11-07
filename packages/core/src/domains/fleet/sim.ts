@@ -208,8 +208,12 @@ export class FleetRun implements Run {
         if (dist(u.x, u.y, p.x, p.y) <= r + this.cell * 0.5) this.explored[row * this.cols + col] = 1;
       }
     }
+    // A target is found when the cell it lies in has been searched, so a fully searched area has found everything in it.
     this.targets.forEach((t, i) => {
-      if (!t.found && dist(u.x, u.y, t.x, t.y) <= r) {
+      if (t.found) return;
+      const col = Math.min(this.cols - 1, Math.max(0, Math.floor(t.x / this.cell)));
+      const row = Math.min(this.rows - 1, Math.max(0, Math.floor(t.y / this.cell)));
+      if (this.explored[row * this.cols + col] || dist(u.x, u.y, t.x, t.y) <= r) {
         t.found = true;
         u.pending.push(i);
       }
