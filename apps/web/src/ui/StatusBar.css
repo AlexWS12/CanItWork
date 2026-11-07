@@ -1,0 +1,36 @@
+.status {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 5;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.wordmark {
+  letter-spacing: 0.22em;
+  font-weight: 600;
+  margin-right: 10px;
+}
+
+.offline {
+  color: var(--cargo);
+  font-family: var(--mono);
+}
+
+.chip {
+  font-family: var(--mono);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.chip[data-on='true'] {
+  color: var(--ok);
+  border-color: rgba(93, 255, 177, 0.4);
+}

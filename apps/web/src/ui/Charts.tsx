@@ -1,4 +1,5 @@
 import type { Point, RecoveryReport } from '@tv/core';
+import './Charts.css';
 
 export function Sparkline({ values }: { values: number[] }) {
   if (values.length < 2) return <svg className="spark" viewBox="0 0 120 34" aria-hidden />;

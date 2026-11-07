@@ -1,0 +1,66 @@
+.spark {
+  width: 76px;
+  height: 34px;
+  color: var(--teal);
+}
+
+.chart {
+  width: 100%;
+  height: auto;
+}
+
+.chart polyline {
+  fill: none;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart .ref {
+  stroke: var(--muted);
+  stroke-dasharray: 4 4;
+}
+
+.chart .alt {
+  stroke: rgba(148, 170, 214, 0.35);
+  stroke-width: 1;
+}
+
+.chart .bad {
+  stroke: var(--danger);
+}
+
+.chart .win {
+  stroke: var(--teal);
+  stroke-width: 2.25;
+}
+
+.chart .axis {
+  stroke: var(--line);
+}
+
+.chart .incident {
+  stroke: var(--danger);
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+
+.tick-label {
+  font: 10px var(--mono);
+  fill: var(--muted);
+}
+
+.end-label {
+  font: 11px var(--sans);
+}
+
+.end-label.ref {
+  fill: var(--muted);
+}
+
+.end-label.bad {
+  fill: var(--danger);
+}
+
+.end-label.win {
+  fill: var(--teal);
+}
