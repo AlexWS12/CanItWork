@@ -345,7 +345,15 @@ function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
       found.push(`${outputId} is driven by ${chip.id}.${driver.pin} = "${driver.when}"${inputs ? ` with ${inputs}` : ''}`);
     }
   }
-  return found.length ? found.join('; ') : `nothing drives ${outputId}`;
+  if (found.length) return found.join('; ');
+  // No chip drives it: say what each of its pins is wired to and at what voltage, so a passive or sketch-driven circuit can be traced too.
+  const pins = pinsOf(part).map((pin) => {
+    const key = `${part.id}.${pin}`;
+    const others = (members.get(find(key)) ?? []).filter((k) => k !== key);
+    const volts = Math.round(run.voltsBetween(key, `${part.id}.${pinsOf(part).at(-1)}`) * 10) / 10;
+    return `${pin} (${volts} V) joins ${others.length ? others.slice(0, 4).join(', ') : 'nothing'}`;
+  });
+  return `${outputId}'s ${pins.join('; ')}`;
 }
 
 // Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
@@ -353,7 +361,10 @@ export function runTests(spec: CircuitSpec) {
   const failures: string[] = [];
   const traces: string[] = [];
   let passed = 0;
+  // A test with no inputs on a clocked circuit only samples wherever the clock happens to be, so it proves nothing.
+  const clocked = spec.parts.some((p) => p.custom?.state) || Boolean(spec.program?.some((r) => r.every));
   for (const [i, test] of (spec.tests ?? []).entries()) {
+    if (clocked && !Object.keys(test.set).length) continue;
     const run = new CircuitRun(spec, 1, true);
     for (const [target, value] of Object.entries(test.set)) run.inject({ type: 'set_reading', target, value });
     for (let t = 0; t < TEST_TICKS; t++) run.step();
@@ -377,7 +388,7 @@ export function runTests(spec: CircuitSpec) {
     failures.push(`Test ${test.name ? `"${test.name}"` : i + 1} (${inputs || 'no inputs'}): ${bad.map(([, m]) => m).join(', ')}`);
     if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0])}`);
   }
-  return { passed, total: spec.tests?.length ?? 0, failures, traces };
+  return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces };
 }
 
 function checkTests(spec: CircuitSpec): Issue[] {

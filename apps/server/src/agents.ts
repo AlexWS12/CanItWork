@@ -251,7 +251,7 @@ What it can do: ${domain.capabilities}
 Reply with JSON only: {"name": a short title, "summary": one sentence, "unmodelled": [anything the user asked for that this cannot represent], "spec": Spec}
 Spec:
 ${domain.specDoc}
-Honour every number the user gives and pick sensible values for anything unstated. Be honest in "unmodelled": never pretend to represent something you left out.`;
+Honour every number the user gives, and choose every unstated value to fit those numbers: a 30-bed ER gets the arrivals a 30-bed ER sees, not a city hospital's, unless the user says it is overwhelmed. Be honest in "unmodelled": never pretend to represent something you left out.`;
 
 async function architect(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft | null> {
   if (!hasGemini()) {
