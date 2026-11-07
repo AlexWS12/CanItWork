@@ -313,13 +313,10 @@ export function runTests(spec: CircuitSpec) {
   return { passed, total: spec.tests?.length ?? 0, failures };
 }
 
-const hasLogic = (spec: CircuitSpec) =>
-  spec.parts.some((p) => p.custom?.state || [...(p.custom?.drivers ?? []), ...(p.custom?.switches ?? [])].some((c) => !pinsOf(p).includes(c.when)));
-
 function checkTests(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
   const inputs = spec.parts.filter(isInput);
-  if (!spec.tests?.length && !spec.program?.length && (hasLogic(spec) || inputs.length) && spec.parts.some(isOutput)) {
+  if (!spec.tests?.length && !spec.program?.length && inputs.length && spec.parts.some(isOutput)) {
     const rows = Math.min(16, 2 ** Math.max(1, inputs.length));
     return [
       {
