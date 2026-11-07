@@ -1,9 +1,14 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
-import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, type CircuitSpec, type Part } from './parts';
+import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
+import { compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
+const TIMED_CHECK_TICKS = 720;
+const TARGET_SHARE = 80;
+const WARMUP_TICKS = 20;
+const SUSTAINED_TICKS = 10;
 const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer']);
 
 const pinExists = (spec: CircuitSpec, key: string) => {
@@ -22,21 +27,62 @@ const actionsOf = (spec: CircuitSpec) => (spec.program ?? []).flatMap((rule) => 
 
 function checkProgram(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
-  const sensorIds = new Set(spec.parts.filter((p) => p.custom?.sensor).map((p) => p.id));
+  const sensorIds = new Set(spec.parts.filter((p) => sensorOf(p)).map((p) => p.id));
   for (const drive of spec.drive) {
     if (!drivable(spec, drive.pin)) issues.push({ severity: 'error', message: `The sketch drives ${drive.pin}, which isn't a pin a board can drive` });
   }
+  const variables = new Set([...Object.keys(spec.vars ?? {}), ...actionsOf(spec).flatMap((a) => ('set' in a ? [a.set] : []))]);
+  const known = (name: string) => name === 't' || name === 'dt' || variables.has(name) || sensorIds.has(name) || pinExists(spec, name);
+  const checkExpr = (expr: Expr | undefined) => {
+    if (expr === undefined || typeof expr === 'number') return;
+    try {
+      for (const name of namesIn(compile(expr))) {
+        if (!known(name)) issues.push({ severity: 'error', message: `The program uses ${name} in "${expr}", which isn't a variable, sensor or pin` });
+      }
+    } catch (error) {
+      issues.push({ severity: 'error', message: `The program can't read "${expr}": ${(error as Error).message}` });
+    }
+  };
   for (const rule of spec.program ?? []) {
     const read = rule.if?.read;
     if (read && !sensorIds.has(read) && !pinExists(spec, read)) issues.push({ severity: 'error', message: `The program reads ${read}, which isn't a sensor or a pin` });
+    checkExpr(rule.when);
   }
   for (const action of actionsOf(spec)) {
     if ('show' in action) {
       if (!spec.parts.some((p) => p.id === action.show && p.custom?.actuator?.quantity === 'text'))
         issues.push({ severity: 'error', message: `The program shows text on ${action.show}, which isn't a display` });
-    } else if (!drivable(spec, action.pin)) {
-      issues.push({ severity: 'error', message: `The program drives ${action.pin}, which isn't a pin a board can drive` });
+      for (const [, inner] of action.text.matchAll(/\{([^}]+)\}/g)) checkExpr(inner.trim());
+    } else if ('set' in action) {
+      checkExpr(action.to);
+    } else {
+      if (!drivable(spec, action.pin)) issues.push({ severity: 'error', message: `The program drives ${action.pin}, which isn't a pin a board can drive` });
+      checkExpr(action.value);
     }
+  }
+  return issues;
+}
+
+const timed = (spec: CircuitSpec) => (spec.program ?? []).some((rule) => rule.every || JSON.stringify(rule).match(/\bt\b/));
+
+function checkWorld(spec: CircuitSpec): Issue[] {
+  const issues: Issue[] = [];
+  const world = spec.world ?? [];
+  const ids = new Set<string>();
+  for (const q of world) {
+    if (ids.has(q.id)) issues.push({ severity: 'error', message: `Duplicate world quantity ${q.id}` });
+    ids.add(q.id);
+    if (q.max <= q.min) issues.push({ severity: 'error', message: `World quantity ${q.id} has an empty range` });
+    if (q.target && (q.target.min >= q.target.max || q.target.min < q.min || q.target.max > q.max))
+      issues.push({ severity: 'error', message: `World quantity ${q.id} has a target outside its range` });
+    for (const effect of q.effects) {
+      if (!spec.parts.some((p) => p.id === effect.from)) issues.push({ severity: 'error', message: `${q.id} is changed by ${effect.from}, which isn't a part` });
+    }
+  }
+  for (const part of spec.parts) {
+    if (!part.measures) continue;
+    if (!ids.has(part.measures)) issues.push({ severity: 'error', message: `${part.id} measures ${part.measures}, which isn't in the world`, target: part.id });
+    else if (!sensorOf(part)) issues.push({ severity: 'error', message: `${part.id} measures ${part.measures} but isn't a sensor`, target: part.id });
   }
   return issues;
 }
@@ -73,7 +119,7 @@ function checkParts(spec: CircuitSpec): Issue[] {
 function scenarios(spec: CircuitSpec) {
   const out: Array<{ incident?: Incident; when: string }> = [{ when: '' }];
   for (const part of spec.parts) {
-    const sensor = part.custom?.sensor;
+    const sensor = sensorOf(part);
     if (!sensor) continue;
     for (const value of [sensor.min, sensor.max]) {
       out.push({ incident: { type: 'set_reading', target: part.id, value }, when: ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}` });
@@ -86,23 +132,73 @@ function explore(spec: CircuitSpec) {
   const burned = new Map<string, string>();
   const overloads = new Map<string, string>();
   const ran = new Set<string>();
+  const offTarget = new Map<string, string>();
+  const targets = (spec.world ?? []).filter((q) => q.target);
+  const controls = spec.parts.flatMap((part) => (part.custom?.switches ?? []).map((sw) => ({ part, sw, reached: -Infinity })));
   for (const { incident, when } of scenarios(spec)) {
     const run = new CircuitRun(spec, 1, true);
     if (incident) run.inject(incident);
-    for (let i = 0; i < CHECK_TICKS; i++) {
+    const over = new Map<string, { ticks: number; message: string }>();
+    const ticks = !incident && (timed(spec) || targets.length) ? TIMED_CHECK_TICKS : CHECK_TICKS;
+    const held = new Map<string, number>();
+    const left = new Map<string, string>();
+    const reached = new Set<string>();
+    for (let i = 0; i < ticks; i++) {
       run.step();
-      for (const part of spec.parts) if (isOutput(part) && run.isRunning(part)) ran.add(part.id);
+      for (const control of controls) {
+        const id = control.part.id;
+        control.reached = Math.max(control.reached, run.voltsBetween(`${id}.${control.sw.when}`, `${id}.${control.sw.ref}`));
+      }
+      if (!incident) {
+        for (const q of targets) {
+          const value = run.world.get(q.id) ?? 0;
+          if (value >= q.target!.min && value <= q.target!.max) reached.add(q.id);
+          if (left.has(q.id) || !reached.has(q.id) || (value >= q.target!.min && value <= q.target!.max)) continue;
+          const drivers = q.effects.flatMap((effect) => {
+            const part = spec.parts.find((p) => p.id === effect.from);
+            if (!part) return [];
+            const level = Math.round(run.levelOf(part) * 100);
+            return [`${part.id} at ${level}%${part.type === 'motor' && level > 5 ? ' (motors take a moment to stop, so slow down or stop earlier)' : ''}`];
+          });
+          left.set(
+            q.id,
+            `; it first left the range after ${Math.round((i / 12) * 10) / 10} s at ${Math.round(value * 10) / 10}${drivers.length ? `, with ${drivers.join(', ')}` : ''}`,
+          );
+        }
+      }
+      if (!incident && i >= ticks / 2) {
+        for (const q of targets) {
+          const value = run.world.get(q.id) ?? 0;
+          if (value >= q.target!.min && value <= q.target!.max) held.set(q.id, (held.get(q.id) ?? 0) + 1);
+        }
+      }
+      for (const part of spec.parts) {
+        if (isOutput(part) && run.isRunning(part)) ran.add(part.id);
+        const message = i >= WARMUP_TICKS && !run.burned.has(part.id) ? describeOverload(part, run) : null;
+        if (message) over.set(part.id, { ticks: (over.get(part.id)?.ticks ?? 0) + 1, message: over.get(part.id)?.message ?? message });
+      }
     }
     for (const key of run.burned) {
       const cause = run.burnCauses.get(key);
       if (!burned.has(key)) burned.set(key, `${key} burns out${when || ' when powered'}${cause ? `: ${cause}` : ''}`);
     }
-    for (const part of spec.parts) {
-      const overload = run.burned.has(part.id) || overloads.has(part.id) ? null : describeOverload(part, run);
-      if (overload) overloads.set(part.id, `${overload}${when}`);
+    if (!incident) {
+      for (const q of targets) {
+        if (!reached.has(q.id)) left.set(q.id, `; it never reached the range from its start of ${q.start}`);
+        const share = Math.round(((held.get(q.id) ?? 0) / (ticks / 2)) * 100);
+        if (share < TARGET_SHARE)
+          offTarget.set(
+            q.id,
+            `${q.label} stays within ${q.target!.min}–${q.target!.max}${q.unit ? ` ${q.unit}` : ''} only ${share}% of the time once running, ending at ${Math.round((run.world.get(q.id) ?? 0) * 10) / 10}${left.get(q.id) ?? ''}`,
+          );
+      }
+    }
+    for (const [id, { ticks, message }] of over) {
+      if (ticks >= SUSTAINED_TICKS && !overloads.has(id) && !run.burned.has(id)) overloads.set(id, `${message}${when}`);
     }
   }
-  return { burned, overloads, ran };
+  const stuck = controls.filter((c) => c.reached < c.sw.aboveVolts);
+  return { burned, overloads, ran, offTarget, stuck };
 }
 
 function validateCircuit(spec: CircuitSpec): Issue[] {
@@ -112,7 +208,7 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
       if (!pinExists(spec, end)) issues.push({ severity: 'error', message: `${wireId(i)} connects to ${end}, which doesn't exist`, target: wireId(i) });
     }
   });
-  issues.push(...checkProgram(spec));
+  issues.push(...checkProgram(spec), ...checkWorld(spec));
   if (!spec.parts.some((p) => p.type === 'arduino' || p.type === 'battery' || p.custom?.sources.length)) {
     issues.push({ severity: 'error', message: 'There is no power source' });
   }
@@ -121,10 +217,20 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
     issues.push({ severity: 'warning', message: 'Nothing in this circuit does anything observable, so there is nothing to simulate', repair: true });
   }
 
-  const { burned, overloads, ran } = explore(spec);
+  const { burned, overloads, ran, offTarget, stuck } = explore(spec);
+  for (const message of offTarget.values()) issues.push({ severity: 'warning', message, repair: true });
+  for (const { part, sw, reached } of stuck) {
+    const got = Number.isFinite(reached) ? `${Math.max(0, Math.round(reached * 10) / 10)} V` : 'nothing';
+    issues.push({
+      severity: 'warning',
+      message: `${part.id} never connects ${sw.a} to ${sw.b}: it needs ${sw.when} at least ${sw.aboveVolts} V above ${sw.ref}, but gets ${got}`,
+      target: part.id,
+      repair: true,
+    });
+  }
   for (const [key, message] of burned) issues.push({ severity: 'warning', message, target: key.split('.')[0], repair: true });
   const shown = new Set(actionsOf(spec).flatMap((a) => ('show' in a ? [a.show] : [])));
-  const sensed = spec.parts.some((p) => p.custom?.sensor);
+  const sensed = spec.parts.some((p) => sensorOf(p));
   for (const part of spec.parts) {
     const overload = overloads.get(part.id);
     if (overload) {
@@ -133,7 +239,7 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
       const display = part.custom?.actuator?.quantity === 'text' && !shown.has(part.id);
       const message = display
         ? `${part.id} is a display, but no program rule shows anything on it`
-        : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}`;
+        : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}${timed(spec) ? ' in the first minute' : ''}`;
       issues.push({ severity: 'warning', message, target: part.id, repair: true });
     }
     if (TWO_PINS.has(part.type)) {
@@ -160,8 +266,93 @@ function wireTouching(spec: CircuitSpec, id: string) {
   return index >= 0 ? wireId(index) : null;
 }
 
+const CUSTOM = { paths: [], switches: [], drivers: [], sources: [], gpio: [], output: false, visual: [] };
+
+function planter(): CircuitSpec {
+  return {
+    parts: [
+      { id: 'U1', type: 'arduino' },
+      { id: 'B1', type: 'battery', volts: 9, maxAmps: 2 },
+      { id: 'P1', type: 'motor', volts: 9, ohms: 9, maxAmps: 1.5 },
+      {
+        id: 'S1',
+        type: 'custom',
+        measures: 'soil',
+        custom: {
+          ...CUSTOM,
+          label: 'Soil sensor',
+          pins: ['VCC', 'GND', 'AO'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 500 }],
+          supply: { pos: 'VCC', neg: 'GND', minVolts: 3, maxVolts: 5.5 },
+          sensor: { quantity: 'soil moisture', unit: '%', min: 0, max: 100, pin: 'AO' },
+          visual: [
+            { shape: 'box', size: [1.2, 0.08, 0.7], at: [0, 0.2, 0], color: '#14532d' },
+            { shape: 'box', size: [0.18, 0.06, 1.3], at: [-0.3, 0.2, 0.95], color: '#d4af37' },
+            { shape: 'box', size: [0.18, 0.06, 1.3], at: [0.3, 0.2, 0.95], color: '#d4af37' },
+          ],
+        },
+      },
+      {
+        id: 'K1',
+        type: 'custom',
+        custom: {
+          ...CUSTOM,
+          label: 'Relay',
+          pins: ['IN', 'VCC', 'GND', 'COM', 'NO'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 70 }],
+          switches: [{ a: 'COM', b: 'NO', ohms: 0.05, when: 'IN', ref: 'GND', aboveVolts: 2 }],
+          visual: [
+            { shape: 'box', size: [1.6, 0.1, 1.1], at: [0, 0.15, 0], color: '#1d4ed8' },
+            { shape: 'box', size: [0.9, 0.6, 0.7], at: [0, 0.5, 0], color: '#0f172a' },
+          ],
+        },
+      },
+      {
+        id: 'L1',
+        type: 'custom',
+        custom: {
+          ...CUSTOM,
+          label: '16x2 LCD',
+          pins: ['VCC', 'GND'],
+          paths: [{ a: 'VCC', b: 'GND', ohms: 250 }],
+          supply: { pos: 'VCC', neg: 'GND', minVolts: 4.5, maxVolts: 5.5 },
+          actuator: { quantity: 'text', min: 0, max: 0 },
+          visual: [
+            { shape: 'box', size: [2, 0.12, 1], at: [0, 0.15, 0], color: '#166534' },
+            { shape: 'box', size: [1.6, 0.06, 0.55], at: [0, 0.24, 0], color: '#86efac' },
+          ],
+        },
+      },
+    ],
+    wires: [
+      { from: 'U1.5V', to: 'S1.VCC' },
+      { from: 'U1.GND', to: 'S1.GND' },
+      { from: 'S1.AO', to: 'U1.A0' },
+      { from: 'U1.D7', to: 'K1.IN' },
+      { from: 'U1.5V', to: 'K1.VCC' },
+      { from: 'U1.GND', to: 'K1.GND' },
+      { from: 'B1.neg', to: 'U1.GND' },
+      { from: 'B1.pos', to: 'K1.COM' },
+      { from: 'K1.NO', to: 'P1.a' },
+      { from: 'P1.b', to: 'B1.neg' },
+      { from: 'U1.5V', to: 'L1.VCC' },
+      { from: 'U1.GND', to: 'L1.GND' },
+    ],
+    drive: [],
+    vars: { watering: 0 },
+    program: [
+      { when: 'S1 < 35', then: [{ set: 'watering', to: 1 }] },
+      { when: 'S1 > 60', then: [{ set: 'watering', to: 0 }] },
+      { when: 'watering == 1', then: [{ pin: 'U1.D7', mode: 'high' }], else: [{ pin: 'U1.D7', mode: 'low' }] },
+      { every: 0.5, then: [{ show: 'L1', text: 'Soil {S1}% pump {watering}' }] },
+    ],
+    world: [{ id: 'soil', label: 'Soil moisture', unit: '%', start: 50, min: 0, max: 100, drift: -1.5, effects: [{ from: 'P1', rate: 8 }], target: { min: 30, max: 70 } }],
+  };
+}
+
 function buildCircuit(prompt: string): CircuitSpec {
   const text = prompt.toLowerCase();
+  if (/plant|soil|water|greenhouse|irrigat/.test(text)) return planter();
   const parts: Part[] = [{ id: 'U1', type: 'arduino' }];
   const wires: CircuitSpec['wires'] = [];
   const drive: CircuitSpec['drive'] = [];
@@ -224,13 +415,16 @@ function buildCircuit(prompt: string): CircuitSpec {
 
 function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
-  const sensor = spec.parts.find((p) => p.custom?.sensor && (spec.program ?? []).some((r) => r.if?.read === p.id));
-  if (sensor?.custom?.sensor) {
+  const rules = spec.program ?? [];
+  const sensed = spec.parts.filter((p) => sensorOf(p));
+  const program = JSON.stringify(rules);
+  const read = sensed.find((p) => new RegExp(`\\b${p.id}\\b`).test(program)) ?? (rules.some((r) => r.if || r.when) ? sensed[0] : undefined);
+  const info = read && sensorOf(read);
+  if (read && info)
     out.push({
-      claim: `If ${sensor.id} fails and reads ${sensor.custom.sensor.min}, the program acts on a false reading.`,
-      incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min },
+      claim: `If ${read.id} sticks at ${withUnit(info.max, info.unit)}, the sketch acts on a false reading.`,
+      incident: { type: 'sensor_fault', target: read.id, value: info.max },
     });
-  }
   for (const part of spec.parts.filter(isOutput).slice(0, 2)) {
     const wire = wireTouching(spec, part.id);
     if (wire) out.push({ claim: `${part.id} depends on ${wire}: one loose wire takes it out.`, incident: { type: 'loose_wire', target: wire } });
@@ -294,19 +488,26 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
     'Sketches are rules over readings and pin states, not compiled code',
     'Mechanical load, heat and physical motion beyond rotation are not simulated',
   ],
-  examples: ['An Arduino with a motor driver, two motors and an ultrasonic sensor', 'A blinking LED wired to an Arduino with no resistor'],
+  examples: [
+    'A self-watering planter that keeps the soil between 30 and 70 percent',
+    'An Arduino with a motor driver, two motors and an ultrasonic sensor',
+    'A blinking LED wired to an Arduino with no resistor',
+  ],
   suggestions: ['What happens if the battery runs low?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
-  keywords: /arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
+  keywords:
+    /planter|soil|greenhouse|irrigat|thermostat|relay|pump|arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
   ticksPerSecond: 12,
   horizon: 300,
   seeds: 1,
   responseDelay: 10,
   specSchema: CircuitSpecSchema,
   specDoc: `{
-  "parts": [{"id": unique string, "type": type, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "farads"?: number, "usb"?: boolean, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
+  "parts": [{"id": unique string, "type": type, "measures"?: world id, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "farads"?: number, "usb"?: boolean, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
   "wires": [{"from": "PartId.pin", "to": "PartId.pin"}],
   "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink"|"pwm"|"angle", "value"?: number, "period"?: ticks}],
-  "program": [{"if"?: {"read": sensor id or "PartId.pin", "op": "<"|">"|"<="|">="|"=="|"!=", "value": number}, "then": [Action], "else"?: [Action]}]
+  "vars"?: {"name": starting number},
+  "world"?: [{"id": name, "label": string, "unit": string, "start": number, "min": number, "max": number, "drift"?: change per second on its own, "toward"?: {"value": ambient level, "rate": share of the gap closed per second}, "effects"?: [{"from": part id, "rate": change per second at that part's full output}], "target"?: {"min": number, "max": number}}],
+  "program": [{"every"?: seconds, "when"?: expression, "then": [Action], "else"?: [Action]}]
 }
 Types and their pins:
 ${Object.entries(PINS)
@@ -322,7 +523,8 @@ custom: any other component or board. Never leave out a component the user named
 Sensor: {"quantity": what it measures, "unit": "%"|"C"|"cm"|..., "min": number, "max": number, "value": a typical reading, "pin"?: its analog output pin}. With "pin" it outputs a voltage proportional to the reading (wire it to an analog pin); without, it is read over I2C, SPI or 1-wire by its id. Give it a "supply" so it only reads when powered.
 Actuator: {"quantity": "angle"|"speed"|"brightness"|"text", "pin"?: its control pin, "min": number, "max": number}. A servo is angle, min 0, max 180, on its signal pin, which the sketch drives with mode "angle" and value in degrees. A display (LCD, OLED, 7-segment) is text and shows what the program writes to it.
 "visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. Use Part "custom" field only with type "custom".
-"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop: every tick each rule checks its "if" and runs "then" or "else". Leave "if" out for a rule that always runs. An Action is {"pin": "U1.D9", "mode": ..., "value"?: number} or {"show": display id, "text": "Soil {S1}"}, where {S1} becomes that sensor's reading. Reading an arduino analog pin gives 0 to 1023, a digital pin 0 or 1, any other board's pin its voltage. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
+"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop and runs every tick, rule by rule. A rule with "every" runs once per that many seconds; one with "when" runs "then" while the expression is true and "else" while it is false; one with neither runs every tick. Actions: {"pin": "U1.D9", "mode": ..., "value"?: expression}, {"set": variable, "to": expression}, {"show": display id, "text": "Angle {angle} deg"}, where each {expression} becomes its value. An expression is a number or a string using numbers, "vars", t (seconds since the sketch started), sensor ids, "PartId.pin" readings, + - * / %, < > <= >= == !=, && || !, a ? b : c, and min, max, abs, round, floor, ceil, sqrt, sin, cos, clamp(x, lo, hi). Variables keep their value between ticks and reset when the board resets. A servo sweep is "vars": {"angle": 0, "step": 5} with rules {"every": 0.05, "then": [{"set": "angle", "to": "angle + step"}]}, {"when": "angle >= 180", "then": [{"set": "step", "to": -5}]}, {"when": "angle <= 0", "then": [{"set": "step", "to": 5}]}, {"then": [{"pin": "U1.D9", "mode": "angle", "value": "angle"}]}. Use variables and t for anything timed: sequences, timers, debouncing and state machines. Read a sensor by its id. Reading one of its pins, or a board pin wired to it, gives the same reading in the sensor's own unit (an ultrasonic gives distance in cm, 2 to 400), except an arduino analog pin wired to a sensor's analog output, which gives 0 to 1023. Any other arduino digital pin reads 0 or 1, and any other board's pin its voltage. A button is released until someone presses it; wire it with a pull-down or pull-up resistor so its pin reads 0 or 1. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
+"world" is the physical system the circuit senses and acts on, such as soil a pump wets, a room a heater warms and a window cools, the distance a robot drives toward a wall, or water in a tank. Add a world quantity for every physical thing the user's system is meant to control or react to, give each sensor that reads it "measures", and list every part that changes it in "effects" with a realistic rate: a pump at full speed might raise soil moisture 5 % per second while it dries 1 % per second, and motors at full speed close a gap by 30 to 60 cm per second. Effects add up, so a car driven by two wheel motors gives each half of its speed. Time runs in real seconds, so choose rates that show change within a minute. A heater, lamp, solenoid or other resistive load is custom with a path between its power pins and "output": true, never a motor or a resistor. A part's output is its speed for motors, its angle or level for actuators, its brightness for LEDs, and on or off for anything else. Give "target" for what the system is meant to keep in range; the checks reject a design whose sketch doesn't hold it there, so write a real control loop with hysteresis, and remember motors take a moment to stop: a motor coasts when its driver is disabled, so brake by driving both inputs to the same level with the driver enabled, and leave room to stop.
 Wire electrically real circuits: use a current-limiting resistor with LEDs (220 ohms is typical), drive motors through a driver with a battery on its motor supply, and share ground between the board and any battery. A servo driver passes its V+ power straight through to the servo with low-ohm "paths". Wire exactly what the user asks for, even if it is a mistake: the checks that follow will catch it. "unmodelled" is only for behaviour none of this can represent, such as a radio link or a mechanical load, never for leaving a part out.`,
   incidentTypes: ['burn_part', 'short_part', 'loose_wire', 'low_supply', 'sensor_fault', 'set_reading'],
   incidentDoc: `{"type":"burn_part","target":"D1"}
@@ -330,7 +532,7 @@ Wire electrically real circuits: use a current-limiting resistor with LEDs (220 
 {"type":"loose_wire","target":"W3"} (wires are numbered from W1 in spec order)
 {"type":"low_supply","target":"B1","value":volts}
 {"type":"sensor_fault","target":"S1","value":the wrong reading it gets stuck at}
-{"type":"set_reading","target":"S1","value":reading} (a change in conditions, such as the soil drying out, not a failure)`,
+{"type":"set_reading","target":"S1" or a world id,"value":reading} (a change in conditions, such as the soil drying out, not a failure)`,
   patchSchema: CircuitPatchSchema,
   patchDoc: `{"op":"set_ohms","part":"R1","ohms":number}
 {"op":"insert_resistor","wire":"W1","ohms":number}
@@ -341,7 +543,7 @@ Wire electrically real circuits: use a current-limiting resistor with LEDs (220 
 {"op":"secure_wire","wire":"W3"}
 {"op":"rewire","wire":"W3","from":"PartId.pin","to":"PartId.pin"}
 {"op":"set_drive","pin":"U1.D13","mode":"high"|"low"|"blink"|"pwm"|"angle","value"?:number,"period"?:ticks}
-{"op":"set_program","program":[Rule]} (replaces the whole program)
+{"op":"set_program","program":[Rule],"vars"?:{"name":number}} (replaces the whole program)
 A burned part stays dead until replace_part, and that includes the board (use its part id) if a pin burned. Combine patches when a fix needs both a replacement and a design change.`,
   council: [
     { name: 'CircuitDesigner', brief: 'current limiting, wiring and part values' },
@@ -355,7 +557,9 @@ A burned part stays dead until replace_part, and that includes the board (use it
       parts: spec.parts,
       wires: spec.wires.map((w, i) => `${wireId(i)}: ${w.from} -> ${w.to}`),
       drive: spec.drive,
+      vars: spec.vars ?? {},
       program: spec.program ?? [],
+      world: spec.world ?? [],
     }),
   createRun: (spec, seed) => new CircuitRun(spec, seed),
   variants: (spec) =>

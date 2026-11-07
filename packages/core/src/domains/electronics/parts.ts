@@ -94,27 +94,51 @@ export const PartSchema = z.object({
   farads: z.number().positive().max(10).optional(),
   usb: z.boolean().optional(),
   color: z.enum(['red', 'yellow', 'green', 'blue', 'white']).optional(),
+  measures: z.string().optional(),
   custom: CustomPartSchema.optional(),
 });
 export type Part = z.infer<typeof PartSchema>;
+
+const ExprSchema = z.union([z.number(), z.string().min(1).max(200)]);
+const VARIABLE = /^[A-Za-z_]\w*$/;
 
 export const ActionSchema = z.union([
   z.object({
     pin: z.string(),
     mode: z.enum(['high', 'low', 'blink', 'pwm', 'angle']),
-    value: z.number().optional(),
+    value: ExprSchema.optional(),
     period: z.number().int().min(2).max(200).optional(),
   }),
-  z.object({ show: z.string(), text: z.string().max(60) }),
+  z.object({ show: z.string(), text: z.string().max(80) }),
+  z.object({ set: z.string().regex(VARIABLE), to: ExprSchema }),
 ]);
 export type Action = z.infer<typeof ActionSchema>;
 
 export const RuleSchema = z.object({
+  every: z.number().positive().max(3600).optional(),
+  when: z.string().min(1).max(200).optional(),
   if: z.object({ read: z.string(), op: z.enum(['<', '>', '<=', '>=', '==', '!=']), value: z.number() }).optional(),
   then: z.array(ActionSchema).min(1).max(8),
   else: z.array(ActionSchema).max(8).optional(),
 });
 export type Rule = z.infer<typeof RuleSchema>;
+
+export const QuantitySchema = z.object({
+  id: z.string().regex(VARIABLE),
+  label: z.string().min(1).max(40),
+  unit: z.string().max(10).default(''),
+  start: z.number(),
+  min: z.number(),
+  max: z.number(),
+  drift: z.number().optional(),
+  toward: z.object({ value: z.number(), rate: z.number().positive().max(10) }).optional(),
+  effects: z
+    .array(z.object({ from: z.string(), rate: z.number() }))
+    .max(8)
+    .default([]),
+  target: z.object({ min: z.number(), max: z.number() }).optional(),
+});
+export type Quantity = z.infer<typeof QuantitySchema>;
 
 export const CircuitSpecSchema = z.object({
   parts: z.array(PartSchema).min(1).max(30),
@@ -130,6 +154,8 @@ export const CircuitSpecSchema = z.object({
     )
     .default([]),
   program: z.array(RuleSchema).max(20).optional(),
+  vars: z.record(z.string().regex(VARIABLE), z.number()).optional(),
+  world: z.array(QuantitySchema).max(8).optional(),
 });
 export type CircuitSpec = z.infer<typeof CircuitSpecSchema>;
 
@@ -153,6 +179,31 @@ export const PINS: Record<PartType, string[]> = {
 };
 
 export const pinsOf = (part: Part) => (part.type === 'custom' ? (part.custom?.pins ?? []) : PINS[part.type]);
+
+export interface SensorInfo {
+  label: string;
+  quantity: string;
+  unit: string;
+  min: number;
+  max: number;
+  value?: number;
+  pin?: string;
+  outputs: string[];
+  measures?: string;
+}
+
+const POWER_PIN = /^(GND|VCC|VDD|VSS|VIN|V\+|3V3|5V)$/i;
+
+export function sensorOf(part: Part): SensorInfo | null {
+  const custom = part.custom;
+  if (custom?.sensor) {
+    const power = new Set(custom.supply ? [custom.supply.pos, custom.supply.neg] : []);
+    return { label: custom.label, ...custom.sensor, measures: part.measures, outputs: custom.pins.filter((pin) => !power.has(pin) && !POWER_PIN.test(pin)) };
+  }
+  if (part.type === 'button') return { label: 'Button', quantity: 'pressed', unit: '', min: 0, max: 1, value: 0, outputs: [] };
+  if (part.type === 'ultrasonic') return { label: 'Ultrasonic sensor', quantity: 'distance', unit: 'cm', min: 2, max: 400, value: 100, outputs: ['ECHO'], measures: part.measures };
+  return null;
+}
 
 export const withUnit = (value: number, unit: string) => `${Math.round(value * 10) / 10}${!unit || /^[%°]/.test(unit) ? '' : ' '}${unit}`;
 

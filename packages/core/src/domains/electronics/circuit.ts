@@ -10,12 +10,14 @@ import {
   RuleSchema,
   isOutput,
   pinsOf,
+  sensorOf,
   withUnit,
   type Action,
   type CircuitSpec,
   type CustomPart,
   type Part,
 } from './parts';
+import { compile, evaluate, type Expr } from './sketch';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
 
@@ -29,7 +31,7 @@ export const CircuitPatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('secure_wire'), wire: z.string() }),
   z.object({ op: z.literal('rewire'), wire: z.string(), from: z.string(), to: z.string() }),
   z.object({ op: z.literal('set_drive'), pin: z.string(), mode: MODES, value: z.number().optional(), period: z.number().int().min(2).max(200).optional() }),
-  z.object({ op: z.literal('set_program'), program: z.array(RuleSchema).max(20) }),
+  z.object({ op: z.literal('set_program'), program: z.array(RuleSchema).max(20), vars: z.record(z.number()).optional() }),
 ]);
 type CircuitPatch = z.infer<typeof CircuitPatchSchema>;
 
@@ -115,6 +117,7 @@ const milli = (amps: number) => `${Math.round(Math.abs(amps) * 1000)} mA`;
 const volts = (v: number) => `${(Math.round(v * 100) / 100).toFixed(2)} V`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const round1 = (n: number) => Math.round(n * 10) / 10;
+const shape = (text: string | undefined) => (text ?? '').replace(/-?\d+(\.\d+)?/g, '#');
 
 function compare(left: number, op: string, right: number) {
   switch (op) {
@@ -171,6 +174,11 @@ export class CircuitRun implements Run {
   private wired = new Set<string>();
   private railAmps = new Map<string, number>();
   private onSince = new Map<string, number>();
+  readonly vars = new Map<string, number>();
+  readonly world = new Map<string, number>();
+  private onTarget = new Map<string, number>();
+  private slots = new Map<number, number>();
+  private startTick: number | null = null;
   private topology: { version: number; size: number; node: Map<string, number>; wired: Set<string> } | null = null;
   private version = 0;
   private series: Point[] = [];
@@ -182,8 +190,10 @@ export class CircuitRun implements Run {
   constructor(spec: CircuitSpec, seed: number, reference = false) {
     this.spec = structuredClone(spec);
     this.resetPins();
+    this.resetSketch();
+    for (const q of this.spec.world ?? []) this.world.set(q.id, clamp(q.start, q.min, q.max));
     for (const part of this.spec.parts) {
-      const sensor = part.custom?.sensor;
+      const sensor = sensorOf(part);
       if (sensor) this.values.set(part.id, sensor.value ?? (sensor.min + sensor.max) / 2);
       if (part.type === 'capacitor') this.capVolts.set(part.id, 0);
       if (part.type === 'motor') this.speeds.set(part.id, 0);
@@ -199,6 +209,10 @@ export class CircuitRun implements Run {
 
   private part(id: string) {
     return this.spec.parts.find((p) => p.id === id);
+  }
+
+  voltsBetween(a: string, b: string) {
+    return this.volt(a) - this.volt(b);
   }
 
   private volt(key: string) {
@@ -250,11 +264,81 @@ export class CircuitRun implements Run {
     return this.duty(state) * high;
   }
 
+  private sensor(id: string) {
+    const part = this.part(id);
+    return part ? sensorOf(part) : null;
+  }
+
+  private sensorFor(target: string): string | null {
+    if (this.values.has(target)) return target;
+    const [id, name] = target.split('.');
+    if (!name || !this.part(id)) return null;
+    if (this.values.has(id)) return id;
+    const node = this.nodeOf.get(target);
+    if (node === undefined) return null;
+    const analog = this.part(id)!.type === 'arduino' && /^A\d$/.test(name);
+    for (const part of this.spec.parts) {
+      const sensor = sensorOf(part);
+      for (const output of sensor?.outputs ?? []) {
+        if (this.nodeOf.get(`${part.id}.${output}`) !== node) continue;
+        return analog && sensor!.pin === output ? null : part.id;
+      }
+    }
+    return null;
+  }
+
+  private sensed(id: string) {
+    const measures = this.sensor(id)?.measures;
+    return measures !== undefined && this.world.has(measures) ? this.world.get(measures)! : this.values.get(id)!;
+  }
+
+  private quantity(id: string) {
+    return this.spec.world?.find((q) => q.id === id);
+  }
+
+  levelOf(part: Part) {
+    if (this.burned.has(part.id)) return 0;
+    const actuator = part.custom?.actuator;
+    if (part.type === 'motor') return clamp(Math.abs(this.speeds.get(part.id) ?? 0), 0, 1);
+    if (part.type === 'led') return clamp((this.readings.get(part.id)?.amps ?? 0) / 0.02, 0, 1);
+    if (actuator && actuator.quantity !== 'text') {
+      if (!this.isPowered(part)) return 0;
+      return clamp(((this.outputs.get(part.id) ?? actuator.min) - actuator.min) / (actuator.max - actuator.min || 1), 0, 1);
+    }
+    return this.isRunning(part) ? 1 : 0;
+  }
+
+  private stepWorld() {
+    for (const q of this.spec.world ?? []) {
+      const now = this.world.get(q.id)!;
+      let rate = q.drift ?? 0;
+      if (q.toward) rate += q.toward.rate * (q.toward.value - now);
+      for (const effect of q.effects) {
+        const part = this.part(effect.from);
+        if (part) rate += effect.rate * this.levelOf(part);
+      }
+      const next = clamp(now + rate * DT, q.min, q.max);
+      this.world.set(q.id, next);
+      if (q.target && next >= q.target.min && next <= q.target.max) this.onTarget.set(q.id, (this.onTarget.get(q.id) ?? 0) + 1);
+    }
+  }
+
+  private targets() {
+    return (this.spec.world ?? []).filter((q) => q.target);
+  }
+
+  private inTarget(q: { id: string; target?: { min: number; max: number } }) {
+    const value = this.world.get(q.id) ?? 0;
+    return !q.target || (value >= q.target.min && value <= q.target.max);
+  }
+
   read(target: string): number {
-    if (this.values.has(target)) {
-      const part = this.part(target)!;
-      if (this.burned.has(target) || this.shorted.has(target) || (part.custom?.supply && !this.isPowered(part))) return NaN;
-      return this.faults.get(target) ?? this.values.get(target)!;
+    const sensorId = this.sensorFor(target);
+    if (sensorId) {
+      const part = this.part(sensorId)!;
+      const needsPower = part.type !== 'custom' || Boolean(part.custom?.supply);
+      if (this.burned.has(sensorId) || this.shorted.has(sensorId) || (needsPower && !this.isPowered(part))) return NaN;
+      return this.faults.get(sensorId) ?? this.sensed(sensorId);
     }
     const [id, name = ''] = target.split('.');
     const part = this.part(id);
@@ -265,26 +349,65 @@ export class CircuitRun implements Run {
     return Math.round(v * 100) / 100;
   }
 
+  private resetSketch() {
+    this.vars.clear();
+    for (const [name, value] of Object.entries(this.spec.vars ?? {})) this.vars.set(name, value);
+    this.slots.clear();
+    this.startTick = null;
+  }
+
+  time() {
+    return this.startTick === null ? 0 : (this.tick - this.startTick) * DT;
+  }
+
+  private lookup = (name: string): number => {
+    if (name === 't') return this.time();
+    if (name === 'dt') return DT;
+    return this.vars.get(name) ?? this.read(name);
+  };
+
+  private calc(expr: Expr) {
+    return evaluate(compile(expr), this.lookup);
+  }
+
   private format(text: string) {
-    return text.replace(/\{([^}]+)\}/g, (match, key: string) => {
+    return text.replace(/\{([^}]+)\}/g, (match, key: string, offset: number) => {
       const id = key.trim();
-      if (!this.values.has(id) && !id.includes('.')) return match;
-      const value = this.read(id);
+      let value: number;
+      try {
+        value = this.calc(id);
+      } catch {
+        return match;
+      }
       if (Number.isNaN(value)) return '--';
-      return `${round1(value)}${this.part(id)?.custom?.sensor?.unit ?? ''}`;
+      const sensorId = this.sensorFor(id);
+      const unit = (sensorId && this.sensor(sensorId)?.unit) || '';
+      const after = text
+        .slice(offset + match.length)
+        .replace(/^\s*°?/, '')
+        .toLowerCase();
+      const written = unit && after.startsWith(unit.replace('°', '').toLowerCase());
+      return `${round1(value)}${written ? '' : unit}`;
     });
   }
 
   private act(action: Action) {
     if ('show' in action) this.texts.set(action.show, this.format(action.text));
-    else this.pinStates.set(action.pin, { mode: action.mode, value: action.value, period: action.period });
+    else if ('set' in action) this.vars.set(action.set, this.calc(action.to));
+    else this.pinStates.set(action.pin, { mode: action.mode, value: action.value === undefined ? undefined : this.calc(action.value), period: action.period });
   }
 
   private runProgram() {
-    for (const rule of this.spec.program ?? []) {
-      const pass = !rule.if || compare(this.read(rule.if.read), rule.if.op, rule.if.value);
+    this.startTick ??= this.tick;
+    (this.spec.program ?? []).forEach((rule, i) => {
+      if (rule.every) {
+        const slot = Math.floor(this.time() / rule.every + 1e-9);
+        if (this.slots.get(i) === slot) return;
+        this.slots.set(i, slot);
+      }
+      const pass = rule.when ? Boolean(this.calc(rule.when)) : !rule.if || compare(this.read(rule.if.read), rule.if.op, rule.if.value);
       for (const action of pass ? rule.then : (rule.else ?? [])) this.act(action);
-    }
+    });
   }
 
   private sourceVolts(part: Part, source: Source) {
@@ -309,7 +432,10 @@ export class CircuitRun implements Run {
       } else {
         continue;
       }
-      if (this.boardOn.get(part.id) && !on) this.resetPins(part.id);
+      if (this.boardOn.get(part.id) && !on) {
+        this.resetPins(part.id);
+        this.resetSketch();
+      }
       if (!on) this.onSince.delete(part.id);
       else if (!this.onSince.has(part.id)) this.onSince.set(part.id, this.tick);
       this.boardOn.set(part.id, on);
@@ -357,7 +483,7 @@ export class CircuitRun implements Run {
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), LED_RESISTANCE, FORWARD_VOLTS[part.color ?? 'red']);
           break;
         case 'button':
-          add(part.id, pin('a'), pin('b'), 0.05);
+          if ((this.faults.get(part.id) ?? this.values.get(part.id) ?? 0) >= 0.5) add(part.id, pin('a'), pin('b'), 0.05);
           break;
         case 'motor': {
           const model = motorModel(part);
@@ -608,7 +734,8 @@ export class CircuitRun implements Run {
     for (const [key, state] of this.pinStates) {
       if (this.nodeOf.get(key) === target && this.boardOf(key)) return this.command(state);
     }
-    return 0;
+    const boardPins = this.spec.parts.flatMap((p) => (p.type === 'arduino' ? GPIO : (p.custom?.gpio ?? [])).map((name) => `${p.id}.${name}`));
+    return boardPins.some((key) => this.nodeOf.get(key) === target) ? 0 : 1;
   }
 
   private updateActuators() {
@@ -669,7 +796,7 @@ export class CircuitRun implements Run {
   private matchesTwin(part: Part) {
     const twin = this.twin!;
     const actuator = part.custom?.actuator;
-    if (actuator?.quantity === 'text') return (this.texts.get(part.id) ?? '') === (twin.texts.get(part.id) ?? '');
+    if (actuator?.quantity === 'text') return shape(this.texts.get(part.id)) === shape(twin.texts.get(part.id));
     if (actuator) {
       const span = Math.abs(actuator.max - actuator.min) || 1;
       return Math.abs((this.outputs.get(part.id) ?? 0) - (twin.outputs.get(part.id) ?? 0)) <= span * 0.05;
@@ -694,6 +821,7 @@ export class CircuitRun implements Run {
       [...this.pinStates].map(([key, state]) => `${key}:${this.boardOf(key) ? `${state.mode}${this.command(state)}` : 'off'}`).join(),
       [...this.boardOn.values()].join(),
       [...this.values.values()].join(),
+      [...this.world.values()].map((v) => v.toFixed(1)).join(),
       [...this.faults.values()].join(),
     ].join('|');
     if (signature !== this.signature) {
@@ -716,6 +844,7 @@ export class CircuitRun implements Run {
       }
     }
     this.updateActuators();
+    this.stepWorld();
     for (const part of this.outputParts()) if (this.isRunning(part)) this.lastOn.set(part.id, this.tick);
     this.tick++;
     const value = this.percentOk();
@@ -729,11 +858,13 @@ export class CircuitRun implements Run {
 
   private percentOk() {
     const outputs = this.outputParts();
-    if (!outputs.length) {
+    const targets = this.targets();
+    if (!outputs.length && !targets.length) {
       const parts = this.spec.parts.length;
       return ((parts - this.spec.parts.filter((p) => this.burned.has(p.id)).length) / parts) * 100;
     }
-    return (outputs.filter((p) => this.isHealthy(p)).length / outputs.length) * 100;
+    const ok = outputs.filter((p) => this.isHealthy(p)).length + targets.filter((q) => this.inTarget(q)).length;
+    return (ok / (outputs.length + targets.length)) * 100;
   }
 
   inject(incident: Incident) {
@@ -755,12 +886,14 @@ export class CircuitRun implements Run {
         break;
       case 'set_reading': {
         this.twin?.inject(incident);
-        const sensor = this.part(target)?.custom?.sensor;
-        if (sensor) this.values.set(target, clamp(incident.value ?? sensor.min, sensor.min, sensor.max));
+        const sensor = this.sensor(target);
+        const q = this.quantity(target) ?? (sensor?.measures ? this.quantity(sensor.measures) : undefined);
+        if (q) this.world.set(q.id, clamp(incident.value ?? q.min, q.min, q.max));
+        else if (sensor) this.values.set(target, clamp(incident.value ?? sensor.min, sensor.min, sensor.max));
         break;
       }
       case 'sensor_fault':
-        this.faults.set(target, incident.value ?? this.part(target)?.custom?.sensor?.min ?? 0);
+        this.faults.set(target, incident.value ?? this.sensor(target)?.min ?? 0);
         break;
       case 'repair':
         this.burned.delete(target);
@@ -841,6 +974,10 @@ export class CircuitRun implements Run {
       }
       case 'set_program':
         this.spec.program = patch.program;
+        if (patch.vars) {
+          this.spec.vars = patch.vars;
+          this.resetSketch();
+        }
         break;
     }
   }
@@ -854,8 +991,12 @@ export class CircuitRun implements Run {
   evaluation(): Evaluation {
     return {
       score: this.tick ? Math.round((this.scoreSum / this.tick) * 10) / 10 : 0,
-      scoreLabel: '% of outputs working',
+      scoreLabel: this.targets().length ? '% of outputs and targets OK' : '% of outputs working',
       metrics: [
+        ...this.targets().map((q) => ({
+          label: `${q.label.toLowerCase()} on target`,
+          value: `${this.tick ? Math.round(((this.onTarget.get(q.id) ?? 0) / this.tick) * 100) : 0}%`,
+        })),
         { label: 'peak current', value: milli(this.peakAmps) },
         { label: 'parts burned', value: this.burned.size },
         { label: 'worst load', value: `${this.worstLoad()}%` },
@@ -886,6 +1027,9 @@ export class CircuitRun implements Run {
     ];
     const off = [...this.boardOn].find(([, on]) => !on);
     if (off) metrics.push({ label: `${off[0]} board`, value: 'browned out', tone: 'danger' });
+    for (const q of this.spec.world ?? []) {
+      metrics.push({ label: q.label.toLowerCase(), value: withUnit(this.world.get(q.id) ?? 0, q.unit), tone: this.inTarget(q) ? undefined : 'danger' });
+    }
     return metrics;
   }
 
@@ -898,13 +1042,13 @@ export class CircuitRun implements Run {
         incident: { type: 'burn_part', target: output.id },
         keywords: [output.id.toLowerCase(), output.type, (output.custom?.label ?? '').toLowerCase(), 'burn', 'fail'].filter(Boolean),
       });
-    const sensor = this.spec.parts.find((p) => p.custom?.sensor && !this.faults.has(p.id));
-    if (sensor?.custom?.sensor) {
-      const label = sensor.custom.label;
+    const sensorPart = this.spec.parts.find((p) => sensorOf(p) && !this.faults.has(p.id));
+    const sensor = sensorPart && sensorOf(sensorPart);
+    if (sensorPart && sensor) {
       out.push({
-        label: `Fault ${label}`,
-        incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min },
-        keywords: [sensor.id.toLowerCase(), label.toLowerCase(), 'sensor', 'reading', 'fault'],
+        label: `Fault ${sensor.label}`,
+        incident: { type: 'sensor_fault', target: sensorPart.id, value: sensor.min },
+        keywords: [sensorPart.id.toLowerCase(), sensor.label.toLowerCase(), 'sensor', 'reading', 'fault'],
       });
     }
     const wire = this.spec.wires.findIndex((_, i) => !this.loose.has(i));
@@ -959,7 +1103,7 @@ export class CircuitRun implements Run {
     if (part.ohms && part.type !== 'motor') rows.push(['Value', `${part.ohms} Ω`]);
     if (part.type === 'capacitor') rows.push(['Charge', volts(this.capVolts.get(target) ?? 0)]);
     if (part.type === 'motor') rows.push(['Speed', `${Math.round(Math.abs(this.speeds.get(target) ?? 0) * 100)}% of rated`]);
-    const sensor = part.custom?.sensor;
+    const sensor = sensorOf(part);
     if (sensor) {
       const value = this.read(target);
       rows.push(['Reading', Number.isNaN(value) ? 'No reading' : withUnit(value, sensor.unit)]);
@@ -977,7 +1121,13 @@ export class CircuitRun implements Run {
     }
     if (reading) rows.push(['Voltage', volts(reading.volts)], ['Current', milli(reading.amps)], ['Rated', reading.rated], ['Load', `${Math.round(reading.load * 100)}%`]);
     const actions: Inspection['actions'] = [];
-    if (sensor && !broken) {
+    if (part.type === 'button' && !broken) {
+      const pressed = (this.values.get(target) ?? 0) >= 0.5;
+      actions.push(
+        { label: pressed ? 'Release' : 'Press', incident: { type: 'set_reading', target, value: pressed ? 0 : 1 }, destructive: false },
+        { label: 'Stick it down', incident: { type: 'sensor_fault', target, value: 1 }, destructive: true },
+      );
+    } else if (sensor && !broken) {
       const span = sensor.max - sensor.min;
       const label = (word: string, value: number) => `Reading ${word} (${withUnit(value, sensor.unit)})`;
       actions.push(

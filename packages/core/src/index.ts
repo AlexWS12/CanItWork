@@ -6,7 +6,7 @@ export { WarehouseRun } from './domains/warehouse';
 export type { RobotState } from './domains/warehouse/sim';
 export type { World } from './domains/warehouse/schema';
 export { CircuitRun } from './domains/electronics/circuit';
-export { PINS, pinsOf, withUnit, type CircuitSpec, type Part } from './domains/electronics/parts';
+export { PINS, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './domains/electronics/parts';
 export { SystemRun, edgeKey, topoOrder } from './domains/software/system';
 export type { SystemNode, SystemSpec } from './domains/software/schema';
 export { SchemaRun, isIndexed } from './domains/database/engine';
