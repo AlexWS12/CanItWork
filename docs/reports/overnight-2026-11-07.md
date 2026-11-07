@@ -2,7 +2,7 @@
 
 All work is on the local branch `alex/circuits-beyond-arduino`: about 30 commits. The full list is in `git log main..alex/circuits-beyond-arduino`. **Nothing is pushed and nothing is merged.** `main` and Nickolas's PRs are untouched.
 
-Checks: 182 tests pass, typecheck and Prettier are clean, and the web production build passes and is served correctly by the API server (the same setup the container runs).
+Checks: 188 tests pass, typecheck and Prettier are clean, and the web production build passes and is served correctly by the API server (the same setup the container runs).
 
 ## Where it started
 
@@ -21,7 +21,9 @@ The agent trace says it outright:
 
 **Simulator (core)**
 - **Logic and chip state.** A chip output can follow any boolean expression over its pins, and chips can keep state that changes on clock edges. One mechanism covers gates, adders, decoders, counters, flip-flops and the 555, all tested.
-- **New built-in parts:** diode, potentiometer, LDR, NTC thermistor, toggle switch and 7-segment display. Comparators (LM393) work as chips that compare pin voltages.
+- **New built-in parts:** diode (plus Zener), potentiometer, LDR, NTC thermistor, toggle switch and 7-segment display.
+- **Op-amps** (LM358, TL072) are solved exactly as voltage-controlled sources in the nodal matrix. Tests confirm a non-inverting amplifier's gain of 11, a buffer, rail saturation and open-loop comparator switching. Comparators (LM393) also work as chips that compare pin voltages.
+- **Pot direction fixed:** 100% now raises the voltage. All 41 seeds still pass.
 - **Named boards** (Seeed XIAO, Pico, ESP32) are modelled from their real pins, and run from USB when nothing feeds their regulator.
 
 **Checking (the "simulator decides" story)**
@@ -51,6 +53,8 @@ The agent trace says it outright:
 - **Share:** copies a link of about 2 KB that replays the run exactly, recomputes its SHA-256 provenance hash and says whether it matches. An edited link is reported.
 - **Fixes:** the software camera cropped long chains, and the database and electronics suggestions named things that weren't in the design.
 - I checked this with real clicks in the browser: clicking two breadboard switches (A=2, B=2) lit only the 4s LED.
+- **Verified landing examples:** the landing page offers seven showcase prompts the cache can serve: the calculator, the 555 + 4017 traffic light, the LM393 alarm, the Arduino 7-segment counter, a chat app, an e-commerce schema and a warehouse. A judge's first click is instant and costs nothing.
+- **Fixed:** "Server offline" flashed on every first load before the status check answered.
 
 **Ready to deploy**
 - **Rate limit:** `RATE_LIMIT_PER_HOUR` caps AI builds, chats and recoveries per visitor, so a public URL can't drain the Gemini or Swarms credits. Cached example prompts are free and never count. Over the limit, a visitor gets a friendly refusal pointing to the examples. I tested it on the real server.
