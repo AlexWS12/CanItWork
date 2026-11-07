@@ -146,7 +146,8 @@ export class NetRun implements Run {
     if (state.down) return 0;
     let targetRoom: number;
     // Over a delayed link, what is sent now lands `delay` ticks from now, so it only competes with what is already landing on that same tick, not with what arrived this one.
-    const onTheWay = () => this.spec.edges.filter((e) => e.to === edge.to && e.delay === edge.delay).reduce((sum, e) => sum + (this.links.get(linkKey(e))!.pipeline.at(-1) ?? 0), 0);
+    const onTheWay = () =>
+      this.spec.edges.filter((e) => e.to === edge.to && e.delay === edge.delay).reduce((sum, e) => sum + (this.links.get(linkKey(e))!.pipeline.at(-1) ?? 0), 0);
     if (this.role(target) === 'sink') targetRoom = demand ? Math.max(0, state.demand - (edge.delay ? onTheWay() : state.queue)) : Infinity;
     else targetRoom = demand ? (this.need.get(edge.to) ?? 0) : Math.max(0, this.bufferOf(target) + this.live(target, state) - state.queue - this.heldAt(edge.to));
     return Math.min(linkRoom, targetRoom);
