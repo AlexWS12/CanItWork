@@ -44,6 +44,8 @@ export const FleetSpecSchema = z.object({
   roles: z.array(RoleSchema).min(1).max(8),
   // Things to find, hidden in the area: survivors, fires, leaks, parcels to collect.
   targets: z.number().int().min(0).max(60).default(0),
+  // True when the targets' places are known from the start (addresses to deliver to, sites to inspect), so nothing has to find them first.
+  known: z.boolean().default(false),
   // What a deliverer brings each found target; 0 if nothing is delivered.
   deliveriesPerTarget: z.number().int().min(0).max(5).default(1),
   // Wind in metres per second: it drains batteries faster.

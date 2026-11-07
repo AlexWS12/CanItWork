@@ -110,3 +110,19 @@ describe('fleet domain', () => {
     for (const c of claims) expect(fleet.rules.recoveries(spec, c.incident).length).toBeGreaterThan(0);
   });
 });
+
+describe('deliveries to known places', () => {
+  it('delivery robots serve known addresses without any scouts', () => {
+    const spec = DOMAINS.fleet.specSchema.parse({
+      area: { width: 600, depth: 600 },
+      base: { x: 300, y: 10, chargers: 3 },
+      roles: [{ id: 'bot', label: 'Sidewalk robots', behavior: 'deliver', count: 4, speed: 1.6, endurance: 240, range: 2000, sensor: 5, ground: true }],
+      targets: 6,
+      known: true,
+    });
+    expect(DOMAINS.fleet.validate(spec).filter((i) => i.repair)).toEqual([]);
+    const run = new FleetRun(spec, 1);
+    for (let i = 0; i < DOMAINS.fleet.horizon; i++) run.step();
+    expect(run.targets.filter((t) => t.served > 0).length).toBeGreaterThan(0);
+  });
+});

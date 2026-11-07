@@ -126,7 +126,8 @@ export class FleetRun implements Run {
         const inside = obstacles.some((o) => x >= o.x && x <= o.x + o.width && y >= o.y && y <= o.y + o.depth);
         if (!inside && dist(x, y, this.spec.base.x, this.spec.base.y) > this.cell * 2) break;
       }
-      this.targets.push({ x, y, found: false, reported: false, served: 0, claimedBy: null });
+      const known = this.spec.known;
+      this.targets.push({ x, y, found: known, reported: known, served: 0, claimedBy: null });
     }
   }
 
@@ -441,7 +442,7 @@ export class FleetRun implements Run {
     const total = this.targets.length;
     if (this.has('search')) {
       parts.push([this.coverage(), 1]);
-      if (total) parts.push([this.targets.filter((t) => t.reported).length / total, 1]);
+      if (total && !this.spec.known) parts.push([this.targets.filter((t) => t.reported).length / total, 1]);
     }
     if (this.has('deliver') && total && this.spec.deliveriesPerTarget)
       parts.push([this.targets.reduce((s, t) => s + Math.min(t.served, this.spec.deliveriesPerTarget), 0) / (total * this.spec.deliveriesPerTarget), 2]);

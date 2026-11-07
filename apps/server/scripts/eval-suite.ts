@@ -24,7 +24,8 @@ type Spec = any;
 type Check = [label: string, test: (spec: Spec) => boolean];
 interface Case {
   id: string;
-  domain: string;
+  // The domain that should model it; a list when more than one is a fair fit.
+  domain: string | string[];
   prompt: string;
   checks: Check[];
   // The user asked for a stressed system, so checks still failing at the end are what they wanted to see.
@@ -292,6 +293,53 @@ const CASES: Case[] = [
     prompt: 'An op-amp voltage follower buffering a light sensor divider into an LED bar of three comparators',
     checks: [noMcu, ['ldr', has(/ldr/)], ['three leds', (s) => count(/led/)(s) >= 3]],
   },
+  // Breadth: systems of every kind, phrased the way people ask. Several have no obvious home, to find the gaps.
+  { id: 'b-drones', domain: 'fleet', prompt: 'A swarm of organized drones with different roles', checks: [['2+ roles', (s) => (s.roles ?? []).length >= 2]] },
+  {
+    id: 'b-sar',
+    domain: 'fleet',
+    prompt: 'Search and rescue over a 2 km forest with 6 scout drones, 2 relay drones and 3 supply drones',
+    checks: [
+      ['6 searchers', (s) => (s.roles ?? []).filter((r: { behavior: string }) => r.behavior === 'search').reduce((a: number, r: { count: number }) => a + r.count, 0) === 6],
+      ['2 relays', (s) => (s.roles ?? []).filter((r: { behavior: string }) => r.behavior === 'relay').reduce((a: number, r: { count: number }) => a + r.count, 0) === 2],
+      ['3 deliverers', (s) => (s.roles ?? []).filter((r: { behavior: string }) => r.behavior === 'deliver').reduce((a: number, r: { count: number }) => a + r.count, 0) === 3],
+    ],
+  },
+  {
+    id: 'b-rovers',
+    domain: 'fleet',
+    prompt: 'A team of 5 Mars rovers exploring a crater from a lander',
+    checks: [['ground units', (s) => (s.roles ?? []).some((r: { ground?: boolean }) => r.ground)]],
+  },
+  {
+    id: 'b-sidewalk',
+    domain: 'fleet',
+    prompt: 'Sidewalk delivery robots bringing parcels from a hub to 12 houses',
+    checks: [
+      ['known targets', (s) => s.known === true],
+      ['12 targets', (s) => s.targets === 12],
+    ],
+  },
+  {
+    id: 'b-patrol',
+    domain: 'fleet',
+    prompt: 'Security drones patrolling the perimeter of a solar farm in shifts',
+    checks: [['patrol role', (s) => (s.roles ?? []).some((r: { behavior: string }) => r.behavior === 'patrol')]],
+  },
+  { id: 'b-spray', domain: 'fleet', prompt: 'Crop-spraying drones covering a 50 hectare farm', checks: [] },
+  { id: 'b-streaming', domain: 'software', prompt: 'A video streaming platform with a CDN, an encoding pipeline and a recommendation service', checks: [] },
+  { id: 'b-k8s', domain: 'software', prompt: 'A Kubernetes cluster running a web service that gets a traffic spike', checks: [] },
+  { id: 'b-smarthome', domain: ['electronics', 'software'], prompt: 'A smart home with sensors and a cloud backend', checks: [] },
+  { id: 'b-bank', domain: 'database', prompt: 'A banking schema with accounts, transfers and audit logs', checks: [] },
+  { id: 'b-friday-er', domain: 'hospital', prompt: 'An emergency room on a busy Friday night', checks: [] },
+  { id: 'b-kitchen', domain: ['factory', 'callcenter'], prompt: 'A restaurant kitchen during the dinner rush', checks: [] },
+  { id: 'b-microgrid', domain: 'power', prompt: 'A neighbourhood microgrid with rooftop solar and a battery', checks: [] },
+  { id: 'b-satellites', domain: 'fleet', prompt: 'A constellation of satellites relaying data to ground stations', checks: [] },
+  { id: 'b-ants', domain: 'fleet', prompt: 'An ant colony foraging for food and carrying it back to the nest', checks: [] },
+  { id: 'b-security-lines', domain: ['airport', 'callcenter'], prompt: 'Airport security lines with 6 scanners at peak hour', checks: [] },
+  { id: 'b-fulfilment', domain: ['supply', 'warehouse'], prompt: 'Online orders flowing from suppliers through a fulfilment centre to customers', checks: [] },
+  { id: 'b-intersection', domain: ['fleet', 'factory', 'software'], prompt: 'A city intersection with traffic lights and cars', checks: [] },
+  { id: 'b-elevators', domain: ['callcenter', 'factory', 'fleet'], prompt: 'An elevator bank in a 20 floor office building at 9am', checks: [] },
   // Software
   {
     id: 's-cache',
@@ -432,12 +480,17 @@ const CASES: Case[] = [
 
 const filters = process.argv.slice(2);
 const { DOMAINS } = await import('@tv/core');
-const installed = CASES.filter((c) => c.domain in DOMAINS);
+const domainsOf = (c: Case) => (Array.isArray(c.domain) ? c.domain : [c.domain]);
+const installed = CASES.filter((c) => domainsOf(c).some((d) => d in DOMAINS));
 const chosen = filters.length
   ? installed.filter((c) =>
       filters.some(
         (f) =>
-          c.id === f || c.domain === f || (f === 'new' && !['electronics', 'software', 'database', 'warehouse'].includes(c.domain)) || (f === 'routing' && c.id.startsWith('x-')),
+          c.id === f ||
+          domainsOf(c).includes(f) ||
+          (f === 'new' && !domainsOf(c).some((d) => ['electronics', 'software', 'database', 'warehouse'].includes(d))) ||
+          (f === 'routing' && c.id.startsWith('x-')) ||
+          (f === 'breadth' && c.id.startsWith('b-')),
       ),
     )
   : installed;
@@ -479,9 +532,9 @@ async function runCase(c: Case) {
     id: c.id,
     prompt: c.prompt,
     // A design shipped with checks still failing is a failure, whatever parts it has.
-    passed: Boolean(spec) && env?.domain === c.domain && results.every((r) => r.ok) && (c.stressed || !env?.unmodelled.some((u) => u.startsWith('Still failing'))),
+    passed: Boolean(spec) && domainsOf(c).includes(env?.domain ?? '') && results.every((r) => r.ok) && (c.stressed || !env?.unmodelled.some((u) => u.startsWith('Still failing'))),
     domain: env?.domain,
-    wanted: c.domain,
+    wanted: domainsOf(c).join('|'),
     seconds: (Date.now() - started) / 1000,
     calls: usage.length,
     usd: usage.reduce((a, u) => a + estimate(u), 0),
@@ -516,7 +569,7 @@ const workers = Array.from({ length: Number(process.env.EVAL_CONCURRENCY ?? 3) }
         ? still.join('; ').slice(0, 220)
         : r.refusal
           ? `refused: ${r.refusal.slice(0, 160)}`
-          : r.domain !== r.wanted
+          : !r.wanted.split('|').includes(r.domain ?? '')
             ? `routed to ${r.domain}`
             : `missing: ${r.failed.join(', ')}`;
     console.log(`${r.passed ? 'PASS' : 'FAIL'} ${r.id.padEnd(14)} ${r.calls} calls $${r.usd.toFixed(4)} ${r.seconds.toFixed(0)}s  ${why}`);

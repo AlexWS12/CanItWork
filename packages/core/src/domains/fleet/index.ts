@@ -36,10 +36,14 @@ function validateFleet(spec: FleetSpec): Issue[] {
   const behaviors = new Set(spec.roles.map((r) => r.behavior));
   if (behaviors.has('deliver') && spec.deliveriesPerTarget > 0) {
     if (!spec.targets) issues.push({ severity: 'warning', repair: true, message: 'Deliverers have nothing to deliver to: give "targets" for the places that need supplies' });
-    else if (!behaviors.has('search'))
-      issues.push({ severity: 'warning', repair: true, message: 'Nothing finds the targets, so deliverers never learn where to go: add a role with behavior "search"' });
+    else if (!behaviors.has('search') && !spec.known)
+      issues.push({
+        severity: 'warning',
+        repair: true,
+        message: 'Nothing finds the targets, so deliverers never learn where to go: add a role with behavior "search", or set "known": true if their places are known',
+      });
   }
-  if (spec.targets && !behaviors.has('search') && !behaviors.has('deliver'))
+  if (spec.targets && !spec.known && !behaviors.has('search') && !behaviors.has('deliver'))
     issues.push({ severity: 'warning', repair: true, message: `There are ${spec.targets} targets but no role searches for them` });
 
   const far = farthestCorner(spec);
@@ -235,7 +239,7 @@ export const fleet: Domain<FleetSpec, FleetSpec> = {
   "area": {"width": metres, "depth": metres, "obstacles": [{"x": metres from the left, "y": metres from the near edge, "width": m, "depth": m, "height": m}]},
   "base": {"x": m, "y": m, "chargers": integer, "range"?: base radio range in m},
   "roles": [{"id": short name, "label": what they are, "behavior": "search"|"deliver"|"relay"|"patrol"|"escort"|"idle", "count": integer, "speed": m/s, "endurance": minutes of travel per charge, "range": radio range in m, "sensor": how far it sees in m, "ground"?: true for rovers and robots that drive, "waypoints"?: [{"x": m, "y": m}] for patrols}],
-  "targets": things to find (survivors, fires, leaks, parcels), "deliveriesPerTarget": supplies each found target needs (0 if nothing is delivered),
+  "targets": things to find or serve (survivors, fires, leaks, houses), "known": true when their places are known from the start (delivery addresses, sites to inspect), "deliveriesPerTarget": supplies each target needs (0 if nothing is delivered),
   "wind": m/s, "reserve": % battery kept for the trip home
 }
 Behaviours: "search" sweeps unexplored ground and finds targets within its sensor range; "deliver" loads at base and flies to each target that has been found and reported; "relay" positions itself between base and the units furthest out to keep them in radio contact; "patrol" loops its waypoints (or the area's edge) and watches as it goes; "escort" follows the deliverers; "idle" stays at base as a spare.
