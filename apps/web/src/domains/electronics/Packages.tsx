@@ -1,6 +1,6 @@
 import { useFrame } from '@react-three/fiber';
 import { pinsOf, type CircuitRun, type Part } from '@tv/core';
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 
@@ -38,6 +38,45 @@ export function packagePin(part: Part, pin: string): [number, number, number] | 
   return [0, 0.22, 0];
 }
 
+// The part number printed on the package: the first word that looks like one ("74HC08", "NE555"), else the label's first word.
+function markingOf(part: Part) {
+  const label = part.custom?.label ?? part.id;
+  return (label.match(/[A-Z]{0,4}\d{2,}[A-Z0-9-]*/i)?.[0] ?? label.split(/\s+/)[0]).toUpperCase().slice(0, 12);
+}
+
+const markings = new Map<string, THREE.CanvasTexture>();
+function markingTexture(text: string, color: string) {
+  const key = `${text}|${color}`;
+  let texture = markings.get(key);
+  if (texture) return texture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = color;
+    ctx.font = 'bold 72px ui-monospace, Menlo, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 256, 68, 492);
+  }
+  texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  markings.set(key, texture);
+  return texture;
+}
+
+function Marking({ part, width, depth, y, color = '#c9ced6' }: { part: Part; width: number; depth: number; y: number; color?: string }) {
+  const texture = useMemo(() => markingTexture(markingOf(part), color), [part, color]);
+  const w = Math.min(width * 0.9, depth * 4 * 0.9);
+  return (
+    <mesh position={[0, y, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[w, w / 4]} />
+      <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
+  );
+}
+
 function Dip({ part }: { part: Part }) {
   const { near, far, half } = dipRows(part);
   const { length, width } = dipSpan(part);
@@ -56,6 +95,7 @@ function Dip({ part }: { part: Part }) {
         <circleGeometry args={[0.04, 12]} />
         <meshStandardMaterial color="#9aa3b2" />
       </mesh>
+      <Marking part={part} width={length} depth={width - 0.1} y={0.413} />
       {[...near.map((_, i) => [x(i), 1] as const), ...far.map((_, i) => [x(i), -1] as const)].map(([px, side], i) => (
         <mesh key={i} position={[px, 0.18, (side * width) / 2]}>
           <boxGeometry args={[0.07, 0.28, 0.12]} />
@@ -82,6 +122,15 @@ function Module({ part }: { part: Part }) {
         <boxGeometry args={[Math.min(length * 0.45, 1.4), 0.14, Math.min(width * 0.45, 0.9)]} />
         <meshStandardMaterial color="#b8c1cc" metalness={0.85} roughness={0.25} />
       </mesh>
+      <group position={[0, 0, width * 0.3]}>
+        <Marking
+          part={{ ...part, custom: part.custom && { ...part.custom, label: part.custom.label.replace(/^seeed\s+studio\s+|^seeed\s+/i, '') } }}
+          width={length}
+          depth={width * 0.3}
+          y={0.425}
+          color="#f1f5f9"
+        />
+      </group>
       <mesh position={[-length / 2 - 0.02, 0.48, 0]} castShadow>
         <boxGeometry args={[0.32, 0.14, 0.42]} />
         <meshStandardMaterial color="#d7dde5" metalness={0.9} roughness={0.2} />
