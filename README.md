@@ -10,12 +10,14 @@ Built at SharkByte 2026.
 
 | Domain | Simulator | View |
 |---|---|---|
-| Electronics | Simulates circuits and sketches over time: voltages and currents, PWM, capacitors, motor spin-up, board brownout, sensor readings, servo angles and display text, with ratings that burn out overloaded parts | Workbench with boards, parts, live wires and live readings |
+| Electronics | Circuits, sketches and the physical world they act on, over time: voltages and currents, PWM, capacitors, motor spin-up, board brownout, sensors, servos, displays, and quantities such as soil moisture, room temperature or distance to a wall, with ratings that burn out overloaded parts | Workbench with boards, parts, live wires, live readings and a world panel |
 | Software systems | Traffic, capacity, latency, retries, timeouts and cascading failures | Racks, databases and queues with live packets |
 | Databases | Query cost, indexes, data growth, locks and broken dependencies | Table cards with keys and relationships |
 | Warehouses | Robots, routing, conveyors, charging and order flow | 3D warehouse floor |
 
 Each domain lists what it doesn't model, and the app shows that list next to every environment.
+
+Try the first example on the landing page, a self-watering planter. It designs the circuit and its sketch, keeps the soil inside its target band, and recovers when you burn out the pump. [docs/DEMO.md](docs/DEMO.md) is the full walkthrough.
 
 ## Run
 
@@ -33,6 +35,7 @@ It runs with no keys. Without them, each step in the Agents panel is tagged `Loc
 ```bash
 npm test
 npm run typecheck
+npm run format:check
 ```
 
 ## Configuration
@@ -63,11 +66,18 @@ failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Anal
 
 - **Interpreter** picks the domain, or refuses and explains why. Jev answers which domain fits and how likely each simulator is to model the request; code routes on those probabilities and hands unsure cases to Gemini.
 - **Architect** writes a structured design and lists anything it couldn't represent.
-- **Validator** checks the design with the domain's own rules. A rejected design goes back to the Architect once. If it still fails, tv refuses instead of showing something wrong.
+- **Validator** checks the design with the domain's own rules and by simulating it. In electronics it runs the design for a simulated minute at each sensor's extremes and rejects anything that burns out, never turns on or fails to hold its targets, saying why in terms the Architect can act on. A rejected design goes back to the Architect up to twice. Anything still failing is listed next to the environment, and a design with errors is refused instead of shown.
 - **Red Team** states how the design should break, as failures the simulator can run. Each claim is shown as Confirmed or Refuted with the measurement.
 - **Recovery Council** proposes fixes after a failure, and the simulator ranks them.
 
 Agents propose and the simulators decide. Simulators are deterministic, so an environment, seed and event log always replay to the same result.
+
+## Electronics in brief
+
+- **Parts** are built in (boards, resistors, capacitors, LEDs, buttons, motors, H-bridges, ultrasonic sensors, batteries) or defined by the Architect from pins, electrical paths, ratings, a sensor reading or an actuator output, so any board, sensor, relay, display or driver can be modelled.
+- **Sketches** are rules over variables, time since start and sensor readings, with expressions such as `"angle + step"` or `"t % 30 < 3"`, run every tick. Sweeps, timers, state machines and control loops all work.
+- **The world** holds physical quantities that drift, settle toward an ambient value and are pushed by the parts that act on them. Sensors read them, and a target says what the design is meant to hold.
+- **Scoring** compares each run with a fault-free copy of the same design, so a change in conditions isn't a failure but a stuck sensor running a pump is.
 
 ## Adding a domain
 
@@ -82,8 +92,13 @@ A domain is a folder in `packages/core/src/domains` that implements the `Domain`
 ## Known limits
 
 - Prune's response cache is off, because semantic matches ignored numbers in prompts.
-- The status chips show that a key is set, not that it works.
+- The usage ledger leaves out Jev's cost, because TypeSafe's per-token price isn't known yet.
+- Electronics time runs in 1/12 s steps, so radio, audio and fast signal waveforms are averaged.
 - Without keys, only the built-in templates are available.
+
+## Working on it
+
+[docs/PLAN.md](docs/PLAN.md) has the team's lanes, shared-file rules and git workflow, and [docs/handoffs](docs/handoffs) has the current state of each lane.
 
 ## Planned
 

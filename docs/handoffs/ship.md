@@ -44,7 +44,6 @@ You own deployment, sponsor integrations, `README.md` and the Devpost submission
   - Publish a run's `provenanceHash` so anyone can replay the run and check the result wasn't edited.
   - Do this only if there's time after the items above.
 - **M5Stack controller** (Best Use of Hardware): physical buttons that break or fix parts in the running scene. A stretch goal.
-- **`README.md` fix:** it says a rejected design goes back to the Architect "once"; the code allows two repair rounds (`MAX_REPAIRS` in `apps/server/src/agents.ts`).
 - **Devpost:** write-up, a 2–3 minute demo video, and screenshots of each domain.
   - Show a design breaking, the Red Team's claims Confirmed or Refuted, and the council's fixes ranked by simulation.
 - **DEV post** about building it, if that track is entered.

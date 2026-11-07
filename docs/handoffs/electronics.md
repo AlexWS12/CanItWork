@@ -80,7 +80,7 @@ What's verified:
 **Pending:**
 - **The world panel shows values and traces only.** There's no 3D picture of the world: soil, a room, the robot moving.
 - **The keyless template (`buildCircuit`)** has no sensors, sketch logic or world.
-- **A fix that disables a broken output can tie with a real repair** in council ranking. Agree any tie-break with Platform.
+- **A fix that disables a broken output can tie with a real repair** in council ranking. It only happens when a fix rewrites the sketch to switch off an output that is already failing, since a burned part counts as broken whatever the fix does. Breaking the tie properly needs a third reference run per evaluation, about 50% slower ranking, so it was left for after judging.
 - **Four MG996R servos on a 9 V PP3 battery** weren't flagged as overloading it. Check the servos' current draw and the battery's limit.
 - **Custom parts with no `visual`** render as a grey box.
 
