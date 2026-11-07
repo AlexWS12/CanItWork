@@ -10,8 +10,19 @@ export const SystemNodeSchema = z.object({
   replicas: z.number().int().min(1).max(50).optional(),
   capacity: z.number().positive().optional(),
   latency: z.number().positive().optional(),
+  zones: z.array(z.string().min(1).max(40)).min(1).max(6).optional(),
 });
 export type SystemNode = z.infer<typeof SystemNodeSchema>;
+
+/** Replica i runs in zones[i % zones.length]; a node with no zones is unaffected by zone outages. */
+export function replicaZones(node: Pick<SystemNode, 'replicas' | 'zones'>): string[] {
+  if (!node.zones?.length) return [];
+  return Array.from({ length: node.replicas ?? 1 }, (_, i) => node.zones![i % node.zones!.length]);
+}
+
+export function zonesOf(spec: { nodes: Array<Pick<SystemNode, 'zones'>> }): string[] {
+  return [...new Set(spec.nodes.flatMap((n) => n.zones ?? []))];
+}
 
 export const SystemEdgeSchema = z.object({
   from: z.string(),
@@ -37,6 +48,7 @@ export const SystemPatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('make_optional'), from: z.string(), to: z.string() }),
   z.object({ op: z.literal('add_cache'), before: z.string() }),
   z.object({ op: z.literal('add_queue'), from: z.string(), to: z.string() }),
+  z.object({ op: z.literal('add_zone'), node: z.string(), zone: z.string().min(1) }),
 ]);
 export type SystemPatch = z.infer<typeof SystemPatchSchema>;
 

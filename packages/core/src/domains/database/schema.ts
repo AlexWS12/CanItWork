@@ -21,8 +21,13 @@ export const TableSchema = z.object({
   rows: z.number().int().min(0).max(1e10),
   columns: z.array(ColumnSchema).min(1).max(30),
   indexes: z.array(z.array(z.string())).default([]),
+  partitions: z.number().int().min(1).max(32).optional(),
+  partitionBy: z.string().optional(),
 });
 export type Table = z.infer<typeof TableSchema>;
+
+/** How many nodes a table's rows are spread over; 1 unless it has both a partition count and a key. */
+export const partitionsOf = (table: Pick<Table, 'partitions' | 'partitionBy'>) => (table.partitionBy && (table.partitions ?? 1) > 1 ? table.partitions! : 1);
 
 export const QuerySchema = z.object({
   name: z.string().min(1),
@@ -37,6 +42,7 @@ export type Query = z.infer<typeof QuerySchema>;
 export const DatabaseSpecSchema = z.object({
   tables: z.array(TableSchema).min(1).max(16),
   workload: z.array(QuerySchema).max(20).default([]),
+  replicas: z.number().int().min(0).max(8).optional(),
 });
 export type DatabaseSpec = z.infer<typeof DatabaseSpecSchema>;
 
@@ -46,5 +52,6 @@ export const DatabasePatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('archive_rows'), table: z.string(), fraction: z.number().min(0.05).max(0.95) }),
   z.object({ op: z.literal('restore_column'), table: z.string(), column: z.string() }),
   z.object({ op: z.literal('unlock_table'), table: z.string() }),
+  z.object({ op: z.literal('repartition'), table: z.string(), partitions: z.number().int().min(1).max(32), by: z.string().optional() }),
 ]);
 export type DatabasePatch = z.infer<typeof DatabasePatchSchema>;

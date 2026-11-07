@@ -9,8 +9,20 @@ export const WorldSpecSchema = z.object({
   docks: z.number().int().min(1).max(4),
   demand: z.enum(['light', 'steady', 'heavy']),
   dispatch: z.enum(['zoned', 'pooled']),
+  shape: z.enum(['rect', 'L', 'U', 'T']).optional(),
+  zones: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(40),
+        aisles: z.number().int().min(1).max(6),
+        share: z.number().min(0).max(1).optional(),
+      }),
+    )
+    .max(6)
+    .optional(),
 });
 export type WorldSpec = z.infer<typeof WorldSpecSchema>;
+export type FloorShape = NonNullable<WorldSpec['shape']>;
 
 export interface Cell {
   x: number;
@@ -21,6 +33,16 @@ export interface Shelf extends Cell {
   id: string;
   access: Cell;
   owner: string;
+  zone?: string;
+}
+
+export interface ZoneArea {
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  share?: number;
 }
 
 export interface RobotDef {
@@ -73,6 +95,8 @@ export interface World {
   spec: WorldSpec;
   cols: number;
   rows: number;
+  walls: Cell[];
+  zones: ZoneArea[];
   robots: RobotDef[];
   shelves: Shelf[];
   conveyors: Conveyor[];

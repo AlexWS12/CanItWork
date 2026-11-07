@@ -94,8 +94,10 @@ export class Sim {
   private waitTicks = 0;
   private chargeWaitTicks = 0;
   private spawnedRobots = 0;
+  private shelfWeights: number[] | null;
 
   constructor(world: World, seed: number, events: SimEvent[] = []) {
+    this.shelfWeights = orderWeights(world);
     this.world = world;
     this.policy = { ...world.policy };
     this.orderEvery = world.params.orderEvery;
@@ -312,7 +314,7 @@ export class Sim {
 
   private spawnOrders() {
     while (this.tick >= this.nextOrderAt) {
-      const shelf = this.rng.pick(this.world.shelves);
+      const shelf = this.pickShelf();
       const order: Order = {
         id: this.orders.length + 1,
         shelf,
@@ -325,6 +327,15 @@ export class Sim {
       const gap = this.orderEvery / this.demandFactor;
       this.nextOrderAt += Math.max(1, gap * (0.6 + this.rng.next() * 0.8));
     }
+  }
+
+  private pickShelf(): Shelf {
+    const { shelves } = this.world;
+    const weights = this.shelfWeights;
+    if (!weights) return this.rng.pick(shelves);
+    const roll = this.rng.next() * weights[weights.length - 1];
+    const i = weights.findIndex((w) => roll < w);
+    return shelves[i < 0 ? shelves.length - 1 : i];
   }
 
   private wantsCharge(r: RobotState) {
@@ -699,6 +710,26 @@ export class Sim {
       chargeWaitTicks: this.chargeWaitTicks,
     };
   }
+}
+
+/**
+ * Cumulative order weights per shelf when any zone sets a share of orders, else null so the
+ * draw stays uniform. Shelves outside a shared zone split whatever share is left over.
+ */
+export function orderWeights(world: World): number[] | null {
+  const shared = world.zones.filter((z) => z.share !== undefined);
+  if (!shared.length) return null;
+  const shareOf = new Map(shared.map((z) => [z.name, z.share!]));
+  const count = new Map<string, number>();
+  for (const s of world.shelves) if (s.zone && shareOf.has(s.zone)) count.set(s.zone, (count.get(s.zone) ?? 0) + 1);
+  const rest = world.shelves.length - [...count.values()].reduce((a, b) => a + b, 0);
+  const left = Math.max(0, 1 - shared.reduce((sum, z) => sum + z.share!, 0));
+  let total = 0;
+  const weights = world.shelves.map((s) => {
+    total += s.zone && shareOf.has(s.zone) ? shareOf.get(s.zone)! / count.get(s.zone)! : rest ? left / rest : 0;
+    return total;
+  });
+  return total > 0 ? weights : null;
 }
 
 export function runScenario(world: World, scenario: SimScenario) {

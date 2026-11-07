@@ -158,6 +158,7 @@ export class WarehouseRun implements Run {
       return {
         title: `Shelf ${target}`,
         rows: [
+          ['Zone', world.shelves.find((s) => s.id === target)?.zone ?? 'None'],
           ['Owned by', owner?.name ?? 'Nobody'],
           ['Orders waiting', sim.queue.filter((o) => o.shelf.id === target).length],
         ],
@@ -189,15 +190,31 @@ function specFromPrompt(prompt: string): WorldSpec {
   if (/busy|heavy|peak|rush/.test(text)) spec.demand = 'heavy';
   if (/quiet|light|slow/.test(text)) spec.demand = 'light';
   if (/pool|any robot|shared/.test(text)) spec.dispatch = 'pooled';
+  const shape = text.match(/\b([lut])[- ]shaped?\b/)?.[1];
+  if (shape) spec.shape = shape.toUpperCase() as WorldSpec['shape'];
+  const zones = ZONE_WORDS.filter(([pattern]) => pattern.test(text)).map(([, name]) => name);
+  if (zones.length) {
+    spec.aisles = clamp(Math.max(spec.aisles, zones.length), 1, 6);
+    spec.zones = zones.slice(0, spec.aisles).map((name) => ({ name, aisles: 1 }));
+  }
   return spec;
 }
+
+const ZONE_WORDS: Array<[RegExp, string]> = [
+  [/cold|frozen|freezer|chilled|refrigerat/, 'Cold storage'],
+  [/hazmat|hazardous|chemical/, 'Hazmat'],
+  [/fragile/, 'Fragile'],
+  [/bulk|oversized/, 'Bulk'],
+  [/\breturns\b/, 'Returns'],
+];
 
 export const warehouse: Domain<WorldSpec, World> = {
   id: 'warehouse',
   label: 'Warehouses',
   blurb: 'Fulfilment floors with robots, shelves, conveyors and chargers',
-  capabilities: 'Grid warehouses: autonomous mobile robots, shelf aisles, up to two conveyors, a sorter, chargers, docks, order demand and dispatch policy.',
-  limits: ['Single-floor rectangular layouts', 'Robots move one cell per tick', 'No human workers, forklifts or trucks'],
+  capabilities:
+    'Grid warehouses: autonomous mobile robots, shelf aisles, up to two conveyors, a sorter, chargers, docks, order demand and dispatch policy. Floors can be rectangular, L, U or T shaped, with named storage zones that take a set share of orders.',
+  limits: ['One floor, shaped as a rectangle, L, U or T', 'Robots move one cell per tick', 'No human workers, forklifts or trucks'],
   examples: ['An autonomous warehouse with three robots, storage shelves, a conveyor belt, a sorting station and a charger'],
   suggestions: ['What happens if the conveyor belt gets blocked?', 'Add another robot', 'Can you reorganize this to reduce congestion?'],
   keywords: /warehouse|fulfil|logistic|depot|conveyor|shel(f|ves)|distribution (center|centre|hub)/i,
@@ -214,8 +231,11 @@ export const warehouse: Domain<WorldSpec, World> = {
   "chargers": integer 1-4,
   "docks": integer 1-4,
   "demand": "light" | "steady" | "heavy",
-  "dispatch": "zoned" | "pooled"
-}`,
+  "dispatch": "zoned" | "pooled",
+  "shape"?: "rect" | "L" | "U" | "T",
+  "zones"?: [{"name": string, "aisles": integer, "share"?: fraction of orders 0-1}]
+}
+Use shape only when the user describes the floor outline; U and T need 3+ aisles. Zones claim aisles in order from the west, and their aisles must total "aisles" or less.`,
   incidentTypes: ['fail_robot', 'block_conveyor', 'offline_charger', 'surge'],
   incidentDoc: `{"type":"fail_robot","target":"R1"}
 {"type":"block_conveyor","target":"C1"}
@@ -242,6 +262,8 @@ export const warehouse: Domain<WorldSpec, World> = {
       chargers: world.chargers.map((c) => c.id),
       docks: world.docks.length,
       policy: world.policy,
+      shape: world.spec.shape ?? 'rect',
+      zones: world.zones.map((z) => ({ name: z.name, shelves: world.shelves.filter((s) => s.zone === z.name).length, share: z.share })),
     }),
   createRun: (world, seed) => new WarehouseRun(world, seed),
   compare(base, after, incident) {
@@ -254,6 +276,7 @@ export const warehouse: Domain<WorldSpec, World> = {
     { title: 'Add one robot', patches: [{ op: 'add_robot' }] },
     { title: 'Second conveyor', spec: { ...spec, conveyors: 2 } },
     { title: 'Extra charger', spec: { ...spec, chargers: Math.min(4, world.chargers.length + 1) } },
+    ...(world.walls.length ? [{ title: 'Rectangular floor', spec: { ...spec, shape: 'rect' as const } }] : []),
   ],
   rules: {
     spec: specFromPrompt,
