@@ -100,6 +100,31 @@ describe('LLM gateway', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('waits out a rate limit for as long as Google asks, then retries', async () => {
+    process.env.GEMINI_API_KEY = 'g';
+    vi.useFakeTimers();
+    let n = 0;
+    mockFetch(() =>
+      n++ ? json(openAiReply('{"ok":true}')) : new Response('{"error":{"code":429,"details":[{"retryDelay":"3s"}]}}', { status: 429 }),
+    );
+    const pending = ask();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await pending).toEqual({ ok: true });
+    expect(n).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it('gives up straight away when the wait would be too long', async () => {
+    process.env.GEMINI_API_KEY = 'g';
+    let n = 0;
+    mockFetch(() => {
+      n++;
+      return new Response('{"error":{"code":429,"details":[{"retryDelay":"300s"}]}}', { status: 429 });
+    });
+    await expect(ask()).rejects.toThrow('429');
+    expect(n).toBe(1);
+  });
+
   it('asks the model once to repair invalid JSON', async () => {
     process.env.GEMINI_API_KEY = 'g';
     let n = 0;

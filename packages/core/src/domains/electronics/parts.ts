@@ -70,6 +70,7 @@ export const PartSchema = z.object({
   type: z.enum(PART_TYPES),
   ohms: z.number().positive().optional(),
   volts: z.number().positive().max(48).optional(),
+  maxAmps: z.number().positive().max(100).optional(),
   color: z.enum(['red', 'yellow', 'green', 'blue', 'white']).optional(),
   custom: CustomPartSchema.optional(),
 });

@@ -91,6 +91,7 @@ export class CircuitRun implements Run {
   readonly shorted = new Set<string>();
   readonly loose = new Set<number>();
   readonly readings = new Map<string, Reading>();
+  readonly burnCauses = new Map<string, string>();
   wireAmps: number[] = [];
   tick = 0;
 
@@ -159,7 +160,7 @@ export class CircuitRun implements Run {
           add(part.id, pin('a'), pin('b'), 0.05);
           break;
         case 'motor':
-          add(part.id, pin('a'), pin('b'), 6);
+          add(part.id, pin('a'), pin('b'), part.ohms ?? 6);
           break;
         case 'buzzer':
           add(part.id, pin('pos'), pin('neg'), 170);
@@ -316,9 +317,19 @@ export class CircuitRun implements Run {
       const rated = part.custom.maxAmps;
       return { volts: drop, amps, load: amps / rated, burnAt: 2, rated: milli(rated) };
     }
+    if ((part.type === 'battery' || part.type === 'motor') && part.maxAmps) {
+      return { volts: drop, amps, load: amps / part.maxAmps, burnAt: part.type === 'battery' ? 2.5 : 2, rated: milli(part.maxAmps) };
+    }
     const limit = LIMITS[part.type];
     if (!limit) return { volts: drop, amps, load: 0, burnAt: Infinity, rated: 'n/a' };
     return { volts: drop, amps, load: amps / limit.rated, burnAt: limit.burn / limit.rated, rated: milli(limit.rated) };
+  }
+
+  private causeOf(key: string, reading: Reading) {
+    const supply = this.spec.parts.find((p) => p.id === key)?.custom?.supply;
+    if (supply && reading.volts > supply.maxVolts) return `${reading.volts.toFixed(1)} V against its ${supply.maxVolts} V maximum`;
+    if (reading.rated.endsWith('W')) return `more power than its ${reading.rated} rating`;
+    return `${milli(reading.amps)} against its ${reading.rated} rating`;
   }
 
   private isActive(part: Part) {
@@ -369,6 +380,7 @@ export class CircuitRun implements Run {
       this.stress.set(key, count);
       if (count >= BURN_TICKS) {
         this.burned.add(key);
+        this.burnCauses.set(key, this.causeOf(key, reading));
         this.dirty = true;
       }
     }

@@ -182,6 +182,43 @@ describe('electronics', () => {
     expect(messages.some((m) => m.includes('never turns on'))).toBe(false);
   });
 
+  it('names the root cause when a battery is overloaded, and lets a bigger pack fix it', () => {
+    const spec = (maxAmps?: number): CircuitSpec => ({
+      parts: [
+        { id: 'B1', type: 'battery', volts: 6, maxAmps },
+        { id: 'M1', type: 'motor' },
+        { id: 'M2', type: 'motor' },
+        { id: 'M3', type: 'motor' },
+      ],
+      wires: ['M1', 'M2', 'M3'].flatMap((m) => [
+        { from: 'B1.pos', to: `${m}.a` },
+        { from: `${m}.b`, to: 'B1.neg' },
+      ]),
+      drive: [],
+    });
+    const issues = electronics.validate(spec());
+    const battery = issues.find((i) => i.target === 'B1');
+    expect(battery?.repair).toBe(true);
+    expect(battery?.message).toMatch(/\d+ mA, above its 1000 mA rating/);
+    expect(electronics.validate(spec(4)).filter((i) => i.repair)).toEqual([]);
+  });
+
+  it('rates a motor for the voltage it was built for', () => {
+    const pump = (ohms?: number, maxAmps?: number): CircuitSpec => ({
+      parts: [
+        { id: 'B1', type: 'battery', volts: 12, maxAmps: 3 },
+        { id: 'P1', type: 'motor', ohms, maxAmps },
+      ],
+      wires: [
+        { from: 'B1.pos', to: 'P1.a' },
+        { from: 'P1.b', to: 'B1.neg' },
+      ],
+      drive: [],
+    });
+    expect(electronics.validate(pump()).some((i) => i.target === 'P1' && i.repair)).toBe(true);
+    expect(electronics.validate(pump(12, 1.5)).filter((i) => i.repair)).toEqual([]);
+  });
+
   it('rejects a custom part that uses a pin it does not have', () => {
     const part = servo(5);
     part.custom!.paths = [{ a: 'VCC', b: 'NOPE', ohms: 10 }];

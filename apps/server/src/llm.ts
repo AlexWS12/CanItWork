@@ -10,6 +10,24 @@ const geminiModel = () => env().GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite';
 
 export class NoCredentials extends Error {}
 
+const MAX_WAIT_MS = 20_000;
+
+class ProviderBusy extends Error {
+  constructor(
+    message: string,
+    readonly waitMs: number,
+  ) {
+    super(message);
+  }
+}
+
+function waitFor(res: Response, body: string) {
+  const header = Number(res.headers.get('retry-after'));
+  if (Number.isFinite(header) && header > 0) return header * 1000;
+  const delay = body.match(/"retryDelay":\s*"(\d+(?:\.\d+)?)s"/)?.[1];
+  return delay ? Number(delay) * 1000 : 2000;
+}
+
 export class ShieldBlock extends Error {
   constructor(readonly code: string) {
     super(`Prune Shield blocked this request (${code})`);
@@ -70,7 +88,12 @@ async function complete(
   });
   const shield = res.headers.get('x-prune-shield-code');
   if (shield) throw new ShieldBlock(shield);
-  if (!res.ok) throw new Error(`gemini via ${route.via}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const body = await res.text();
+    const message = `gemini via ${route.via}: HTTP ${res.status} ${body.slice(0, 200)}`;
+    if (res.status === 429 || res.status === 503) throw new ProviderBusy(message, res.status === 503 ? 1500 : waitFor(res, body));
+    throw new Error(message);
+  }
 
   const body = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
@@ -104,8 +127,8 @@ async function completeWithRetry(...args: Parameters<typeof complete>) {
   try {
     return await complete(...args);
   } catch (error) {
-    if (args[0].via !== 'direct' || !String(error).includes('HTTP 503')) throw error;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    if (args[0].via !== 'direct' || !(error instanceof ProviderBusy) || error.waitMs > MAX_WAIT_MS) throw error;
+    await new Promise((resolve) => setTimeout(resolve, error.waitMs));
     return complete(...args);
   }
 }

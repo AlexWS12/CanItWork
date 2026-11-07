@@ -44,7 +44,8 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
   const run = new CircuitRun(spec, 1);
   for (let i = 0; i < 70; i++) run.step();
   for (const key of run.burned) {
-    issues.push({ severity: 'warning', message: `${key} burns out when powered`, target: key.split('.')[0] });
+    const cause = run.burnCauses.get(key);
+    issues.push({ severity: 'warning', message: `${key} burns out when powered${cause ? `: ${cause}` : ''}`, target: key.split('.')[0], repair: true });
   }
   for (const part of spec.parts) {
     const overload = run.burned.has(part.id) ? null : describeOverload(part, run);
@@ -189,12 +190,13 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   responseDelay: 10,
   specSchema: CircuitSpecSchema,
   specDoc: `{
-  "parts": [{"id": unique string, "type": type, "ohms"?: number, "volts"?: number, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
+  "parts": [{"id": unique string, "type": type, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
   "wires": [{"from": "PartId.pin", "to": "PartId.pin"}],
   "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink", "period"?: ticks}]
 }
 Types and their pins:
 ${Object.entries(PINS).filter(([type]) => type !== 'custom').map(([type, pins]) => `${type}: ${pins.join(', ')}`).join('\n')}
+Give every motor, pump or fan its winding "ohms" and rated "maxAmps" for the voltage it runs at: a 12 V pump drawing 1 A is 12 ohms and maxAmps 1.5, a small 6 V hobby motor is 6 ohms and 1.2. Give every battery the "maxAmps" it can really supply: a 9 V PP3 is about 0.5, AA packs about 2, LiPo packs and 12 V adapters 3 to 10. Size it for everything it powers at once.
 motor_driver is only an L298N-style dual H-bridge; any other driver chip (A4988, DRV8825, TB6612, ULN2003) is custom.
 custom: any other component or board. Never leave out a component the user named: if it isn't a type above, define it with type "custom" and a "custom" object, using realistic datasheet values:
 {"label": name, "pins": [names], "paths": [{"a": pin, "b": pin, "ohms": number}], "switches": [{"a": pin, "b": pin, "ohms": number, "when": control pin, "ref": its reference pin, "aboveVolts": number}], "drivers": [{"pin": output pin, "high": pin, "low": pin, "when": control pin, "ref": its reference pin, "aboveVolts": number, "ohms": number, "invert": boolean}], "sources": [{"pos": pin, "neg": pin, "volts": number, "ohms": number}], "gpio": [pins the program can drive], "gpioVolts": number, "supply": {"pos": pin, "neg": pin, "minVolts": number, "maxVolts": number}, "maxAmps": number, "output": true if it does something observable, "visual": [{"shape": "box"|"cylinder"|"sphere", "size": [x,y,z], "at": [x,y,z], "color": "#rrggbb", "moves": true for a moving part}]}
