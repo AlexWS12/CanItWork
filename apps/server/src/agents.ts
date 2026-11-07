@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
+import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
 export type Emit = (event: StreamEvent) => void;
@@ -253,6 +254,37 @@ Spec:
 ${domain.specDoc}
 Honour every number the user gives, and choose every unstated value to fit those numbers: a 30-bed ER gets the arrivals a 30-bed ER sees, not a city hospital's, unless the user says it is overwhelmed. Be honest in "unmodelled": never pretend to represent something you left out.`;
 
+// Scores a candidate design the way the pipeline judges it: errors disqualify, open problems cost points, the baseline decides the rest.
+function scoreDraft(domain: Domain, draft: Draft) {
+  const model = domain.compile(draft.spec);
+  const issues = domain.validate(model);
+  if (issues.some((i) => i.severity === 'error')) return { score: 0, issues };
+  const open = issues.filter((i) => i.repair).length;
+  return { score: baselineOf(domain, model, domain.horizon, []).score - 20 * open, issues };
+}
+
+async function councilDesign(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft | null> {
+  if (!designCouncilOn()) return null;
+  try {
+    return await step('architect', 'swarms', 'Convening the design council', async (detail) => {
+      const { winner, candidates } = await runDesignCouncil<Draft>({
+        prompt,
+        domain,
+        system: architectPrompt(domain),
+        schema: draftSchema(domain) as unknown as z.ZodType<Draft>,
+        score: (draft) => scoreDraft(domain, draft),
+        onUsage: onUsage(emit),
+        emit,
+      });
+      detail(`${leaderboard(candidates)}. The simulator picked the ${winner.author}'s design`);
+      return winner.draft;
+    });
+  } catch (error) {
+    if (error instanceof ShieldBlock) throw error;
+    return null;
+  }
+}
+
 async function architect(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft | null> {
   if (!hasGemini()) {
     return step('architect', 'rules', 'Drafting from a template', async (detail) => {
@@ -344,7 +376,7 @@ export async function build(prompt: string, emit: Emit) {
   const id = await interpret(prompt, emit, step);
   if (!id) return;
   const domain = DOMAINS[id];
-  const first = await architect(prompt, domain, emit, step);
+  const first = (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
   if (!first) return;
   let draft = first;
 
