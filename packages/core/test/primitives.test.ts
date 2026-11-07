@@ -58,9 +58,9 @@ describe('potentiometer', () => {
   };
   const amps = (position: number) => settle(dimmer, (r) => r.inject({ type: 'set_reading', target: 'P1', value: position })).readings.get('L1')?.amps ?? 0;
 
-  it('dims the LED as it turns', () => {
-    expect(amps(5)).toBeGreaterThan(amps(50));
-    expect(amps(50)).toBeGreaterThan(amps(95));
+  it('brightens the LED as it is turned up', () => {
+    expect(amps(95)).toBeGreaterThan(amps(50));
+    expect(amps(50)).toBeGreaterThan(amps(5));
   });
 });
 

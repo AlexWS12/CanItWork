@@ -68,6 +68,7 @@ interface Element {
   b: string;
   g: number;
   e: number;
+  ctrl?: { p: string; n: string; gain: number };
 }
 
 export interface Reading {
@@ -78,19 +79,26 @@ export interface Reading {
   rated: string;
 }
 
-function nodal(size: number, elements: Array<{ a: number; b: number; g: number; e: number }>): number[] {
+// Elements are conductances with a series EMF; one with p, n and gain is a voltage-controlled source: its EMF is gain x (V(p) - V(n)).
+function nodal(size: number, elements: Array<{ a: number; b: number; g: number; e: number; p?: number; n?: number; gain?: number }>): number[] {
   const m = size - 1;
   if (m <= 0) return [0];
   const A = Array.from({ length: m }, () => new Float64Array(m + 1));
   const stamp = (r: number, c: number, value: number) => {
     if (r > 0 && c > 0) A[r - 1][c - 1] += value;
   };
-  for (const { a, b, g, e } of elements) {
+  for (const { a, b, g, e, p, n, gain } of elements) {
     if (a === b) continue;
     stamp(a, a, g);
     stamp(b, b, g);
     stamp(a, b, -g);
     stamp(b, a, -g);
+    if (gain && p !== undefined && n !== undefined) {
+      stamp(a, p, -g * gain);
+      stamp(a, n, g * gain);
+      stamp(b, p, g * gain);
+      stamp(b, n, -g * gain);
+    }
     if (a > 0) A[a - 1][m] += g * e;
     if (b > 0) A[b - 1][m] -= g * e;
   }
@@ -192,6 +200,7 @@ export class CircuitRun implements Run {
   private signature = '';
   private exprs = new Map<string, Node>();
   private segmentsOn = new Set<string>();
+  private ampState = new Map<string, 'linear' | 'high' | 'low'>();
   private chipVars = new Map<string, Map<string, number>>();
   private chipPrev = new Map<string, number>();
 
@@ -525,7 +534,7 @@ export class CircuitRun implements Run {
 
   private elements(on: Set<string>, logic: Map<string, boolean>, h: number, low: Set<string>) {
     const out: Element[] = [];
-    const add = (owner: string, a: string, b: string, ohms: number, e = 0) => out.push({ owner, a, b, g: 1 / ohms, e });
+    const add = (owner: string, a: string, b: string, ohms: number, e = 0, ctrl?: Element['ctrl']) => out.push({ owner, a, b, g: 1 / ohms, e, ctrl });
     for (const part of this.spec.parts) {
       const pin = (name: string) => `${part.id}.${name}`;
       if (this.burned.has(part.id)) continue;
@@ -568,9 +577,10 @@ export class CircuitRun implements Run {
           break;
         case 'pot': {
           const total = part.ohms ?? 10000;
+          // Turned up to 100%, the wiper sits at the "a" end, so wiring "a" to the supply makes a higher setting a higher voltage.
           const at = clamp(this.inputLevel(part.id) / 100, 0, 1);
-          add(part.id, pin('a'), pin('wiper'), Math.max(1, total * at));
-          add(part.id, pin('wiper'), pin('b'), Math.max(1, total * (1 - at)));
+          add(part.id, pin('a'), pin('wiper'), Math.max(1, total * (1 - at)));
+          add(part.id, pin('wiper'), pin('b'), Math.max(1, total * at));
           break;
         }
         case 'ldr': {
@@ -618,6 +628,12 @@ export class CircuitRun implements Run {
             const high = Boolean(logic.get(pin(`driver${i}`))) !== driver.invert;
             if (high) add(part.id, pin(driver.high), pin(driver.pin), driver.ohms);
             else add(part.id, pin(driver.pin), pin(driver.low), driver.ohms);
+          });
+          (custom.amplifiers ?? []).forEach((amp, i) => {
+            const state = this.ampState.get(pin(`amp${i}`)) ?? 'linear';
+            if (state === 'high') add(part.id, pin(amp.out), pin(amp.high), amp.ohms, this.volt(pin(amp.out)) > this.volt(pin(amp.high)) ? 0 : -amp.headroom);
+            else if (state === 'low') add(part.id, pin(amp.out), pin(amp.low), amp.ohms, amp.headroom);
+            else add(part.id, pin(amp.out), pin(amp.low), amp.ohms, 0, { p: pin(amp.plus), n: pin(amp.minus), gain: amp.gain });
           });
           for (const source of custom.sources) {
             const e = this.sourceVolts(part, source);
@@ -717,7 +733,7 @@ export class CircuitRun implements Run {
         elements = this.elements(on, logic, h, segment.low);
         v = nodal(
           size,
-          elements.map((el) => ({ a: node(el.a), b: node(el.b), g: el.g, e: el.e })),
+          elements.map((el) => ({ a: node(el.a), b: node(el.b), g: el.g, e: el.e, ...(el.ctrl ? { p: node(el.ctrl.p), n: node(el.ctrl.n), gain: el.ctrl.gain } : {}) })),
         );
         const at = (key: string) => v[node(key)] ?? 0;
         let changed = false;
@@ -753,6 +769,19 @@ export class CircuitRun implements Run {
           }
           const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) => update(key, this.controlled(part, c, at));
           part.custom?.switches.forEach((sw, i) => control(`${part.id}.switch${i}`, sw));
+          (part.custom?.amplifiers ?? []).forEach((amp, i) => {
+            const key = `${part.id}.amp${i}`;
+            const pin = (name: string) => `${part.id}.${name}`;
+            const top = at(pin(amp.high)) - amp.headroom;
+            const bottom = at(pin(amp.low)) + amp.headroom;
+            const wanted = at(pin(amp.low)) + amp.gain * (at(pin(amp.plus)) - at(pin(amp.minus)));
+            const now = this.ampState.get(key) ?? 'linear';
+            const next = wanted > top ? 'high' : wanted < bottom ? 'low' : 'linear';
+            if (next !== now) {
+              this.ampState.set(key, next);
+              changed = true;
+            }
+          });
           part.custom?.drivers.forEach((driver, i) => control(`${part.id}.driver${i}`, driver));
           if (part.type === 'motor_driver') {
             const pin = (name: string) => `${part.id}.${name}`;

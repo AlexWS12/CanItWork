@@ -104,6 +104,22 @@ export const CustomPartSchema = z.object({
         .default([]),
     })
     .optional(),
+  // Op-amps: output = gain x (plus - minus) over the low rail, clamped between the rails. Solved exactly, so amplifiers, buffers and filters work.
+  amplifiers: z
+    .array(
+      z.object({
+        out: z.string(),
+        plus: z.string(),
+        minus: z.string(),
+        high: z.string(),
+        low: z.string(),
+        gain: z.number().positive().max(1e7).default(100000),
+        ohms: z.number().positive().default(75),
+        headroom: z.number().nonnegative().default(0.1),
+      }),
+    )
+    .max(8)
+    .optional(),
   gpio: z.array(z.string()).default([]),
   gpioVolts: z.number().positive().max(12).optional(),
   supply: SupplySchema.optional(),
