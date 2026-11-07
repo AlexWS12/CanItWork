@@ -363,7 +363,12 @@ export class CircuitRun implements Run {
   private lookup = (name: string): number => {
     if (name === 't') return this.time();
     if (name === 'dt') return DT;
-    return this.vars.get(name) ?? this.read(name);
+    if (this.vars.has(name)) return this.vars.get(name)!;
+    if (this.world.has(name)) {
+      const sensor = this.spec.parts.find((p) => sensorOf(p)?.measures === name);
+      if (sensor) return this.read(sensor.id);
+    }
+    return this.read(name);
   };
 
   private calc(expr: Expr) {
