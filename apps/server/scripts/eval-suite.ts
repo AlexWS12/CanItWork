@@ -140,6 +140,135 @@ const CASES: Case[] = [
       ['temperature sensor', has(/temp|thermistor|ds18|dht|lm35/)],
     ],
   },
+  // Wider coverage: parts and projects beyond the first set.
+  {
+    id: 'e2-nightlight',
+    domain: 'electronics',
+    prompt: 'A night light that turns an LED on when it gets dark, using an LDR and a transistor',
+    checks: [noMcu, ['ldr', has(/ldr/)], ['transistor', has(/transistor|npn|2n2222|bc547|2n3904|mosfet/)], ['led', has(/led/)]],
+  },
+  { id: 'e2-dimmer', domain: 'electronics', prompt: 'An LED dimmer with a potentiometer', checks: [noMcu, ['pot', has(/pot/)], ['led', has(/led/)]] },
+  {
+    id: 'e2-flyback',
+    domain: 'electronics',
+    prompt: 'A relay switched by a transistor from a button, with a flyback diode, turning on a 12V lamp',
+    checks: [noMcu, ['diode', has(/diode/)], ['relay', has(/relay/)], ['lamp', has(/lamp|bulb/)]],
+  },
+  { id: 'e2-rectifier', domain: 'electronics', prompt: 'A battery reverse polarity protection diode in front of an LED circuit', checks: [noMcu, ['diode', has(/diode/)]] },
+  {
+    id: 'e2-7seg',
+    domain: 'electronics',
+    prompt: 'Four switches setting a number shown on a 7-segment display through a CD4511 decoder',
+    checks: [noMcu, ['7-segment', has(/seven_segment|7-seg|segment/)], ['decoder', has(/4511|decoder|7447|74hc47/)], ['four switches', (s) => count(/switch/)(s) >= 4]],
+  },
+  {
+    id: 'e2-traffic',
+    domain: 'electronics',
+    prompt: 'A traffic light sequence with red, yellow and green LEDs using a 555 and a 4017 counter, no microcontroller',
+    checks: [noMcu, ['555', has(/555/)], ['4017', has(/4017|counter|decade/)], ['three leds', (s) => count(/led/)(s) >= 3]],
+  },
+  {
+    id: 'e2-flipflop',
+    domain: 'electronics',
+    prompt: 'A push button that toggles an LED on and off using a D flip-flop',
+    checks: [noMcu, ['flip-flop', has(/flip|4013|7474|74hc74/)], ['button', has(/button/)]],
+  },
+  {
+    id: 'e2-comparator',
+    domain: 'electronics',
+    prompt: 'A temperature alarm: a thermistor and an LM393 comparator sound a buzzer above 40C',
+    checks: [noMcu, ['thermistor', has(/thermistor/)], ['comparator', has(/393|358|comparator/)], ['buzzer', has(/buzzer/)]],
+  },
+  {
+    id: 'e2-hbridge',
+    domain: 'electronics',
+    prompt: 'A DC motor that an Arduino drives forwards and backwards through an L298N, reversing every 3 seconds',
+    checks: [
+      ['arduino', has(/arduino/)],
+      ['driver', has(/motor_driver|l298/)],
+      ['motor', has(/motor/)],
+    ],
+  },
+  {
+    id: 'e2-esp-oled',
+    domain: 'electronics',
+    prompt: 'An ESP32 reading a DHT22 and showing temperature on an OLED',
+    checks: [
+      ['esp32', has(/esp32/)],
+      ['dht', has(/dht/)],
+      ['oled', has(/oled|display/)],
+    ],
+  },
+  {
+    id: 'e2-uno-7seg',
+    domain: 'electronics',
+    prompt: 'An Arduino counting from 0 to 9 on a 7-segment display, one digit per second',
+    checks: [
+      ['arduino', has(/arduino/)],
+      ['7-segment', has(/seven_segment|segment/)],
+    ],
+  },
+  {
+    id: 'e2-series',
+    domain: 'electronics',
+    prompt: 'Two resistors in series with an LED on a 5V supply',
+    checks: [noMcu, noProgram, ['two resistors', (s) => parts(s).filter((p) => p.type === 'resistor').length >= 2]],
+  },
+  { id: 'e2-buzzer-btn', domain: 'electronics', prompt: 'A doorbell: a button sounds a buzzer', checks: [noMcu, ['button', has(/button/)], ['buzzer', has(/buzzer/)]] },
+  {
+    id: 'e2-or-gate',
+    domain: 'electronics',
+    prompt: 'An OR gate and an XOR gate side by side, each with two switches and an LED, on a breadboard',
+    checks: [noMcu, breadboard, ['or', has(/or|7432|32/)], ['xor', has(/xor|7486|86/)], selfTested(4)],
+  },
+  {
+    id: 'e2-servo-pot',
+    domain: 'electronics',
+    prompt: 'An Arduino moving a servo to follow a potentiometer',
+    checks: [
+      ['arduino', has(/arduino/)],
+      ['pot', has(/pot/)],
+      ['servo', has(/servo/)],
+    ],
+  },
+  {
+    id: 'e2-fan-temp',
+    domain: 'electronics',
+    prompt: 'A fan that switches on through a MOSFET when an Arduino reads the room above 28C',
+    checks: [
+      ['arduino', has(/arduino/)],
+      ['mosfet', has(/mosfet|irf|irlz|transistor/)],
+      ['fan', has(/fan|motor/)],
+    ],
+  },
+  {
+    id: 'e2-capacitor',
+    domain: 'electronics',
+    prompt: 'A capacitor that keeps an LED lit for a few seconds after the button is released',
+    checks: [noMcu, ['capacitor', has(/capacitor/)], ['button', has(/button/)], ['led', has(/led/)]],
+  },
+  {
+    id: 'e2-pico-ldr',
+    domain: 'electronics',
+    prompt: 'A Raspberry Pi Pico that turns on a lamp through a relay when an LDR reads dark',
+    checks: [
+      ['pico', has(/pico|rp2040/)],
+      ['ldr', has(/ldr/)],
+      ['relay', has(/relay/)],
+    ],
+  },
+  {
+    id: 'e2-half-adder',
+    domain: 'electronics',
+    prompt: 'A half adder from logic chips with two switches and two LEDs',
+    checks: [noMcu, ['xor', has(/xor|86/)], ['and', has(/and|08/)], selfTested(4)],
+  },
+  {
+    id: 'e2-wrong',
+    domain: 'electronics',
+    prompt: 'An LED connected straight to a 9V battery with no resistor',
+    checks: [noMcu, ['no resistor (as asked)', (s) => !parts(s).some((p) => p.type === 'resistor')]],
+  },
   // Software
   {
     id: 's-cache',
@@ -270,6 +399,12 @@ const chosen = filters.length
   : installed;
 const BUDGET_USD = Number(process.env.EVAL_BUDGET_USD ?? 0.5);
 const before = totals().usd;
+// Protects the key's free-tier daily quota for the rest of the team: nothing starts once today's ledger reaches the cap.
+const DAILY_CAP = Number(process.env.EVAL_DAILY_CAP ?? 500);
+if (totals().today >= DAILY_CAP) {
+  console.log(`Today's ledger already has ${totals().today} calls, at or over EVAL_DAILY_CAP=${DAILY_CAP}; not running.`);
+  process.exit(0);
+}
 
 async function runCase(c: Case) {
   const events: StreamEvent[] = [];
@@ -319,6 +454,10 @@ const out: Array<Awaited<ReturnType<typeof runCase>>> = [];
 const queue = [...chosen];
 const workers = Array.from({ length: Number(process.env.EVAL_CONCURRENCY ?? 3) }, async () => {
   while (queue.length) {
+    if (totals().today >= DAILY_CAP) {
+      console.log(`daily cap of ${DAILY_CAP} calls reached, stopping`);
+      return;
+    }
     if (totals().usd - before > BUDGET_USD) {
       console.log(`budget of $${BUDGET_USD} reached, stopping`);
       return;

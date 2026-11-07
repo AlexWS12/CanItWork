@@ -34,25 +34,37 @@ export function record(usage: Usage) {
   }
 }
 
+interface Row {
+  at: string;
+  run: string;
+  usd: number;
+  in: number;
+  out: number;
+}
+
 export function totals() {
-  let lines: string[] = [];
+  let rows: Row[] = [];
   try {
-    lines = readFileSync(LEDGER, 'utf8').trim().split('\n').filter(Boolean);
+    rows = readFileSync(LEDGER, 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Row);
   } catch {
-    return { calls: 0, usd: 0, in: 0, out: 0, byRun: {} as Record<string, { calls: number; usd: number }> };
+    rows = [];
   }
+  // Free-tier daily quotas reset at midnight Pacific time, so "today" is counted on that clock.
+  const pacificDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const day = pacificDay(new Date());
   const byRun: Record<string, { calls: number; usd: number }> = {};
-  let usd = 0,
-    inTok = 0,
-    outTok = 0;
-  for (const line of lines) {
-    const row = JSON.parse(line) as { run: string; usd: number; in: number; out: number };
+  let usd = 0;
+  let today = 0;
+  for (const row of rows) {
     usd += row.usd;
-    inTok += row.in;
-    outTok += row.out;
+    if (pacificDay(new Date(row.at)) === day) today++;
     const r = (byRun[row.run] ??= { calls: 0, usd: 0 });
     r.calls++;
     r.usd += row.usd;
   }
-  return { calls: lines.length, usd, in: inTok, out: outTok, byRun };
+  return { calls: rows.length, today, usd, byRun };
 }

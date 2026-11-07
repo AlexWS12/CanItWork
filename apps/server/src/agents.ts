@@ -380,7 +380,7 @@ export async function build(prompt: string, emit: Emit) {
               schema: draftSchema(domain),
               onUsage: onUsage(emit),
               system: architectPrompt(domain),
-              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. If a problem follows from the user's own numbers or from what they asked to see, such as a system that is meant to be overloaded, keep it, since simulating it is the point. Fix everything else.`,
+              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. Values the user did not state are yours to change: when a check finds overload, first bring unstated loads (arrival rates, demand, call volume, current draw) in line with the stated sizes. Keep a problem only if the user asked to see it, such as a system they said is overwhelmed, or if no unstated value can fix it. Fix everything else.`,
             })) as Draft,
         ),
       async () => previous,
