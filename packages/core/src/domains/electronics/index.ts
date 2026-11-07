@@ -99,6 +99,18 @@ function checkWorld(spec: CircuitSpec): Issue[] {
     for (const effect of q.effects) {
       if (!spec.parts.some((p) => p.id === effect.from)) issues.push({ severity: 'error', message: `${q.id} is changed by ${effect.from}, which isn't a part` });
     }
+    // A quantity that leaves its target on its own, with nothing able to push it back, can't be held by any control loop.
+    if (q.target && q.drift) {
+      const rest = q.toward ? q.toward.value : q.drift < 0 ? q.min : q.max;
+      const leaves = q.drift < 0 ? rest < q.target.min : rest > q.target.max;
+      const counters = q.effects.some((e) => Math.sign(e.rate) === -Math.sign(q.drift!));
+      if (leaves && !counters)
+        issues.push({
+          severity: 'warning',
+          message: `${q.label} ${q.drift < 0 ? 'falls' : 'rises'} by ${Math.abs(q.drift)} ${q.unit}/s on its own and nothing in the circuit ${q.drift < 0 ? 'raises' : 'lowers'} it, so no program can keep it within ${q.target.min}-${q.target.max}. "drift" is change with every part off: a distance to a wall doesn't change by itself, so set drift 0 and let the motors' effects move it`,
+          repair: true,
+        });
+    }
   }
   for (const part of spec.parts) {
     if (!part.measures) continue;

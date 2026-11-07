@@ -184,7 +184,7 @@ describe('explaining why a design fails', () => {
     const spec = greenhouse();
     spec.world![0].start = 5;
     spec.world![0].effects = [];
-    const message = DOMAINS.electronics.validate(spec).find((i) => i.message.startsWith('Soil moisture'))!.message;
+    const message = DOMAINS.electronics.validate(spec).find((i) => i.message.startsWith('Soil moisture') && /never reached/.test(i.message))!.message;
     expect(message).toMatch(/never reached the range from its start of 5$/);
   });
 
