@@ -41,7 +41,7 @@ export const VIEWS: Record<DomainId, View> = {
   fleet: {
     Scene: Fleet,
     camera() {
-      return tilted(54);
+      return tilted(68);
     },
   },
   database: {
