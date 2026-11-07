@@ -7,6 +7,8 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
 import { build, chat, describeFailure, recover, type Emit } from './agents';
+import { lookup } from './design-cache';
+import { limitMessage, take, visitorOf } from './integrations/limit';
 import { checkedStatus, providerStatus } from './status';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -47,19 +49,29 @@ function agentStream(run: (emit: Emit) => Promise<void>) {
     });
 }
 
+// Stops a visitor over their hourly allowance before anything is spent, with a message the app shows like any other error.
+const limited = (c: Context, asRefusal = false) => {
+  const wait = take(visitorOf(c));
+  if (!wait) return null;
+  const message = limitMessage(wait);
+  return agentStream(async (emit) => emit(asRefusal ? { type: 'refusal', refusal: { reason: message, closest: null } } : { type: 'error', message }))(c);
+};
+
 app.post('/api/build', async (c) => {
   const { prompt } = await c.req.json<{ prompt: string }>();
-  return agentStream((emit) => build(prompt, emit))(c);
+  // A verified-cache hit costs nothing, so it never counts against the allowance.
+  const blocked = lookup(prompt) ? null : limited(c, true);
+  return blocked ?? agentStream((emit) => build(prompt, emit))(c);
 });
 
 app.post('/api/recover', async (c) => {
   const input = await c.req.json();
-  return agentStream((emit) => recover(input, emit))(c);
+  return limited(c) ?? agentStream((emit) => recover(input, emit))(c);
 });
 
 app.post('/api/chat', async (c) => {
   const input = await c.req.json();
-  return agentStream((emit) => chat(input, emit))(c);
+  return limited(c) ?? agentStream((emit) => chat(input, emit))(c);
 });
 
 app.use('/*', serveStatic({ root: path.relative(process.cwd(), path.resolve(here, '../../web/dist')) || '.' }));
