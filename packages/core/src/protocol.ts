@@ -26,6 +26,7 @@ export interface StepEvent {
   title: string;
   status: 'running' | 'done' | 'failed';
   detail?: string;
+  ms?: number;
 }
 
 export interface Finding {
