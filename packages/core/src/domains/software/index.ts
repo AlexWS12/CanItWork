@@ -85,7 +85,8 @@ function buildSystem(prompt: string): SystemSpec {
       { id: main, label: payments ? 'Payment service' : 'API service', kind: 'service', replicas: 3 },
       { id: 'auth', label: 'Auth service', kind: 'service', replicas: 2 },
       { id: 'redis', label: 'Cache', kind: 'cache' },
-      { id: 'postgres', label: 'Primary database', kind: 'database' },
+      // Sized so normal load stays under 70% and a failover standby (60% capacity) can still carry it.
+      { id: 'postgres', label: 'Primary database', kind: 'database', capacity: 800 },
       { id: 'events', label: 'Event queue', kind: 'queue' },
       { id: 'worker', label: 'Worker', kind: 'service', replicas: 2 },
     ],
@@ -101,7 +102,8 @@ function buildSystem(prompt: string): SystemSpec {
     ],
   };
   if (payments) {
-    spec.nodes.push({ id: 'processor', label: 'Card processor', kind: 'external' });
+    // At the default 300 rps the processor would sit at 100% of normal traffic and retries would collapse it.
+    spec.nodes.push({ id: 'processor', label: 'Card processor', kind: 'external', capacity: 1000 });
     spec.edges.push({ from: main, to: 'processor' });
   }
   if (/region|\bzones?\b|multi-?az|data ?cent(er|re)|availability/.test(text)) {

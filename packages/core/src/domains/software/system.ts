@@ -180,7 +180,10 @@ export class SystemRun implements Run {
       for (const e of this.spec.edges.filter((edge) => edge.from === id)) {
         if ((e.mode ?? 'sync') !== 'sync') continue;
         const dep = this.cut.has(edgeKey(e)) ? 0 : (this.states.get(e.to)?.success ?? 1);
-        const withRetries = 1 - Math.pow(1 - dep, this.spec.retries + 1);
+        // A cache's failures are misses its own retries to the store behind it already covered;
+        // retrying the cache misses again, so callers' retries add load but not success.
+        const cached = this.node(e.to)?.kind === 'cache' && !this.cut.has(edgeKey(e));
+        const withRetries = cached ? dep : 1 - Math.pow(1 - dep, this.spec.retries + 1);
         if (!e.optional) downstream *= withRetries;
         latency += (this.states.get(e.to)?.latency ?? 0) * (e.calls ?? 1) * (1 - hit);
       }
