@@ -36,9 +36,9 @@ const DOMAIN_IDS = domainList().map((d) => d.id) as [DomainId, ...DomainId[]];
 const JEV = {
   routeConfidence: 0.6, // the Choice is concentrated enough on one domain
   routeFits: 0.7, // and that domain's simulator likely models the request
-  refuseFits: 0.3, // no domain reaches this, so nothing fits
+  refuseFits: 0.3, // no domain reaches this, so nothing fits; otherwise an unconfident pick is unsure
   closestFits: 0.2, // worth naming as the nearest domain in a refusal
-  aloneFits: 0.5, // without Gemini to ask, route an unsure pick only above this
+  aloneFits: 0.5, // without Gemini to ask, route the best-fitting domain only above this
 };
 
 function stepper(emit: Emit) {
@@ -154,7 +154,7 @@ export function decideDomain(read: DomainAnswers, canDefer: boolean): Reading & 
   const percent = (p: number) => `${Math.round(p * 100)}%`;
   const best = [...DOMAIN_IDS].sort((a, b) => fits[b] - fits[a])[0];
   const closest = fits[best] >= JEV.closestFits ? best : null;
-  const route = (id: DomainId) => ({ kind: 'route' as const, id, detail: `${DOMAINS[id].label} (${percent(read.probabilities[id] ?? 0)})` });
+  const route = (id: DomainId, p: number) => ({ kind: 'route' as const, id, detail: `${DOMAINS[id].label} (${percent(p)})` });
   const refuse = () => ({
     kind: 'refuse' as const,
     reason: refusalReason(closest),
@@ -162,10 +162,11 @@ export function decideDomain(read: DomainAnswers, canDefer: boolean): Reading & 
     detail: closest ? `Nothing fits; closest is ${DOMAINS[closest].label} (${percent(fits[closest])})` : 'Nothing fits',
   });
 
-  if (top && read.confidence >= JEV.routeConfidence && fits[top] >= JEV.routeFits) return route(top);
-  if (!top || DOMAIN_IDS.every((id) => fits[id] < JEV.refuseFits)) return refuse();
-  if (canDefer) return { kind: 'defer', detail: `Unsure: ${DOMAINS[top].label} at ${percent(fits[top])}, asking Gemini` };
-  return fits[top] >= JEV.aloneFits ? route(top) : refuse();
+  if (top && read.confidence >= JEV.routeConfidence && fits[top] >= JEV.routeFits) return route(top, read.probabilities[top] ?? 0);
+  // A 'none' pick still defers when one domain partly fits: a factory line came back none at 69%, with warehouse at 42%.
+  if (fits[best] < JEV.refuseFits) return refuse();
+  if (canDefer) return { kind: 'defer', detail: `Unsure: ${DOMAINS[best].label} at ${percent(fits[best])}, asking Gemini` };
+  return fits[best] >= JEV.aloneFits ? route(best, fits[best]) : refuse();
 }
 
 async function interpret(prompt: string, emit: Emit, step: Step): Promise<DomainId | null> {

@@ -124,6 +124,29 @@ describe('agent pipelines', () => {
       expect(environmentOf(events)?.domain).toBe('software');
     });
 
+    it('asks Gemini when Jev says none but one domain partly fits', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const bodies: string[] = [];
+      const gemini = recordGemini(bodies, 'warehouse');
+      // Live answers for "A factory line with a conveyor and a robot arm".
+      const factory = () => jevDomainReply('none', { none: 0.69, warehouse: 0.2, electronics: 0.11 }, { electronics: 0.27, software: 0.1, database: 0.05, warehouse: 0.42 });
+      mockFetch((url, init) => (isJev(url) ? factory() : gemini(url, init)));
+      const { events, emit } = collect();
+      await build('A factory line with a conveyor and a robot arm', emit);
+      expect(routing(bodies)).toHaveLength(1);
+      expect(environmentOf(events)?.domain).toBe('warehouse');
+    });
+
+    it('goes with the best-fitting domain when Jev is split and there is no Gemini', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      // Live answers for "A smart home with sensors, a hub and a phone app": the Choice leaned software, the fits leaned electronics.
+      mockFetch(() => jevDomainReply('software', { software: 0.4, electronics: 0.35, none: 0.25 }, { electronics: 0.68, software: 0.62, database: 0.12, warehouse: 0.03 }));
+      const { events, emit } = collect();
+      await build('A smart home with sensors, a hub and a phone app', emit);
+      expect(environmentOf(events)?.domain).toBe('electronics');
+    });
+
     it('goes with an unsure pick on its own when there is no Gemini to ask', async () => {
       process.env.TYPESAFE_API_KEY = 't';
       mockFetch(unsure);

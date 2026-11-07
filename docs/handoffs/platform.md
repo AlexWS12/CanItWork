@@ -55,7 +55,7 @@ Web:
 - **`ui/`** has one file per component, each importing its own CSS: `Landing`, `ChatPanel`, `RightPanel` (agent trace with step durations, usage ledger), `StatusBar` (chips turn red when a key is rejected), `Transport`, `Inspector`, `RecoveryCard` and `Charts` (sparkline and recovery chart).
 - **`styles.css`** holds only tokens, element defaults, the shared panel surface and scene tags. New UI gets its own CSS file.
 
-Tests: `apps/server/test/` has `llm`, `swarms`, `pipelines` and `status` tests, with the shared `fetch` mock in `helpers.ts`. All 117 tests pass.
+Tests: `apps/server/test/` has `llm`, `swarms`, `pipelines` and `status` tests, with the shared `fetch` mock in `helpers.ts`. All 119 tests pass.
 
 Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:check` on every PR. Prettier is set to single quotes and width 180, and ignores Markdown.
 
@@ -92,10 +92,10 @@ Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:
 - `Panels.tsx` and `styles.css` split by component, with no computed-style change in 27 UI states (PR #3).
 - Step durations in the protocol, server and trace (PRs #4 and #5).
 - Status chips that check each key against a free endpoint (PRs #6 and #7). All three keys checked `ok` live.
-- Jev in the protocol, status chip and trace (`eduardo/jev-contract`), and Jev routing in the Interpreter (`eduardo/jev-interpreter`). Mocked tests only.
+- Jev in the protocol, status chip and trace (`eduardo/jev-contract`), and Jev routing in the Interpreter (`eduardo/jev-interpreter`). Mocked tests, plus one live eval.
 
 **Pending:**
-- **Jev's thresholds are untuned guesses** and haven't run against the live API. Set `TYPESAFE_API_KEY` and run `npm run eval:interpreter` (20 billed requests), then adjust `JEV` in `agents.ts`. Time a keyed build too: the Interpreter was 12.7 s of the 25 s build on Gemini.
+- **Jev's thresholds have one live eval behind them** (2026-11-07, `npm run eval:interpreter`, 20 billed requests, under 4 s in total). All 16 clear prompts were right with wide margins: routes had fit 81–97%, refusals had no fit above 14%. The four borderline prompts now go to Gemini. Without Gemini, the smart home routes to electronics, and the factory line (warehouse 45%) and bank ledger (database 36%) are refused. Add real user prompts to the eval before moving `JEV` in `agents.ts`, and time a keyed build: the Interpreter was 12.7 s of the 25 s build on Gemini.
 - **A Jev-only refusal has a template reason** built from the closest domain's `limits`, not Gemini's sentence.
 - **The Editor's intent and target could move to Jev next:** a Choice of intent and a Choice over `breakables()` in one request, with a higher bar for `inject` than `whatif`.
 - **Builds take about 25 s, mostly the Interpreter.** Compare the same build with Gemini direct (blank `PRUNE_API_KEY` for one run) before changing anything. If direct is much faster, route the Interpreter direct.
