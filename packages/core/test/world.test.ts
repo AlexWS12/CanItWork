@@ -236,3 +236,19 @@ describe('sensors the sketch cannot see', () => {
     expect(DOMAINS.electronics.validate(greenhouse()).some((i) => i.message.includes('never sees'))).toBe(false);
   });
 });
+
+describe('behaviour tests on world quantities', () => {
+  it('can set a world quantity, such as soil moisture, and check the outputs', () => {
+    const spec = greenhouse();
+    spec.program = [{ when: 'soil < 35', then: [{ pin: 'U1.D7', mode: 'high' }], else: [{ pin: 'U1.D7', mode: 'low' }] }];
+    spec.vars = {};
+    const pump = 'P1';
+    spec.tests = [
+      { name: 'dry', set: { soil: 10 }, on: [pump], off: [] },
+      { name: 'wet', set: { soil: 90 }, on: [], off: [pump] },
+    ];
+    const issues = DOMAINS.electronics.validate(spec);
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+    expect(issues.filter((i) => /behaviour tests fail/.test(i.message))).toEqual([]);
+  });
+});
