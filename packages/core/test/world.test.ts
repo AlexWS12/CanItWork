@@ -196,3 +196,43 @@ describe('explaining why a design fails', () => {
     expect(message).toBe('K1 never connects COM to NO: it needs IN at least 6 V above GND, but gets 5 V');
   });
 });
+
+describe('reading the world from a sketch', () => {
+  it('reads a world quantity by name through the sensor that measures it', () => {
+    const spec = greenhouse();
+    spec.program = [{ when: 'soil < 35', then: [{ pin: 'U1.D7', mode: 'high' }], else: [{ pin: 'U1.D7', mode: 'low' }] }];
+    spec.vars = {};
+    expect(DOMAINS.electronics.validate(spec)).toEqual([]);
+    const run = new CircuitRun(spec, 1);
+    steps(run, 5);
+    run.inject({ type: 'sensor_fault', target: 'S1', value: 100 });
+    run.inject({ type: 'set_reading', target: 'soil', value: 10 });
+    steps(run, 24);
+    expect(run.speeds.get('P1')!).toBeLessThan(0.1);
+  });
+
+  it('says which sensor is missing when a sketch names a world quantity nothing measures', () => {
+    const spec = greenhouse();
+    spec.parts.find((p) => p.id === 'S1')!.measures = undefined;
+    spec.program = [{ when: 'soil < 35', then: [{ pin: 'U1.D7', mode: 'high' }] }];
+    const message = DOMAINS.electronics.validate(spec).find((i) => i.severity === 'error')?.message;
+    expect(message).toBe('The program reads soil in "soil < 35", but no sensor measures it: give a sensor "measures": "soil" or read that sensor\'s id');
+  });
+});
+
+describe('sensors the sketch cannot see', () => {
+  it('flags an analog sensor whose output is shorted to ground', () => {
+    const spec = greenhouse();
+    spec.parts.find((p) => p.id === 'S1')!.custom!.sensor!.pin = 'AO';
+    spec.wires.push({ from: 'S1.AO', to: 'U1.A0' }, { from: 'S1.AO', to: 'U1.GND' });
+    spec.program = [{ when: 'U1.A0 < 350', then: [{ pin: 'U1.D7', mode: 'high' }], else: [{ pin: 'U1.D7', mode: 'low' }] }];
+    spec.vars = {};
+    spec.world![0].target = undefined;
+    const message = DOMAINS.electronics.validate(spec).find((i) => i.message.startsWith('The sketch never sees S1'))?.message;
+    expect(message).toBe('The sketch never sees S1: changing it from 0 to 100 % leaves U1.A0 at 0, U1.D7 at 1 either way, so check how it is wired and read');
+  });
+
+  it('trusts a sketch that reads the sensor directly', () => {
+    expect(DOMAINS.electronics.validate(greenhouse()).some((i) => i.message.includes('never sees'))).toBe(false);
+  });
+});

@@ -7,6 +7,7 @@ import { compile, namesIn, type Expr } from './sketch';
 const CHECK_TICKS = 70;
 const TIMED_CHECK_TICKS = 720;
 const TARGET_SHARE = 80;
+const RESPONSE_TICKS = 24;
 const WARMUP_TICKS = 20;
 const SUSTAINED_TICKS = 10;
 const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer']);
@@ -32,12 +33,18 @@ function checkProgram(spec: CircuitSpec): Issue[] {
     if (!drivable(spec, drive.pin)) issues.push({ severity: 'error', message: `The sketch drives ${drive.pin}, which isn't a pin a board can drive` });
   }
   const variables = new Set([...Object.keys(spec.vars ?? {}), ...actionsOf(spec).flatMap((a) => ('set' in a ? [a.set] : []))]);
-  const known = (name: string) => name === 't' || name === 'dt' || variables.has(name) || sensorIds.has(name) || pinExists(spec, name);
+  const measured = new Set(spec.parts.flatMap((p) => (sensorOf(p) && p.measures ? [p.measures] : [])));
+  const worldIds = new Set((spec.world ?? []).map((q) => q.id));
+  const known = (name: string) => name === 't' || name === 'dt' || variables.has(name) || sensorIds.has(name) || measured.has(name) || pinExists(spec, name);
   const checkExpr = (expr: Expr | undefined) => {
     if (expr === undefined || typeof expr === 'number') return;
     try {
       for (const name of namesIn(compile(expr))) {
-        if (!known(name)) issues.push({ severity: 'error', message: `The program uses ${name} in "${expr}", which isn't a variable, sensor or pin` });
+        if (known(name)) continue;
+        const message = worldIds.has(name)
+          ? `The program reads ${name} in "${expr}", but no sensor measures it: give a sensor "measures": "${name}" or read that sensor's id`
+          : `The program uses ${name} in "${expr}", which isn't a variable, sensor, pin or measured world quantity`;
+        issues.push({ severity: 'error', message });
       }
     } catch (error) {
       issues.push({ severity: 'error', message: `The program can't read "${expr}": ${(error as Error).message}` });
@@ -117,12 +124,12 @@ function checkParts(spec: CircuitSpec): Issue[] {
 }
 
 function scenarios(spec: CircuitSpec) {
-  const out: Array<{ incident?: Incident; when: string }> = [{ when: '' }];
+  const out: Array<{ incident?: Incident; when: string; sensor?: string }> = [{ when: '' }];
   for (const part of spec.parts) {
     const sensor = sensorOf(part);
     if (!sensor) continue;
     for (const value of [sensor.min, sensor.max]) {
-      out.push({ incident: { type: 'set_reading', target: part.id, value }, when: ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}` });
+      out.push({ incident: { type: 'set_reading', target: part.id, value }, when: ` when ${part.id} reads ${value}${sensor.unit ? ` ${sensor.unit}` : ''}`, sensor: part.id });
     }
   }
   return out.slice(0, 7);
@@ -135,7 +142,9 @@ function explore(spec: CircuitSpec) {
   const offTarget = new Map<string, string>();
   const targets = (spec.world ?? []).filter((q) => q.target);
   const controls = spec.parts.flatMap((part) => (part.custom?.switches ?? []).map((sw) => ({ part, sw, reached: -Infinity })));
-  for (const { incident, when } of scenarios(spec)) {
+  const responses = new Map<string, Array<{ value: number; pins: string }>>();
+  const pinsRead = [...new Set((JSON.stringify(spec.program ?? []).match(/[A-Za-z_]\w*\.\w+/g) ?? []).filter((key) => pinExists(spec, key)))];
+  for (const { incident, when, sensor } of scenarios(spec)) {
     const run = new CircuitRun(spec, 1, true);
     if (incident) run.inject(incident);
     const over = new Map<string, { ticks: number; message: string }>();
@@ -145,6 +154,11 @@ function explore(spec: CircuitSpec) {
     const reached = new Set<string>();
     for (let i = 0; i < ticks; i++) {
       run.step();
+      if (sensor && i === RESPONSE_TICKS) {
+        const list = responses.get(sensor) ?? [];
+        list.push({ value: incident!.value ?? 0, pins: pinsRead.map((key) => `${key} at ${Math.round(run.read(key) * 10) / 10}`).join(', ') });
+        responses.set(sensor, list);
+      }
       for (const control of controls) {
         const id = control.part.id;
         control.reached = Math.max(control.reached, run.voltsBetween(`${id}.${control.sw.when}`, `${id}.${control.sw.ref}`));
@@ -198,7 +212,23 @@ function explore(spec: CircuitSpec) {
     }
   }
   const stuck = controls.filter((c) => c.reached < c.sw.aboveVolts);
-  return { burned, overloads, ran, offTarget, stuck };
+  const deaf: string[] = [];
+  if ((spec.program ?? []).length) {
+    for (const [id, [low, high]] of responses) {
+      const part = spec.parts.find((p) => p.id === id)!;
+      const program = JSON.stringify(spec.program ?? []);
+      const named = [id, part.measures].filter(Boolean).some((name) => new RegExp(`\\b${name}\\b`).test(program));
+      if (!low || !high || named || low.pins !== high.pins) continue;
+      const unit = sensorOf(part)?.unit ?? '';
+      const range = `${low.value} to ${high.value}${unit ? ` ${unit}` : ''}`;
+      deaf.push(
+        low.pins
+          ? `The sketch never sees ${id}: changing it from ${range} leaves ${low.pins} either way, so check how it is wired and read`
+          : `The sketch never reads ${id}, so changing it from ${range} does nothing`,
+      );
+    }
+  }
+  return { burned, overloads, ran, offTarget, stuck, deaf };
 }
 
 function validateCircuit(spec: CircuitSpec): Issue[] {
@@ -217,8 +247,9 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
     issues.push({ severity: 'warning', message: 'Nothing in this circuit does anything observable, so there is nothing to simulate', repair: true });
   }
 
-  const { burned, overloads, ran, offTarget, stuck } = explore(spec);
+  const { burned, overloads, ran, offTarget, stuck, deaf } = explore(spec);
   for (const message of offTarget.values()) issues.push({ severity: 'warning', message, repair: true });
+  for (const message of deaf) issues.push({ severity: 'warning', message, repair: true });
   for (const { part, sw, reached } of stuck) {
     const got = Number.isFinite(reached) ? `${Math.max(0, Math.round(reached * 10) / 10)} V` : 'nothing';
     issues.push({
