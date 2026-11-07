@@ -7,7 +7,13 @@ import { fetchStatus } from './actions';
 import { Scene } from './scene/Scene';
 import { useStore } from './store';
 import './styles.css';
-import { ChatPanel, Inspector, Landing, RecoveryCard, RightPanel, StatusBar, Transport } from './ui/Panels';
+import { ChatPanel } from './ui/ChatPanel';
+import { Inspector } from './ui/Inspector';
+import { Landing } from './ui/Landing';
+import { RecoveryCard } from './ui/RecoveryCard';
+import { RightPanel } from './ui/RightPanel';
+import { StatusBar } from './ui/StatusBar';
+import { Transport } from './ui/Transport';
 
 function App() {
   const environment = useStore((s) => s.environment);

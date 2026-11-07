@@ -1,0 +1,62 @@
+.inspector {
+  position: fixed;
+  right: 314px;
+  top: 52px;
+  width: 220px;
+  padding: 12px 14px;
+  font-size: 13px;
+}
+
+.inspector header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.inspector h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.inspector header button {
+  padding: 0 8px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.inspector dl {
+  margin: 8px 0 10px;
+}
+
+.inspector dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.inspector dt {
+  color: var(--muted);
+}
+
+.inspector dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+}
+
+.action {
+  width: 100%;
+}
+
+.action.danger {
+  background: rgba(255, 90, 104, 0.16);
+  border-color: rgba(255, 90, 104, 0.55);
+  color: #ffc9ce;
+}
+
+.action.danger:hover {
+  background: rgba(255, 90, 104, 0.3) !important;
+}
