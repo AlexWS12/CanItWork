@@ -1,11 +1,29 @@
 import { DOMAINS, domainList } from '@tv/core';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
 import { Building } from './Building';
 import './Landing.css';
 
 const EXAMPLES = domainList().map((d) => d.examples[0]);
+
+// The server offers examples it can rebuild from verified designs, so they open instantly and cost nothing; otherwise each domain's own example.
+function useExamples() {
+  const [examples, setExamples] = useState<{ list: string[]; verified: boolean }>({ list: EXAMPLES, verified: false });
+  useEffect(() => {
+    let live = true;
+    fetch('/api/examples')
+      .then((res) => (res.ok ? (res.json() as Promise<{ examples?: string[] }>) : null))
+      .then((body) => {
+        if (live && body?.examples?.length) setExamples({ list: body.examples, verified: true });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return examples;
+}
 
 function Refusal() {
   const refusal = useStore((s) => s.refusal);
@@ -26,6 +44,7 @@ function Refusal() {
 
 export function Landing() {
   const [text, setText] = useState('');
+  const examples = useExamples();
   const building = useStore((s) => s.building);
   const messages = useStore((s) => s.messages);
   const last = messages[messages.length - 1];
@@ -66,9 +85,9 @@ export function Landing() {
         <Refusal />
         {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
         <section className="prompts" aria-labelledby="prompts-title">
-          <h2 id="prompts-title">Or start from one of these</h2>
+          <h2 id="prompts-title">{examples.verified ? 'Or start from one of these, verified and instant' : 'Or start from one of these'}</h2>
           <ul>
-            {EXAMPLES.map((example) => (
+            {examples.list.map((example) => (
               <li key={example}>
                 <button onClick={() => submit(example)}>{example}</button>
               </li>

@@ -792,7 +792,7 @@ function recoveries(spec: CircuitSpec, incident: Incident | undefined): Recovery
 export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   id: 'electronics',
   label: 'Electronics',
-  blurb: 'Arduino projects and circuits, with real voltages, currents and sketch logic over time',
+  blurb: 'Circuits from a battery and a bulb to logic chips, op-amps and microcontrollers, with real voltages, currents and logic over time',
   capabilities:
     'Electronics of any kind, from a battery and a bulb to digital logic to microcontroller projects. Built-in parts cover batteries, resistors, capacitors, LEDs, switches, buttons, buzzers, DC motors, H-bridge drivers, ultrasonic sensors and Arduino boards, and any other component or board (logic gates and other chips, 555 timers, counters, transistors, relays, servos, displays, sensors, regulators, and boards such as a Seeed XIAO, Raspberry Pi Pico or ESP32) is defined from its real pins, electrical paths, ratings and logic. Simulates over time: voltages and currents, digital logic and chip state, PWM, capacitor charging, motor spin-up and back-EMF, board power and brownout, sensor readings, servo angles, display text and microcontroller sketches. Circuits can be laid out on a breadboard. Checks ratings and burns out overloaded parts.',
   limits: [

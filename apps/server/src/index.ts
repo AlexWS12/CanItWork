@@ -7,7 +7,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
 import { build, chat, describeFailure, recover, type Emit } from './agents';
-import { lookup } from './design-cache';
+import { lookup, showcase } from './design-cache';
 import { limitMessage, take, visitorOf } from './integrations/limit';
 import { checkedStatus, providerStatus } from './status';
 
@@ -23,6 +23,8 @@ app.use('/api/*', async (_, next) => {
 });
 
 app.get('/api/status', async (c) => c.json(await checkedStatus(300)));
+
+app.get('/api/examples', (c) => c.json({ examples: showcase() }));
 
 function agentStream(run: (emit: Emit) => Promise<void>) {
   return (c: Context) =>

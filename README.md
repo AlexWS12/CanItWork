@@ -17,7 +17,7 @@ Built at SharkByte 2026.
 
 Each domain lists what it doesn't model, and the app shows that list next to every environment.
 
-Try the first example on the landing page, a self-watering planter. It designs the circuit and its sketch, keeps the soil inside its target band, and recovers when you burn out the pump. [docs/DEMO.md](docs/DEMO.md) is the full walkthrough.
+Try the first example on the landing page, a 2-bit calculator on a breadboard. It wires three logic chips, proves all 16 sums in simulation, and lights the binary result when you click the switches. The landing examples are designs that already passed every check, so they open instantly and cost no model calls. A self-watering planter shows the physical world and sketches: it keeps the soil inside its target band and recovers when you burn out the pump. [docs/DEMO.md](docs/DEMO.md) is the full walkthrough.
 
 ## Run
 

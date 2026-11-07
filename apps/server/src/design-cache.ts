@@ -69,3 +69,16 @@ export function forget(prompt: string) {
     // Nothing to forget.
   }
 }
+
+// Landing-page examples: a spread of domains, offered only while the cache can serve them, so a click is instant and free.
+const SHOWCASE = [
+  '2 bit calculator on a breadboard',
+  'A traffic light sequence with red, yellow and green LEDs using a 555 and a 4017 counter, no microcontroller',
+  'A temperature alarm: a thermistor and an LM393 comparator sound a buzzer above 40C',
+  'An Arduino counting from 0 to 9 on a 7-segment display, one digit per second',
+  'A chat app with websockets, a message broker and a database',
+  'An e-commerce schema with products, carts and reviews',
+  'A warehouse with 6 robots and 3 aisles',
+];
+
+export const showcase = () => SHOWCASE.filter((prompt) => lookup(prompt));
