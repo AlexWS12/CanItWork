@@ -2,8 +2,10 @@ import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
 import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, type CircuitSpec, type Part } from './parts';
+import { compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
+const TIMED_CHECK_TICKS = 720;
 const WARMUP_TICKS = 20;
 const SUSTAINED_TICKS = 10;
 const TWO_PINS = new Set(['resistor', 'capacitor', 'led', 'motor', 'buzzer']);
@@ -28,20 +30,39 @@ function checkProgram(spec: CircuitSpec): Issue[] {
   for (const drive of spec.drive) {
     if (!drivable(spec, drive.pin)) issues.push({ severity: 'error', message: `The sketch drives ${drive.pin}, which isn't a pin a board can drive` });
   }
+  const variables = new Set([...Object.keys(spec.vars ?? {}), ...actionsOf(spec).flatMap((a) => ('set' in a ? [a.set] : []))]);
+  const known = (name: string) => name === 't' || name === 'dt' || variables.has(name) || sensorIds.has(name) || pinExists(spec, name);
+  const checkExpr = (expr: Expr | undefined) => {
+    if (expr === undefined || typeof expr === 'number') return;
+    try {
+      for (const name of namesIn(compile(expr))) {
+        if (!known(name)) issues.push({ severity: 'error', message: `The program uses ${name} in "${expr}", which isn't a variable, sensor or pin` });
+      }
+    } catch (error) {
+      issues.push({ severity: 'error', message: `The program can't read "${expr}": ${(error as Error).message}` });
+    }
+  };
   for (const rule of spec.program ?? []) {
     const read = rule.if?.read;
     if (read && !sensorIds.has(read) && !pinExists(spec, read)) issues.push({ severity: 'error', message: `The program reads ${read}, which isn't a sensor or a pin` });
+    checkExpr(rule.when);
   }
   for (const action of actionsOf(spec)) {
     if ('show' in action) {
       if (!spec.parts.some((p) => p.id === action.show && p.custom?.actuator?.quantity === 'text'))
         issues.push({ severity: 'error', message: `The program shows text on ${action.show}, which isn't a display` });
-    } else if (!drivable(spec, action.pin)) {
-      issues.push({ severity: 'error', message: `The program drives ${action.pin}, which isn't a pin a board can drive` });
+      for (const [, inner] of action.text.matchAll(/\{([^}]+)\}/g)) checkExpr(inner.trim());
+    } else if ('set' in action) {
+      checkExpr(action.to);
+    } else {
+      if (!drivable(spec, action.pin)) issues.push({ severity: 'error', message: `The program drives ${action.pin}, which isn't a pin a board can drive` });
+      checkExpr(action.value);
     }
   }
   return issues;
 }
+
+const timed = (spec: CircuitSpec) => (spec.program ?? []).some((rule) => rule.every || JSON.stringify(rule).match(/\bt\b/));
 
 function checkParts(spec: CircuitSpec): Issue[] {
   const issues: Issue[] = [];
@@ -92,7 +113,8 @@ function explore(spec: CircuitSpec) {
     const run = new CircuitRun(spec, 1, true);
     if (incident) run.inject(incident);
     const over = new Map<string, { ticks: number; message: string }>();
-    for (let i = 0; i < CHECK_TICKS; i++) {
+    const ticks = !incident && timed(spec) ? TIMED_CHECK_TICKS : CHECK_TICKS;
+    for (let i = 0; i < ticks; i++) {
       run.step();
       for (const part of spec.parts) {
         if (isOutput(part) && run.isRunning(part)) ran.add(part.id);
@@ -139,7 +161,7 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
       const display = part.custom?.actuator?.quantity === 'text' && !shown.has(part.id);
       const message = display
         ? `${part.id} is a display, but no program rule shows anything on it`
-        : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}`;
+        : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}${timed(spec) ? ' in the first minute' : ''}`;
       issues.push({ severity: 'warning', message, target: part.id, repair: true });
     }
     if (TWO_PINS.has(part.type)) {
@@ -311,7 +333,8 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   "parts": [{"id": unique string, "type": type, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "farads"?: number, "usb"?: boolean, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
   "wires": [{"from": "PartId.pin", "to": "PartId.pin"}],
   "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink"|"pwm"|"angle", "value"?: number, "period"?: ticks}],
-  "program": [{"if"?: {"read": sensor id or "PartId.pin", "op": "<"|">"|"<="|">="|"=="|"!=", "value": number}, "then": [Action], "else"?: [Action]}]
+  "vars"?: {"name": starting number},
+  "program": [{"every"?: seconds, "when"?: expression, "then": [Action], "else"?: [Action]}]
 }
 Types and their pins:
 ${Object.entries(PINS)
@@ -327,7 +350,7 @@ custom: any other component or board. Never leave out a component the user named
 Sensor: {"quantity": what it measures, "unit": "%"|"C"|"cm"|..., "min": number, "max": number, "value": a typical reading, "pin"?: its analog output pin}. With "pin" it outputs a voltage proportional to the reading (wire it to an analog pin); without, it is read over I2C, SPI or 1-wire by its id. Give it a "supply" so it only reads when powered.
 Actuator: {"quantity": "angle"|"speed"|"brightness"|"text", "pin"?: its control pin, "min": number, "max": number}. A servo is angle, min 0, max 180, on its signal pin, which the sketch drives with mode "angle" and value in degrees. A display (LCD, OLED, 7-segment) is text and shows what the program writes to it.
 "visual" must use 3 to 8 shapes in units where the part is about 2 wide, so it looks like the real thing: y is up and sits on the bench at 0. A servo is [{"shape":"box","size":[1.6,0.9,0.8],"at":[0,0.45,0],"color":"#1f2937"},{"shape":"box","size":[2.2,0.08,0.8],"at":[0,0.65,0],"color":"#111827"},{"shape":"cylinder","size":[0.3,0.3,0.3],"at":[0.4,1.05,0],"color":"#e5e7eb"},{"shape":"box","size":[1.1,0.08,0.22],"at":[0.4,1.22,0],"color":"#f8fafc","moves":true}]. Use Part "custom" field only with type "custom".
-"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop: every tick each rule checks its "if" and runs "then" or "else". Leave "if" out for a rule that always runs. An Action is {"pin": "U1.D9", "mode": ..., "value"?: number} or {"show": display id, "text": "Soil {S1}"}, where {S1} becomes that sensor's reading. Read a sensor by its id. Reading one of its pins, or a board pin wired to it, gives the same reading in the sensor's own unit (an ultrasonic gives distance in cm, 2 to 400), except an arduino analog pin wired to a sensor's analog output, which gives 0 to 1023. Any other arduino digital pin reads 0 or 1, and any other board's pin its voltage. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
+"drive" is each output pin's state at startup: "pwm" takes "value" from 0 to 1 for speed or brightness, "angle" takes degrees. "program" is the sketch's loop and runs every tick, rule by rule. A rule with "every" runs once per that many seconds; one with "when" runs "then" while the expression is true and "else" while it is false; one with neither runs every tick. Actions: {"pin": "U1.D9", "mode": ..., "value"?: expression}, {"set": variable, "to": expression}, {"show": display id, "text": "Angle {angle} deg"}, where each {expression} becomes its value. An expression is a number or a string using numbers, "vars", t (seconds since the sketch started), sensor ids, "PartId.pin" readings, + - * / %, < > <= >= == !=, && || !, a ? b : c, and min, max, abs, round, floor, ceil, sqrt, sin, cos, clamp(x, lo, hi). Variables keep their value between ticks and reset when the board resets. A servo sweep is "vars": {"angle": 0, "step": 5} with rules {"every": 0.05, "then": [{"set": "angle", "to": "angle + step"}]}, {"when": "angle >= 180", "then": [{"set": "step", "to": -5}]}, {"when": "angle <= 0", "then": [{"set": "step", "to": 5}]}, {"then": [{"pin": "U1.D9", "mode": "angle", "value": "angle"}]}. Use variables and t for anything timed: sequences, timers, debouncing and state machines. Read a sensor by its id. Reading one of its pins, or a board pin wired to it, gives the same reading in the sensor's own unit (an ultrasonic gives distance in cm, 2 to 400), except an arduino analog pin wired to a sensor's analog output, which gives 0 to 1023. Any other arduino digital pin reads 0 or 1, and any other board's pin its voltage. A button is released until someone presses it; wire it with a pull-down or pull-up resistor so its pin reads 0 or 1. Every pin that controls something must be in drive or the program, including motor driver IN and EN pins. Use the program for anything that reacts to a sensor.
 Wire electrically real circuits: use a current-limiting resistor with LEDs (220 ohms is typical), drive motors through a driver with a battery on its motor supply, and share ground between the board and any battery. A servo driver passes its V+ power straight through to the servo with low-ohm "paths". Wire exactly what the user asks for, even if it is a mistake: the checks that follow will catch it. "unmodelled" is only for behaviour none of this can represent, such as a radio link or a mechanical load, never for leaving a part out.`,
   incidentTypes: ['burn_part', 'short_part', 'loose_wire', 'low_supply', 'sensor_fault', 'set_reading'],
   incidentDoc: `{"type":"burn_part","target":"D1"}
@@ -346,7 +369,7 @@ Wire electrically real circuits: use a current-limiting resistor with LEDs (220 
 {"op":"secure_wire","wire":"W3"}
 {"op":"rewire","wire":"W3","from":"PartId.pin","to":"PartId.pin"}
 {"op":"set_drive","pin":"U1.D13","mode":"high"|"low"|"blink"|"pwm"|"angle","value"?:number,"period"?:ticks}
-{"op":"set_program","program":[Rule]} (replaces the whole program)
+{"op":"set_program","program":[Rule],"vars"?:{"name":number}} (replaces the whole program)
 A burned part stays dead until replace_part, and that includes the board (use its part id) if a pin burned. Combine patches when a fix needs both a replacement and a design change.`,
   council: [
     { name: 'CircuitDesigner', brief: 'current limiting, wiring and part values' },
@@ -360,6 +383,7 @@ A burned part stays dead until replace_part, and that includes the board (use it
       parts: spec.parts,
       wires: spec.wires.map((w, i) => `${wireId(i)}: ${w.from} -> ${w.to}`),
       drive: spec.drive,
+      vars: spec.vars ?? {},
       program: spec.program ?? [],
     }),
   createRun: (spec, seed) => new CircuitRun(spec, seed),

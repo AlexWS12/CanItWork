@@ -17,6 +17,7 @@ import {
   type CustomPart,
   type Part,
 } from './parts';
+import { compile, evaluate, type Expr } from './sketch';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
 
@@ -30,7 +31,7 @@ export const CircuitPatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('secure_wire'), wire: z.string() }),
   z.object({ op: z.literal('rewire'), wire: z.string(), from: z.string(), to: z.string() }),
   z.object({ op: z.literal('set_drive'), pin: z.string(), mode: MODES, value: z.number().optional(), period: z.number().int().min(2).max(200).optional() }),
-  z.object({ op: z.literal('set_program'), program: z.array(RuleSchema).max(20) }),
+  z.object({ op: z.literal('set_program'), program: z.array(RuleSchema).max(20), vars: z.record(z.number()).optional() }),
 ]);
 type CircuitPatch = z.infer<typeof CircuitPatchSchema>;
 
@@ -172,6 +173,9 @@ export class CircuitRun implements Run {
   private wired = new Set<string>();
   private railAmps = new Map<string, number>();
   private onSince = new Map<string, number>();
+  readonly vars = new Map<string, number>();
+  private slots = new Map<number, number>();
+  private startTick: number | null = null;
   private topology: { version: number; size: number; node: Map<string, number>; wired: Set<string> } | null = null;
   private version = 0;
   private series: Point[] = [];
@@ -183,6 +187,7 @@ export class CircuitRun implements Run {
   constructor(spec: CircuitSpec, seed: number, reference = false) {
     this.spec = structuredClone(spec);
     this.resetPins();
+    this.resetSketch();
     for (const part of this.spec.parts) {
       const sensor = sensorOf(part);
       if (sensor) this.values.set(part.id, sensor.value ?? (sensor.min + sensor.max) / 2);
@@ -291,11 +296,36 @@ export class CircuitRun implements Run {
     return Math.round(v * 100) / 100;
   }
 
+  private resetSketch() {
+    this.vars.clear();
+    for (const [name, value] of Object.entries(this.spec.vars ?? {})) this.vars.set(name, value);
+    this.slots.clear();
+    this.startTick = null;
+  }
+
+  time() {
+    return this.startTick === null ? 0 : (this.tick - this.startTick) * DT;
+  }
+
+  private lookup = (name: string): number => {
+    if (name === 't') return this.time();
+    if (name === 'dt') return DT;
+    return this.vars.get(name) ?? this.read(name);
+  };
+
+  private calc(expr: Expr) {
+    return evaluate(compile(expr), this.lookup);
+  }
+
   private format(text: string) {
     return text.replace(/\{([^}]+)\}/g, (match, key: string, offset: number) => {
       const id = key.trim();
-      if (!this.values.has(id) && !id.includes('.')) return match;
-      const value = this.read(id);
+      let value: number;
+      try {
+        value = this.calc(id);
+      } catch {
+        return match;
+      }
       if (Number.isNaN(value)) return '--';
       const sensorId = this.sensorFor(id);
       const unit = (sensorId && this.sensor(sensorId)?.unit) || '';
@@ -310,14 +340,21 @@ export class CircuitRun implements Run {
 
   private act(action: Action) {
     if ('show' in action) this.texts.set(action.show, this.format(action.text));
-    else this.pinStates.set(action.pin, { mode: action.mode, value: action.value, period: action.period });
+    else if ('set' in action) this.vars.set(action.set, this.calc(action.to));
+    else this.pinStates.set(action.pin, { mode: action.mode, value: action.value === undefined ? undefined : this.calc(action.value), period: action.period });
   }
 
   private runProgram() {
-    for (const rule of this.spec.program ?? []) {
-      const pass = !rule.if || compare(this.read(rule.if.read), rule.if.op, rule.if.value);
+    this.startTick ??= this.tick;
+    (this.spec.program ?? []).forEach((rule, i) => {
+      if (rule.every) {
+        const slot = Math.floor(this.time() / rule.every + 1e-9);
+        if (this.slots.get(i) === slot) return;
+        this.slots.set(i, slot);
+      }
+      const pass = rule.when ? Boolean(this.calc(rule.when)) : !rule.if || compare(this.read(rule.if.read), rule.if.op, rule.if.value);
       for (const action of pass ? rule.then : (rule.else ?? [])) this.act(action);
-    }
+    });
   }
 
   private sourceVolts(part: Part, source: Source) {
@@ -342,7 +379,10 @@ export class CircuitRun implements Run {
       } else {
         continue;
       }
-      if (this.boardOn.get(part.id) && !on) this.resetPins(part.id);
+      if (this.boardOn.get(part.id) && !on) {
+        this.resetPins(part.id);
+        this.resetSketch();
+      }
       if (!on) this.onSince.delete(part.id);
       else if (!this.onSince.has(part.id)) this.onSince.set(part.id, this.tick);
       this.boardOn.set(part.id, on);
@@ -390,7 +430,7 @@ export class CircuitRun implements Run {
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), LED_RESISTANCE, FORWARD_VOLTS[part.color ?? 'red']);
           break;
         case 'button':
-          add(part.id, pin('a'), pin('b'), 0.05);
+          if ((this.faults.get(part.id) ?? this.values.get(part.id) ?? 0) >= 0.5) add(part.id, pin('a'), pin('b'), 0.05);
           break;
         case 'motor': {
           const model = motorModel(part);
@@ -874,6 +914,10 @@ export class CircuitRun implements Run {
       }
       case 'set_program':
         this.spec.program = patch.program;
+        if (patch.vars) {
+          this.spec.vars = patch.vars;
+          this.resetSketch();
+        }
         break;
     }
   }
@@ -1010,7 +1054,13 @@ export class CircuitRun implements Run {
     }
     if (reading) rows.push(['Voltage', volts(reading.volts)], ['Current', milli(reading.amps)], ['Rated', reading.rated], ['Load', `${Math.round(reading.load * 100)}%`]);
     const actions: Inspection['actions'] = [];
-    if (sensor && !broken) {
+    if (part.type === 'button' && !broken) {
+      const pressed = (this.values.get(target) ?? 0) >= 0.5;
+      actions.push(
+        { label: pressed ? 'Release' : 'Press', incident: { type: 'set_reading', target, value: pressed ? 0 : 1 }, destructive: false },
+        { label: 'Stick it down', incident: { type: 'sensor_fault', target, value: 1 }, destructive: true },
+      );
+    } else if (sensor && !broken) {
       const span = sensor.max - sensor.min;
       const label = (word: string, value: number) => `Reading ${word} (${withUnit(value, sensor.unit)})`;
       actions.push(
