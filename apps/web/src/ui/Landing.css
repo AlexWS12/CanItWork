@@ -1,15 +1,25 @@
-/* Landing: input and prompts bias left, the domain index sits in a narrower right column */
+/* Landing: centred in the viewport; input and prompts on the left, the domain chips and their detail on the right */
 .landing {
   position: fixed;
   inset: 0;
   overflow-y: auto;
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  align-content: start;
+  /* safe keeps the top reachable when the content is taller than the viewport */
+  align-content: safe center;
   column-gap: var(--space-16);
-  row-gap: var(--space-12);
-  max-width: 1240px;
-  padding: clamp(var(--space-16), 14vh, 144px) clamp(var(--space-4), 6vw, 96px) var(--space-12);
+  row-gap: var(--space-8);
+  /* The scroller spans the viewport so its scrollbar sits at the window edge; side padding centres content capped at 1240px */
+  --gutter: clamp(var(--space-4), 6vw, 96px);
+  --side: max(var(--gutter), (100% - 1240px) / 2);
+  padding: var(--space-16) var(--side) var(--space-12);
+}
+
+.landing-head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
 .landing-main {
@@ -84,10 +94,6 @@
 }
 
 /* Example prompts read as a list of rows, not a stack of buttons */
-.prompts {
-  margin-top: var(--space-4);
-}
-
 .prompts h2,
 .landing-domains h2 {
   font-size: var(--text-md);
@@ -96,21 +102,21 @@
   margin-bottom: var(--space-2);
 }
 
-.prompts ul {
+.prompt-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.prompts li {
+.prompt-list li {
   border-top: var(--rule);
 }
 
-.prompts li:last-child {
+.prompt-list li:last-child {
   border-bottom: var(--rule);
 }
 
-.prompts button {
+.prompt-list button {
   display: block;
   width: 100%;
   min-height: 0;
@@ -121,43 +127,66 @@
   background: none;
   border: 0;
   border-radius: 0;
-  padding: var(--space-3) 0;
+  padding: var(--space-2) 0;
 }
 
-.prompts button:hover:not(:disabled) {
+.prompt-list button::before {
+  content: '↳ ';
+  color: var(--color-accent);
+}
+
+.prompt-list button:hover:not(:disabled) {
   color: var(--color-text);
   background: none;
 }
 
 /* Domain index */
 .landing-domains {
+  position: relative;
   min-width: 0;
-  padding-top: var(--space-4);
+  align-self: start;
 }
 
-.landing-domains dl {
+.domain-chips {
+  list-style: none;
   margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
-.landing-domains dl > div {
-  padding: var(--space-3) 0;
-  border-top: var(--rule);
+.domain-chips button {
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
 }
 
-.landing-domains dt {
-  font-size: var(--text-lg);
-  font-weight: 600;
+.domain-chips button[aria-pressed='true'] {
+  background: var(--color-accent-fill);
+  border-color: var(--color-accent-line);
+  color: var(--color-accent);
 }
 
-.landing-domains dd {
-  margin: var(--space-1) 0 0;
-  color: var(--color-muted);
+/* Out of flow, so opening it doesn't re-centre the page */
+.domain-detail {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: var(--rule);
+  border-radius: var(--radius-md);
+}
+
+.domain-detail > p {
   font-size: var(--text-md);
+  margin-bottom: var(--space-2);
 }
 
 .landing-honest {
-  border-top: var(--rule);
-  padding-top: var(--space-3);
+  margin-top: var(--space-4);
   font-size: var(--text-md);
   color: var(--color-accent);
 }
@@ -188,11 +217,6 @@
 @media (max-width: 900px) {
   .landing {
     grid-template-columns: minmax(0, 1fr);
-    padding-top: var(--space-16);
-  }
-
-  .landing-domains {
-    padding-top: 0;
   }
 }
 
