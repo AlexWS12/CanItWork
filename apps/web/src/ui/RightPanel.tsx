@@ -21,6 +21,8 @@ const AGENT_LABEL: Record<StepEvent['agent'], string> = {
   analyst: 'Analyst',
 };
 
+const seconds = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+
 function Scoreline({ finding }: { finding: Finding }) {
   return (
     <div className="finding" data-verdict={finding.verdict}>
@@ -44,6 +46,7 @@ function Trace() {
         <div className="step" key={step.id} data-status={step.status}>
           <div className="step-head">
             <span className="step-agent">{AGENT_LABEL[step.agent]}</span>
+            {step.ms !== undefined && <span className="step-ms">{seconds(step.ms)}</span>}
             <span className="tag" data-engine={step.engine}>
               {ENGINE_LABEL[step.engine]}
             </span>
