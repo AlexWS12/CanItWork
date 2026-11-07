@@ -1,5 +1,5 @@
 import { useFrame } from '@react-three/fiber';
-import { pinsOf, type CircuitRun, type Part } from '@tv/core';
+import { dipRows, pinsOf, type CircuitRun, type Part } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
@@ -12,12 +12,7 @@ const METAL = { color: '#c8d0da', metalness: 0.85, roughness: 0.3 };
 const DRAWN = new Set(['dip', 'module', 'to92', 'to220', 'axial', 'radial', 'bulb', 'display', 'pot', 'relay', 'speaker', 'sensor']);
 export const drawnByPackage = (part: Part) => Boolean(part.package && DRAWN.has(part.package)) && !(part.package === 'motor');
 
-// Pins split into two rows like a DIP: the first half along the near side left to right, the rest along the far side right to left.
-export function dipRows(part: Part) {
-  const pins = pinsOf(part);
-  const half = Math.ceil(pins.length / 2);
-  return { near: pins.slice(0, half), far: pins.slice(half).reverse(), half };
-}
+export { dipRows };
 
 export function dipSpan(part: Part) {
   const { half } = dipRows(part);

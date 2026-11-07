@@ -1,194 +1,41 @@
 import { useFrame } from '@react-three/fiber';
-import { pinsOf, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
+import { LEADED, STRADDLES, layoutBreadboard as layoutCore, pinsOf, type BoardLayout as CoreLayout, type CircuitRun, type CircuitSpec, type Part, type Spot } from '@tv/core';
 import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select } from '../../store';
-import { PITCH, PackageBody, SevenSegment, SmallPart, dipRows } from './Packages';
+import { PITCH, PackageBody, SevenSegment, SmallPart } from './Packages';
 
-// A real breadboard: chips straddle the centre channel, leads go into holes, and each wire of the spec is a jumper between holes.
-// Each 5-hole column strip is one electrical node, so a lead placed in a chip pin's strip needs no wire at all.
+// Draws the core breadboard layout: the board, its holes, the parts in them and the jumpers between them.
 
 const circuit = () => runner.run as CircuitRun | null;
 const LED_COLORS = { red: '#ff3b3b', yellow: '#ffd24a', green: '#3dff7a', blue: '#4aa3ff', white: '#ffffff' };
 const JUMPER_COLORS = ['#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#eab308', '#ec4899', '#14b8a6', '#f97316'];
-const REACH = 7;
-const CHIP_GAP = 3;
 
-type Half = 'A' | 'B';
 type Rail = '+' | '-';
-export type Spot = { kind: 'strip'; col: number; half: Half; row: number } | { kind: 'rail'; col: number; side: 'top' | 'bottom'; rail: Rail };
+export type { Spot };
 
 const zA = (row: number) => -0.375 - (4 - row) * PITCH;
 const zB = (row: number) => 0.375 + row * PITCH;
 const RAIL_Z = { top: { '+': zA(0) - 0.55, '-': zA(0) - 0.85 }, bottom: { '+': zB(4) + 0.55, '-': zB(4) + 0.85 } } as const;
 
-export const LEADED = (part: Part) =>
-  ['resistor', 'led', 'capacitor', 'button', 'switch', 'buzzer', 'diode', 'pot', 'ldr', 'thermistor'].includes(part.type) ||
-  (part.type === 'custom' && ['axial', 'radial', 'to92', 'pot'].includes(part.package ?? '') && pinsOf(part).length <= 3);
-export const STRADDLES = (part: Part) =>
-  part.type === 'seven_segment' || (part.type === 'custom' && (part.package === 'dip' || part.package === 'module') && pinsOf(part).length >= 4);
-
-export interface BoardLayout {
-  columns: number;
+export interface BoardLayout extends Omit<CoreLayout, 'offBoard'> {
   x0: number;
-  spots: Map<string, Spot>;
-  chips: Map<string, { col: number; half: number }>;
   offBoard: Map<string, [number, number]>;
-  wireEnds: Array<[Spot | string, Spot | string] | null>;
-  supply: Map<string, Rail>;
-  railsUsed: Set<string>;
-}
-
-class Nets {
-  private parent = new Map<string, string>();
-  find(key: string): string {
-    if (!this.parent.has(key)) this.parent.set(key, key);
-    let root = key;
-    while (this.parent.get(root) !== root) root = this.parent.get(root)!;
-    this.parent.set(key, root);
-    return root;
-  }
-  join(a: string, b: string) {
-    this.parent.set(this.find(a), this.find(b));
-  }
 }
 
 export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
-  const nets = new Nets();
-  for (const w of spec.wires) nets.join(w.from, w.to);
-  const supplyPart =
-    spec.parts.find((p) => p.type === 'battery') ?? spec.parts.find((p) => p.type === 'arduino') ?? spec.parts.find((p) => p.custom?.sources.length && !STRADDLES(p));
-  const supply = new Map<string, Rail>();
-  if (supplyPart) {
-    const [pos, neg] =
-      supplyPart.type === 'battery' ? ['pos', 'neg'] : supplyPart.type === 'arduino' ? ['5V', 'GND'] : [supplyPart.custom!.sources[0].pos, supplyPart.custom!.sources[0].neg];
-    supply.set(nets.find(`${supplyPart.id}.${pos}`), '+');
-    supply.set(nets.find(`${supplyPart.id}.${neg}`), '-');
-  }
-  // Without a battery, a straddling board's own ground and 3V3 feed the rails.
-  if (!supplyPart) {
-    const board = spec.parts.find((p) => STRADDLES(p) && p.custom?.sources.length);
-    const source = board?.custom?.sources[0];
-    if (board && source) {
-      supply.set(nets.find(`${board.id}.${source.pos}`), '+');
-      supply.set(nets.find(`${board.id}.${source.neg}`), '-');
-    }
-  }
-
-  const spots = new Map<string, Spot>();
-  const strips = new Map<string, { net: string; used: number }>();
-  const anchors = new Map<string, Array<{ col: number; half: Half }>>();
-  const stripKey = (col: number, half: Half) => `${col}${half}`;
-  const claim = (col: number, half: Half, net: string, row?: number): Spot => {
-    const key = stripKey(col, half);
-    const strip = strips.get(key) ?? { net, used: 0 };
-    strips.set(key, strip);
-    const order = half === 'A' ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4];
-    const r = row ?? order[Math.min(4, strip.used)];
-    strip.used++;
-    const list = anchors.get(net) ?? [];
-    if (!list.some((a) => a.col === col && a.half === half)) list.push({ col, half });
-    anchors.set(net, list);
-    return { kind: 'strip', col, half, row: r };
-  };
-
-  const chips = new Map<string, { col: number; half: number }>();
-  let cursor = 2;
-  for (const part of spec.parts.filter(STRADDLES)) {
-    const { near, far, half } = dipRows(part);
-    chips.set(part.id, { col: cursor, half });
-    near.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(cursor + i, 'B', nets.find(`${part.id}.${pin}`), 0)));
-    far.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(cursor + i, 'A', nets.find(`${part.id}.${pin}`), 4)));
-    cursor += half + CHIP_GAP;
-  }
-
-  const free = (col: number, half: Half) => col >= 1 && !strips.has(stripKey(col, half));
-  const nearestFree = (around: number, half: Half, avoid = -1): number => {
-    for (let d = 0; d < 200; d++) {
-      for (const col of [around + d, around - d]) if (col !== avoid && free(col, half)) return col;
-    }
-    return around;
-  };
-  const sideOf = (half: Half) => (half === 'A' ? 'top' : 'bottom');
-
-  let flip = 0;
-  for (const part of spec.parts.filter(LEADED)) {
-    const pins = pinsOf(part);
-    if (pins.length === 3) {
-      const half: Half = flip++ % 2 ? 'A' : 'B';
-      let col: number = nearestFree(cursor, half);
-      while (!free(col + 1, half) || !free(col + 2, half)) col = nearestFree(col + 1, half);
-      pins.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(col + i, half, nets.find(`${part.id}.${pin}`))));
-      cursor = Math.max(cursor, col + 4);
-      continue;
-    }
-    let ref: { col: number; half: Half } | null = null;
-    // Place the lead that already has a home first, so the part sits next to the chip it serves.
-    const ordered = [...pins].sort((a, b) => Number(anchors.has(nets.find(`${part.id}.${b}`))) - Number(anchors.has(nets.find(`${part.id}.${a}`))));
-    for (const pin of ordered) {
-      const key = `${part.id}.${pin}`;
-      const net = nets.find(key);
-      const rail = supply.get(net);
-      if (rail && ref) {
-        spots.set(key, { kind: 'rail', col: ref.col, side: sideOf(ref.half), rail });
-        continue;
-      }
-      const home = (anchors.get(net) ?? []).find(
-        (a) => (strips.get(stripKey(a.col, a.half))?.used ?? 5) < 5 && (!ref || (Math.abs(a.col - ref.col) <= REACH && !(a.col === ref.col && a.half === ref.half))),
-      );
-      if (home && !rail) {
-        spots.set(key, claim(home.col, home.half, net));
-        ref = home;
-        continue;
-      }
-      const half: Half = ref?.half ?? (flip++ % 2 ? 'A' : 'B');
-      const col: number = ref ? nearestFree(ref.col + 2, half, ref.col) : nearestFree(cursor, half);
-      spots.set(key, claim(col, half, net));
-      if (!ref) cursor = Math.max(cursor, col + 1);
-      ref = { col, half };
-    }
-  }
-
-  const used = [...strips.keys()].map((k) => parseInt(k, 10));
-  const columns = Math.max(30, Math.max(0, ...used) + 4);
-  const x0 = -((columns - 1) * PITCH) / 2;
-
+  const core = layoutCore(spec);
+  const x0 = -((core.columns - 1) * PITCH) / 2;
   const offBoard = new Map<string, [number, number]>();
   let ox = x0 + 0.6;
-  for (const part of spec.parts.filter((p) => !LEADED(p) && !STRADDLES(p))) {
+  for (const id of core.offBoard) {
+    const part = spec.parts.find((p) => p.id === id)!;
     const width = part.type === 'arduino' ? 7.6 : part.custom && pinsOf(part).length > 8 ? 3.4 : 2.8;
-    offBoard.set(part.id, [ox + width / 2, RAIL_Z.top['-'] - 2.6 - (part.type === 'arduino' ? 1.6 : 0)]);
+    offBoard.set(id, [ox + width / 2, RAIL_Z.top['-'] - 2.6 - (part.type === 'arduino' ? 1.6 : 0)]);
     ox += width + 0.6;
   }
-
-  const railsUsed = new Set<string>();
-  const resolve = (key: string, other: string): Spot | string => {
-    const spot = spots.get(key);
-    if (spot) return spot;
-    const rail = supply.get(nets.find(key));
-    if (!rail) return key;
-    const near = spots.get(other);
-    const side = near?.kind === 'strip' ? sideOf(near.half) : near?.kind === 'rail' ? near.side : 'top';
-    return { kind: 'rail', col: near ? near.col : 0, side, rail };
-  };
-  const same = (a: Spot | string, b: Spot | string) =>
-    typeof a !== 'string' &&
-    typeof b !== 'string' &&
-    ((a.kind === 'strip' && b.kind === 'strip' && a.col === b.col && a.half === b.half) || (a.kind === 'rail' && b.kind === 'rail' && a.side === b.side && a.rail === b.rail));
-  const wireEnds = spec.wires.map((w) => {
-    let a = resolve(w.from, w.to);
-    let b = resolve(w.to, w.from);
-    // A jumper from a strip lands in the next free hole of that strip, not on the lead already there.
-    const hole = (s: Spot | string) => (typeof s !== 'string' && s.kind === 'strip' ? claim(s.col, s.half, strips.get(stripKey(s.col, s.half))!.net) : s);
-    for (const s of [a, b]) if (typeof s !== 'string' && s.kind === 'rail') railsUsed.add(`${s.side}${s.rail}`);
-    if (same(a, b) || (typeof a === 'string' && typeof b === 'string' && false)) return null;
-    a = hole(a);
-    b = hole(b);
-    return [a, b] as [Spot | string, Spot | string];
-  });
-  for (const s of spots.values()) if (s.kind === 'rail') railsUsed.add(`${s.side}${s.rail}`);
-  return { columns, x0, spots, chips, offBoard, wireEnds, supply, railsUsed };
+  return { ...core, x0, offBoard };
 }
 
 export function spotPosition(layout: BoardLayout, spot: Spot, lift = 0.06) {
