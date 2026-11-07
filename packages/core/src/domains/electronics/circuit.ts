@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
 import {
   FORWARD_VOLTS,
+  SEGMENTS,
+  glyphOf,
   GPIO,
   LIMITS,
   PIN_LIMIT,
@@ -42,6 +44,8 @@ const LEAK = 1e-9;
 const BURN_TICKS = 6;
 const SERIES_STEP = 5;
 const LED_RESISTANCE = 12;
+const SEGMENT_VOLTS = 2;
+const DIODE_RESISTANCE = 0.3;
 const PIN_RESISTANCE = 25;
 const BROWNOUT_VOLTS = 4.3;
 const REGULATOR_DROP = 1.2;
@@ -187,6 +191,7 @@ export class CircuitRun implements Run {
   private dirty = true;
   private signature = '';
   private exprs = new Map<string, Node>();
+  private segmentsOn = new Set<string>();
   private chipVars = new Map<string, Map<string, number>>();
   private chipPrev = new Map<string, number>();
 
@@ -342,6 +347,20 @@ export class CircuitRun implements Run {
     return null;
   }
 
+  // A settable input's current value (a pot's position, an LDR's light), whether set directly or read from the world.
+  private inputLevel(id: string) {
+    return this.faults.get(id) ?? this.sensed(id);
+  }
+
+  litSegments(part: Part) {
+    if (part.type !== 'seven_segment' || this.burned.has(part.id)) return [];
+    return SEGMENTS.filter((seg) => this.segmentsOn.has(`${part.id}.${seg}`));
+  }
+
+  glyph(part: Part) {
+    return glyphOf(this.litSegments(part));
+  }
+
   private sensed(id: string) {
     const measures = this.sensor(id)?.measures;
     return measures !== undefined && this.world.has(measures) ? this.world.get(measures)! : this.values.get(id)!;
@@ -391,7 +410,7 @@ export class CircuitRun implements Run {
     const sensorId = this.sensorFor(target);
     if (sensorId) {
       const part = this.part(sensorId)!;
-      const needsPower = part.type !== 'custom' || Boolean(part.custom?.supply);
+      const needsPower = part.type === 'ultrasonic' || Boolean(part.custom?.supply);
       if (this.burned.has(sensorId) || this.shorted.has(sensorId) || (needsPower && !this.isPowered(part))) return NaN;
       return this.faults.get(sensorId) ?? this.sensed(sensorId);
     }
@@ -544,6 +563,35 @@ export class CircuitRun implements Run {
         case 'led':
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), LED_RESISTANCE, FORWARD_VOLTS[part.color ?? 'red']);
           break;
+        case 'diode':
+          if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), DIODE_RESISTANCE, part.volts ?? 0.7);
+          break;
+        case 'pot': {
+          const total = part.ohms ?? 10000;
+          const at = clamp(this.inputLevel(part.id) / 100, 0, 1);
+          add(part.id, pin('a'), pin('wiper'), Math.max(1, total * at));
+          add(part.id, pin('wiper'), pin('b'), Math.max(1, total * (1 - at)));
+          break;
+        }
+        case 'ldr': {
+          // About 1 MOhm in the dark down to 1 kOhm in bright light, on a log scale.
+          const light = clamp(this.inputLevel(part.id) / 100, 0, 1);
+          add(part.id, pin('a'), pin('b'), 10 ** (6 - 3 * light));
+          break;
+        }
+        case 'thermistor': {
+          // NTC: ohms at 25 C (default 10k), beta 3950.
+          const kelvin = this.inputLevel(part.id) + 273.15;
+          add(part.id, pin('a'), pin('b'), (part.ohms ?? 10000) * Math.exp(3950 * (1 / kelvin - 1 / 298.15)));
+          break;
+        }
+        case 'seven_segment':
+          for (const seg of SEGMENTS) {
+            if (!on.has(pin(seg))) continue;
+            if (part.common === 'anode') add(part.id, pin('com'), pin(seg), LED_RESISTANCE, SEGMENT_VOLTS);
+            else add(part.id, pin(seg), pin('com'), LED_RESISTANCE, SEGMENT_VOLTS);
+          }
+          break;
         case 'button':
         case 'switch':
           if ((this.faults.get(part.id) ?? this.values.get(part.id) ?? 0) >= 0.5) add(part.id, pin('a'), pin('b'), 0.05);
@@ -678,6 +726,21 @@ export class CircuitRun implements Run {
           logic.set(key, value);
         };
         for (const part of this.spec.parts) {
+          const conduct = (key: string, drop: number, threshold: number) => {
+            const conducting = on.has(key) ? drop > threshold * 0.98 : drop > threshold;
+            if (conducting !== on.has(key)) {
+              changed = true;
+              if (conducting) on.add(key);
+              else on.delete(key);
+            }
+          };
+          if (part.type === 'diode') conduct(part.id, at(`${part.id}.anode`) - at(`${part.id}.cathode`), part.volts ?? 0.7);
+          if (part.type === 'seven_segment') {
+            for (const seg of SEGMENTS) {
+              const drop = at(`${part.id}.${seg}`) - at(`${part.id}.com`);
+              conduct(`${part.id}.${seg}`, part.common === 'anode' ? -drop : drop, SEGMENT_VOLTS);
+            }
+          }
           if (part.type === 'led') {
             const threshold = FORWARD_VOLTS[part.color ?? 'red'];
             const drop = at(`${part.id}.anode`) - at(`${part.id}.cathode`);
@@ -716,6 +779,7 @@ export class CircuitRun implements Run {
       }
     }
 
+    this.segmentsOn = new Set([...on].filter((key) => key.includes('.')));
     for (const [key, index] of nodes) this.lastVolts.set(key, average[index] ?? 0);
     const at = (key: string) => average[node(key)] ?? 0;
     this.readings.clear();
@@ -818,6 +882,8 @@ export class CircuitRun implements Run {
     switch (part.type) {
       case 'led':
         return (reading?.amps ?? 0) > 0.002;
+      case 'seven_segment':
+        return this.litSegments(part).length > 0;
       case 'buzzer':
         return (reading?.amps ?? 0) > 0.005;
       case 'motor':

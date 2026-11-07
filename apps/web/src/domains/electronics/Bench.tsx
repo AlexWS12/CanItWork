@@ -7,7 +7,7 @@ import { runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Tag, pick } from '../shared';
 import { BoardParts, breadboardExtent, jumperColor, layoutBreadboard, spotPosition, type BoardLayout, type Spot } from './Breadboard';
-import { PackageBody, dipSpan, drawnByPackage, packagePin } from './Packages';
+import { PackageBody, SevenSegment, SmallPart, dipSpan, drawnByPackage, packagePin } from './Packages';
 import './Bench.css';
 
 const circuit = () => runner.run as CircuitRun | null;
@@ -55,7 +55,7 @@ export function benchExtent(spec: CircuitSpec) {
 function pinPosition(part: Part, pin: string, [x, z]: [number, number]) {
   const pins = pinsOf(part);
   const i = Math.max(0, pins.indexOf(pin));
-  const packaged = packagePin(part, pin);
+  const packaged = packagePin(part, pin) ?? (part.type === 'seven_segment' ? packagePin({ ...part, package: 'dip' }, pin) : null);
   if (packaged) return new THREE.Vector3(x + packaged[0], packaged[1], z + packaged[2]);
   switch (part.type) {
     case 'custom': {
@@ -320,6 +320,13 @@ function PartBody({ part }: { part: Part }) {
           </mesh>
         </group>
       );
+    case 'diode':
+    case 'pot':
+    case 'ldr':
+    case 'thermistor':
+      return <SmallPart part={part} />;
+    case 'seven_segment':
+      return <SevenSegment part={part} />;
     case 'buzzer':
       return (
         <mesh position={[0, 0.34, 0]} castShadow>
@@ -417,6 +424,7 @@ function liveText(run: CircuitRun, part: Part) {
     const on = (run.values.get(part.id) ?? 0) >= 0.5;
     return part.type === 'switch' ? (on ? 'ON' : 'OFF') : on ? 'pressed' : '';
   }
+  if (part.type === 'seven_segment') return run.glyph(part);
   const sensor = sensorOf(part);
   if (sensor) {
     const value = run.read(part.id);
@@ -431,7 +439,7 @@ function liveText(run: CircuitRun, part: Part) {
   return '';
 }
 
-const hasLiveValue = (part: Part) => Boolean(sensorOf(part) || part.custom?.actuator) || ['motor', 'capacitor', 'arduino'].includes(part.type);
+const hasLiveValue = (part: Part) => Boolean(sensorOf(part) || part.custom?.actuator) || ['motor', 'capacitor', 'arduino', 'seven_segment'].includes(part.type);
 
 function LiveTag({ part, y }: { part: Part; y: number }) {
   const label = useRef<HTMLDivElement>(null);

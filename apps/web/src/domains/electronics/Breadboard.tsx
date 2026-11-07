@@ -4,7 +4,7 @@ import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select } from '../../store';
-import { PITCH, PackageBody, dipRows } from './Packages';
+import { PITCH, PackageBody, SevenSegment, SmallPart, dipRows } from './Packages';
 
 // A real breadboard: chips straddle the centre channel, leads go into holes, and each wire of the spec is a jumper between holes.
 // Each 5-hole column strip is one electrical node, so a lead placed in a chip pin's strip needs no wire at all.
@@ -24,9 +24,10 @@ const zB = (row: number) => 0.375 + row * PITCH;
 const RAIL_Z = { top: { '+': zA(0) - 0.55, '-': zA(0) - 0.85 }, bottom: { '+': zB(4) + 0.55, '-': zB(4) + 0.85 } } as const;
 
 export const LEADED = (part: Part) =>
-  ['resistor', 'led', 'capacitor', 'button', 'switch', 'buzzer'].includes(part.type) ||
+  ['resistor', 'led', 'capacitor', 'button', 'switch', 'buzzer', 'diode', 'pot', 'ldr', 'thermistor'].includes(part.type) ||
   (part.type === 'custom' && ['axial', 'radial', 'to92', 'pot'].includes(part.package ?? '') && pinsOf(part).length <= 3);
-export const STRADDLES = (part: Part) => part.type === 'custom' && (part.package === 'dip' || part.package === 'module') && pinsOf(part).length >= 4;
+export const STRADDLES = (part: Part) =>
+  part.type === 'seven_segment' || (part.type === 'custom' && (part.package === 'dip' || part.package === 'module') && pinsOf(part).length >= 4);
 
 export interface BoardLayout {
   columns: number;
@@ -379,6 +380,11 @@ function LeadedBody({ part }: { part: Part }) {
           <meshStandardMaterial color="#14171f" roughness={0.4} />
         </mesh>
       );
+    case 'diode':
+    case 'pot':
+    case 'ldr':
+    case 'thermistor':
+      return <SmallPart part={part} />;
     default:
       return <PackageBody part={part} />;
   }
@@ -391,7 +397,7 @@ function Leaded({ part, holes, onPick }: { part: Part; holes: THREE.Vector3[]; o
     const a = holes[0];
     const b = holes[holes.length - 1];
     const ang = Math.atan2(-(b.z - a.z), b.x - a.x);
-    const standing = part.type === 'led' || part.type === 'capacitor' || part.type === 'switch' || part.type === 'button' || part.type === 'buzzer' || holes.length === 3;
+    const standing = ['led', 'capacitor', 'switch', 'button', 'buzzer', 'ldr', 'thermistor'].includes(part.type) || holes.length === 3;
     const legTop = standing ? 0.4 : 0.34;
     const span = standing ? 0.08 : 0.2;
     const dir = new THREE.Vector3(Math.cos(ang), 0, -Math.sin(ang));
@@ -446,7 +452,7 @@ export function BoardParts({
         return (
           <group key={part.id}>
             <group position={at} onClick={pickOrToggle(part)}>
-              <PackageBody part={part} />
+              {part.type === 'seven_segment' ? <SevenSegment part={part} /> : <PackageBody part={part} />}
             </group>
             {decorate(part, at, 1 + chip.half * 0.12)}
           </group>

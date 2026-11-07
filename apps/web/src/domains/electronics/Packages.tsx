@@ -318,3 +318,68 @@ export function PackageBody({ part }: { part: Part }) {
       return null;
   }
 }
+
+// Segment bars laid out as on a real display: [x, z, horizontal].
+const SEGMENT_BARS: Record<string, [number, number, boolean]> = {
+  a: [0, -0.42, true],
+  b: [0.2, -0.21, false],
+  c: [0.2, 0.21, false],
+  d: [0, 0.42, true],
+  e: [-0.2, 0.21, false],
+  f: [-0.2, -0.21, false],
+  g: [0, 0, true],
+};
+
+export function SevenSegment({ part }: { part: Part }) {
+  const mats = useRef<Record<string, THREE.MeshStandardMaterial | null>>({});
+  useFrame(() => {
+    const run = circuit();
+    const lit = new Set<string>(run?.litSegments(part) ?? []);
+    for (const [seg, m] of Object.entries(mats.current)) if (m) m.emissiveIntensity = lit.has(seg) ? 3 : 0.04;
+  });
+  return (
+    <group>
+      <mesh position={[0, 0.32, 0]} castShadow>
+        <boxGeometry args={[0.8, 0.24, 1.15]} />
+        <meshStandardMaterial color="#111316" roughness={0.6} />
+      </mesh>
+      {Object.entries(SEGMENT_BARS).map(([seg, [x, z, flat]]) => (
+        <mesh key={seg} position={[x, 0.445, z]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={flat ? [0.32, 0.07] : [0.07, 0.34]} />
+          <meshStandardMaterial ref={(m) => (mats.current[seg] = m)} color="#2a0b0b" emissive="#ff2a2a" emissiveIntensity={0.04} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+export function SmallPart({ part }: { part: Part }) {
+  switch (part.type) {
+    case 'diode':
+      return <Axial />;
+    case 'pot':
+      return <Pot />;
+    case 'ldr':
+      return (
+        <group>
+          <mesh position={[0, 0.42, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+            <cylinderGeometry args={[0.2, 0.2, 0.08, 20]} />
+            <meshStandardMaterial color="#c2410c" roughness={0.5} />
+          </mesh>
+          <mesh position={[0, 0.42, -0.045]}>
+            <planeGeometry args={[0.26, 0.06]} />
+            <meshStandardMaterial color="#fde68a" side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+      );
+    case 'thermistor':
+      return (
+        <mesh position={[0, 0.4, 0]} castShadow>
+          <sphereGeometry args={[0.12, 16, 12]} />
+          <meshStandardMaterial color="#1e40af" roughness={0.4} />
+        </mesh>
+      );
+    default:
+      return null;
+  }
+}

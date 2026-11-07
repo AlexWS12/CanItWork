@@ -1,6 +1,24 @@
 import { z } from 'zod';
 
-const PART_TYPES = ['arduino', 'battery', 'resistor', 'capacitor', 'led', 'button', 'switch', 'motor', 'motor_driver', 'ultrasonic', 'buzzer', 'custom'] as const;
+const PART_TYPES = [
+  'arduino',
+  'battery',
+  'resistor',
+  'capacitor',
+  'led',
+  'button',
+  'switch',
+  'motor',
+  'motor_driver',
+  'ultrasonic',
+  'buzzer',
+  'diode',
+  'pot',
+  'ldr',
+  'thermistor',
+  'seven_segment',
+  'custom',
+] as const;
 export type PartType = (typeof PART_TYPES)[number];
 
 // The physical form a part takes, so one renderer draws every chip or module of that shape.
@@ -131,6 +149,7 @@ const PartObject = z.object({
   color: z.enum(['red', 'yellow', 'green', 'blue', 'white']).optional(),
   measures: z.string().optional(),
   closed: z.boolean().optional(),
+  common: z.enum(['cathode', 'anode']).optional(),
   package: z.enum(PACKAGES).optional(),
   custom: CustomPartSchema.optional(),
 });
@@ -227,6 +246,11 @@ export const PINS: Record<PartType, string[]> = {
   motor_driver: ['VS', 'VCC', 'GND', 'ENA', 'IN1', 'IN2', 'OUT1', 'OUT2', 'ENB', 'IN3', 'IN4', 'OUT3', 'OUT4'],
   ultrasonic: ['VCC', 'TRIG', 'ECHO', 'GND'],
   buzzer: ['pos', 'neg'],
+  diode: ['anode', 'cathode'],
+  pot: ['a', 'wiper', 'b'],
+  ldr: ['a', 'b'],
+  thermistor: ['a', 'b'],
+  seven_segment: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'com'],
   custom: [],
 };
 
@@ -252,6 +276,9 @@ export function sensorOf(part: Part): SensorInfo | null {
     const power = new Set(custom.supply ? [custom.supply.pos, custom.supply.neg] : []);
     return { label: custom.label, ...custom.sensor, measures: part.measures, outputs: custom.pins.filter((pin) => !power.has(pin) && !POWER_PIN.test(pin)) };
   }
+  if (part.type === 'pot') return { label: 'Potentiometer', quantity: 'position', unit: '%', min: 0, max: 100, value: 50, outputs: ['wiper'] };
+  if (part.type === 'ldr') return { label: 'Light sensor (LDR)', quantity: 'light', unit: '%', min: 0, max: 100, value: 50, outputs: [], measures: part.measures };
+  if (part.type === 'thermistor') return { label: 'Thermistor', quantity: 'temperature', unit: 'C', min: -20, max: 100, value: 25, outputs: [], measures: part.measures };
   if (part.type === 'switch') return { label: 'Switch', quantity: 'closed', unit: '', min: 0, max: 1, value: part.closed ? 1 : 0, outputs: [] };
   if (part.type === 'button') return { label: 'Button', quantity: 'pressed', unit: '', min: 0, max: 1, value: 0, outputs: [] };
   if (part.type === 'ultrasonic') return { label: 'Ultrasonic sensor', quantity: 'distance', unit: 'cm', min: 2, max: 400, value: 100, outputs: ['ECHO'], measures: part.measures };
@@ -262,7 +289,7 @@ export const withUnit = (value: number, unit: string) => `${Math.round(value * 1
 
 export const FORWARD_VOLTS = { red: 1.9, yellow: 2.0, green: 2.2, blue: 3.0, white: 3.0 };
 
-const OUTPUTS: PartType[] = ['led', 'motor', 'buzzer', 'ultrasonic'];
+const OUTPUTS: PartType[] = ['led', 'motor', 'buzzer', 'ultrasonic', 'seven_segment'];
 
 export const isOutput = (part: Part) => OUTPUTS.includes(part.type) || Boolean(part.custom?.output || part.custom?.actuator);
 
@@ -272,7 +299,33 @@ export const LIMITS: Partial<Record<PartType, { rated: number; burn: number }>> 
   motor: { rated: 1.2, burn: 2.5 },
   buzzer: { rated: 0.05, burn: 0.1 },
   motor_driver: { rated: 2, burn: 3 },
+  diode: { rated: 1, burn: 2 },
+  seven_segment: { rated: 0.02, burn: 0.04 },
 };
+
+export const SEGMENTS = ['a', 'b', 'c', 'd', 'e', 'f', 'g'] as const;
+
+// Lit segments a-g to the character a 7-segment display shows.
+const GLYPHS: Record<string, string> = {
+  abcdef: '0',
+  bc: '1',
+  abdeg: '2',
+  abcdg: '3',
+  bcfg: '4',
+  acdfg: '5',
+  acdefg: '6',
+  abc: '7',
+  abcdefg: '8',
+  abcdfg: '9',
+  abcefg: 'A',
+  cdefg: 'b',
+  adef: 'C',
+  bcdeg: 'd',
+  adefg: 'E',
+  aefg: 'F',
+  g: '-',
+};
+export const glyphOf = (lit: string[]) => (lit.length ? (GLYPHS[[...lit].sort().join('')] ?? '?') : '');
 
 export const PIN_LIMIT = { rated: 0.02, burn: 0.04 };
 export const RAIL_LIMIT = { rated: 0.5, burn: 1 };
