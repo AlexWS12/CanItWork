@@ -26,7 +26,6 @@ const MAX_PINS = 3;
 const targetOf = (finding: Finding) => finding.incident.target?.split(/->|\./)[0];
 const projected = new THREE.Vector3();
 
-/** Pins the Red Team's claim about this part over it in the scene, if there is one */
 export function ClaimPin({ id, position = [0, 0, 0] }: { id: string; position?: [number, number, number] }) {
   const anchor = useRef<THREE.Group>(null);
   const pin = useRef<HTMLDivElement>(null);
