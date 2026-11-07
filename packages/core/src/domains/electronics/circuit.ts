@@ -48,6 +48,10 @@ const LED_RESISTANCE = 12;
 const SEGMENT_VOLTS = 2;
 const USB_VOLTS = 5;
 const DIODE_RESISTANCE = 0.3;
+const BE_VOLTS = 0.65;
+const BE_RESISTANCE = 50;
+const CE_SATURATED = 0.2;
+const MOS_ON = 0.05;
 const PIN_RESISTANCE = 25;
 const BROWNOUT_VOLTS = 4.3;
 const REGULATOR_DROP = 1.2;
@@ -594,6 +598,24 @@ export class CircuitRun implements Run {
         case 'led':
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), LED_RESISTANCE, FORWARD_VOLTS[part.color ?? 'red']);
           break;
+        // A BJT's base-emitter junction is a diode; once it conducts, the transistor saturates and closes collector to emitter.
+        case 'npn':
+          if (on.has(pin('B'))) {
+            add(part.id, pin('B'), pin('E'), BE_RESISTANCE, BE_VOLTS);
+            add(part.id, pin('C'), pin('E'), CE_SATURATED);
+          }
+          break;
+        case 'pnp':
+          if (on.has(pin('B'))) {
+            add(part.id, pin('E'), pin('B'), BE_RESISTANCE, BE_VOLTS);
+            add(part.id, pin('E'), pin('C'), CE_SATURATED);
+          }
+          break;
+        // A MOSFET's gate draws nothing; past its threshold ("volts", default 2 V for logic-level parts) the channel closes.
+        case 'nmos':
+        case 'pmos':
+          if (on.has(pin('G'))) add(part.id, pin('D'), pin('S'), MOS_ON);
+          break;
         case 'diode':
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), DIODE_RESISTANCE, part.volts ?? 0.7);
           // A Zener also conducts backwards once the reverse voltage reaches its rating, holding it there.
@@ -776,6 +798,10 @@ export class CircuitRun implements Run {
               else on.delete(key);
             }
           };
+          if (part.type === 'npn') conduct(`${part.id}.B`, at(`${part.id}.B`) - at(`${part.id}.E`), BE_VOLTS);
+          if (part.type === 'pnp') conduct(`${part.id}.B`, at(`${part.id}.E`) - at(`${part.id}.B`), BE_VOLTS);
+          if (part.type === 'nmos') conduct(`${part.id}.G`, at(`${part.id}.G`) - at(`${part.id}.S`), part.volts ?? 2);
+          if (part.type === 'pmos') conduct(`${part.id}.G`, at(`${part.id}.S`) - at(`${part.id}.G`), part.volts ?? 2);
           if (part.type === 'diode') {
             conduct(part.id, at(`${part.id}.anode`) - at(`${part.id}.cathode`), part.volts ?? 0.7);
             if (part.zener) conduct(`${part.id}.reverse`, at(`${part.id}.cathode`) - at(`${part.id}.anode`), part.zener);

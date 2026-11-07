@@ -260,3 +260,68 @@ describe('boards on USB', () => {
     expect(settle(board(true)).voltsBetween('P1.VBUS', 'P1.GND')).toBeLessThan(3.2);
   });
 });
+
+describe('transistors', () => {
+  // Night light: 47k from +9 V to the base node, LDR from the base node to ground, 1k into the base; the LED hangs off the collector.
+  // (With only 10k on top, daylight still leaves the base node near 1.5 V and the light stays on, as it would on a real bench.)
+  const nightLight: CircuitSpec = {
+    parts: [
+      { id: 'B1', type: 'battery', volts: 9 },
+      { id: 'RT', type: 'resistor', ohms: 47000 },
+      { id: 'LDR1', type: 'ldr' },
+      { id: 'RB', type: 'resistor', ohms: 1000 },
+      { id: 'Q1', type: 'npn' },
+      { id: 'RL', type: 'resistor', ohms: 470 },
+      { id: 'D1', type: 'led', color: 'yellow' },
+    ],
+    wires: [
+      { from: 'B1.pos', to: 'RT.a' },
+      { from: 'RT.b', to: 'LDR1.a' },
+      { from: 'LDR1.b', to: 'B1.neg' },
+      { from: 'RT.b', to: 'RB.a' },
+      { from: 'RB.b', to: 'Q1.B' },
+      { from: 'Q1.E', to: 'B1.neg' },
+      { from: 'B1.pos', to: 'RL.a' },
+      { from: 'RL.b', to: 'D1.anode' },
+      { from: 'D1.cathode', to: 'Q1.C' },
+    ],
+    drive: [],
+  };
+  const lit = (spec: CircuitSpec, setup: (r: CircuitRun) => void) => settle(spec, setup).isRunning(part(spec, 'D1'));
+
+  it('an NPN night light turns on in the dark and off in daylight', () => {
+    expect(lit(nightLight, (r) => r.inject({ type: 'set_reading', target: 'LDR1', value: 5 }))).toBe(true);
+    expect(lit(nightLight, (r) => r.inject({ type: 'set_reading', target: 'LDR1', value: 90 }))).toBe(false);
+  });
+
+  it("an NPN's base sits at about 0.65 V when it conducts, like a real junction", () => {
+    const run = settle(nightLight, (r) => r.inject({ type: 'set_reading', target: 'LDR1', value: 5 }));
+    expect(run.voltsBetween('Q1.B', 'Q1.E')).toBeCloseTo(0.65, 1);
+  });
+
+  it('a logic-level MOSFET switches a load from a gate with a pull-down', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'B1', type: 'battery', volts: 5 },
+        { id: 'S1', type: 'switch' },
+        { id: 'RG', type: 'resistor', ohms: 100000 },
+        { id: 'M1', type: 'nmos' },
+        { id: 'RL', type: 'resistor', ohms: 220 },
+        { id: 'D1', type: 'led', color: 'red' },
+      ],
+      wires: [
+        { from: 'B1.pos', to: 'S1.a' },
+        { from: 'S1.b', to: 'M1.G' },
+        { from: 'M1.G', to: 'RG.a' },
+        { from: 'RG.b', to: 'B1.neg' },
+        { from: 'M1.S', to: 'B1.neg' },
+        { from: 'B1.pos', to: 'RL.a' },
+        { from: 'RL.b', to: 'D1.anode' },
+        { from: 'D1.cathode', to: 'M1.D' },
+      ],
+      drive: [],
+    };
+    expect(lit(spec, () => undefined)).toBe(false);
+    expect(lit(spec, (r) => r.inject({ type: 'set_reading', target: 'S1', value: 1 }))).toBe(true);
+  });
+});

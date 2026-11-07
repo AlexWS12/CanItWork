@@ -17,6 +17,10 @@ const PART_TYPES = [
   'ldr',
   'thermistor',
   'seven_segment',
+  'npn',
+  'pnp',
+  'nmos',
+  'pmos',
   'custom',
 ] as const;
 export type PartType = (typeof PART_TYPES)[number];
@@ -264,6 +268,10 @@ export const PINS: Record<PartType, string[]> = {
   ultrasonic: ['VCC', 'TRIG', 'ECHO', 'GND'],
   buzzer: ['pos', 'neg'],
   diode: ['anode', 'cathode'],
+  npn: ['C', 'B', 'E'],
+  pnp: ['C', 'B', 'E'],
+  nmos: ['D', 'G', 'S'],
+  pmos: ['D', 'G', 'S'],
   pot: ['a', 'wiper', 'b'],
   ldr: ['a', 'b'],
   thermistor: ['a', 'b'],
@@ -317,6 +325,10 @@ export const LIMITS: Partial<Record<PartType, { rated: number; burn: number }>> 
   buzzer: { rated: 0.05, burn: 0.1 },
   motor_driver: { rated: 2, burn: 3 },
   diode: { rated: 1, burn: 2 },
+  npn: { rated: 0.6, burn: 1.2 },
+  pnp: { rated: 0.6, burn: 1.2 },
+  nmos: { rated: 10, burn: 20 },
+  pmos: { rated: 10, burn: 20 },
   seven_segment: { rated: 0.02, burn: 0.04 },
 };
 

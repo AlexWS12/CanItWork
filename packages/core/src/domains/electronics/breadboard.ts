@@ -20,7 +20,7 @@ export type Rail = '+' | '-';
 export type Spot = { kind: 'strip'; col: number; half: Half; row: number } | { kind: 'rail'; col: number; side: 'top' | 'bottom'; rail: Rail };
 
 export const LEADED = (part: Part) =>
-  ['resistor', 'led', 'capacitor', 'button', 'switch', 'buzzer', 'diode', 'pot', 'ldr', 'thermistor'].includes(part.type) ||
+  ['resistor', 'led', 'capacitor', 'button', 'switch', 'buzzer', 'diode', 'pot', 'ldr', 'thermistor', 'npn', 'pnp', 'nmos', 'pmos'].includes(part.type) ||
   (part.type === 'custom' && ['axial', 'radial', 'to92', 'pot'].includes(part.package ?? '') && pinsOf(part).length <= 3);
 export const STRADDLES = (part: Part) =>
   part.type === 'seven_segment' || (part.type === 'custom' && (part.package === 'dip' || part.package === 'module') && pinsOf(part).length >= 4);

@@ -231,6 +231,10 @@ function LeadedBody({ part }: { part: Part }) {
     case 'pot':
     case 'ldr':
     case 'thermistor':
+    case 'npn':
+    case 'pnp':
+    case 'nmos':
+    case 'pmos':
       return <SmallPart part={part} />;
     default:
       return <PackageBody part={part} />;

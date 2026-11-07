@@ -324,6 +324,10 @@ function PartBody({ part }: { part: Part }) {
     case 'pot':
     case 'ldr':
     case 'thermistor':
+    case 'npn':
+    case 'pnp':
+    case 'nmos':
+    case 'pmos':
       return <SmallPart part={part} />;
     case 'seven_segment':
       return <SevenSegment part={part} />;

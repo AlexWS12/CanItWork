@@ -416,6 +416,12 @@ export function SmallPart({ part }: { part: Part }) {
           </mesh>
         </group>
       );
+    case 'npn':
+    case 'pnp':
+      return <To92 />;
+    case 'nmos':
+    case 'pmos':
+      return <To220 />;
     case 'thermistor':
       return (
         <mesh position={[0, 0.4, 0]} castShadow>
