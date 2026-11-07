@@ -48,7 +48,18 @@ describe('demand mode with line delays', () => {
 });
 ```
 
-Likely cause: what's already in transit isn't credited against the target's need on the next tick, so sources dispatch only every other tick (`need` and `targetRoom` in `network/engine.ts`, around the `edge.delay && !demand` branch).
+**Root cause:** in `room()` (`network/engine.ts`), a sink's room is `state.demand - state.queue`. Over a delayed link, this tick's arrivals are already in the sink's queue when the upstream stage decides what to send, so it sends `demand - arriving = 0`. Next tick nothing arrives, so it sends everything. The flow alternates full and empty every tick, which is the 50%. What's sent now lands `delay` ticks later, so it should only be sized against what's already landing on that same future tick (the pipeline's last slot).
+
+**Fix:** [`pr17-demand-delay-fix.patch`](pr17-demand-delay-fix.patch) (a 3-line change plus the repro test). On the scratch merge, all 413 tests pass, including all of #17's own, and the live designs recover:
+
+| design | before | after |
+|---|---|---|
+| power grid | 53.6% | 97.9% |
+| water | 50% | 98.6% |
+| supply chain | 83.5% | 83.5% (12- and 15-tick shipping lead times leave stores empty at the start, which looks like real warm-up) |
+| hospital, airport, factory, call center | about 100% | unchanged |
+
+Apply with `git apply docs/reviews/pr17-demand-delay-fix.patch` on the #17 branch.
 
 ### 2. A demand domain that serves half its demand gets no warning
 
