@@ -8,8 +8,9 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@tv/core": "*",
     "@hono/node-server": "^1.13.0",
+    "@tv/core": "*",
+    "@typesafe-ai/sdk": "^0.7.0",
     "dotenv": "^16.4.0",
     "hono": "^4.6.0",
     "zod": "^3.23.0"

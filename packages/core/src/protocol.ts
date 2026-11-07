@@ -1,11 +1,11 @@
 import type { DomainId, Environment, Evaluation, Incident } from './domain';
 
-export type Engine = 'gemini' | 'swarms' | 'simulator' | 'rules';
+export type Engine = 'gemini' | 'jev' | 'swarms' | 'simulator' | 'rules';
 
 export interface Usage {
   engine: Engine;
   model: string;
-  via: 'prune' | 'direct' | 'swarms';
+  via: 'prune' | 'direct' | 'swarms' | 'typesafe';
   inputTokens: number;
   outputTokens: number;
   costUsd: number | null;
@@ -79,5 +79,6 @@ export interface ProviderStatus {
   gemini: 'prune' | 'direct' | 'off';
   swarms: boolean;
   prune: boolean;
-  checks?: Record<'gemini' | 'swarms' | 'prune', KeyCheck>;
+  typesafe: boolean;
+  checks?: Record<'gemini' | 'swarms' | 'prune' | 'typesafe', KeyCheck>;
 }

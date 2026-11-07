@@ -9,7 +9,7 @@ beforeEach(() => resetChecks());
 describe('key checks', () => {
   it('leaves everything unchecked when no keys are set', async () => {
     const calls = mockFetch(() => json({}));
-    expect((await checkedStatus()).checks).toEqual({ gemini: 'unchecked', swarms: 'unchecked', prune: 'unchecked' });
+    expect((await checkedStatus()).checks).toEqual({ gemini: 'unchecked', swarms: 'unchecked', prune: 'unchecked', typesafe: 'unchecked' });
     expect(calls).toEqual([]);
   });
 
@@ -17,8 +17,9 @@ describe('key checks', () => {
     process.env.PRUNE_API_KEY = 'p';
     process.env.GEMINI_API_KEY = 'g';
     process.env.SWARMS_API_KEY = 's';
+    process.env.TYPESAFE_API_KEY = 't';
     const calls = mockFetch(() => json({ data: [] }));
-    expect((await checkedStatus()).checks).toEqual({ gemini: 'ok', swarms: 'ok', prune: 'ok' });
+    expect((await checkedStatus()).checks).toEqual({ gemini: 'ok', swarms: 'ok', prune: 'ok', typesafe: 'ok' });
     expect(calls.every((url) => url.endsWith('/models'))).toBe(true);
   });
 
@@ -29,6 +30,15 @@ describe('key checks', () => {
     const { checks } = await checkedStatus();
     expect(checks?.prune).toBe('failing');
     expect(checks?.gemini).toBe('ok');
+  });
+
+  it('reports a rejected TypeSafe key as failing', async () => {
+    process.env.TYPESAFE_API_KEY = 't';
+    const calls = mockFetch(() => new Response('bad key', { status: 401 }));
+    const status = await checkedStatus();
+    expect(status.typesafe).toBe(true);
+    expect(status.checks?.typesafe).toBe('failing');
+    expect(calls).toEqual(['https://api.typesafe.ai/v1/models']);
   });
 
   it('reports a rejected Swarms key as failing', async () => {

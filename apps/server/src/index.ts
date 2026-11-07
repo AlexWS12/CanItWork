@@ -7,8 +7,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
 import { build, chat, describeFailure, recover, type Emit } from './agents';
-import { providerStatus } from './llm';
-import { checkedStatus } from './status';
+import { checkedStatus, providerStatus } from './status';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const envFile = path.resolve(here, '../../../.env');

@@ -48,7 +48,7 @@ function routes(): Route[] {
   return out;
 }
 
-export function providerStatus(): ProviderStatus {
+export function geminiStatus(): Omit<ProviderStatus, 'typesafe' | 'checks'> {
   return {
     gemini: routes()[0]?.via ?? 'off',
     swarms: Boolean(env().SWARMS_API_KEY?.trim()),
