@@ -1,7 +1,8 @@
-import { DOMAINS, type CircuitSpec, type DatabaseSpec, type DomainId, type Environment, type SystemSpec, type World } from '@tv/core';
+import { DOMAINS, type CircuitSpec, type DatabaseSpec, type DomainId, type Environment, type NetSpec, type SystemSpec, type World } from '@tv/core';
 import type { ComponentType } from 'react';
 import { Schema, schemaExtent } from './database/Schema';
 import { Bench, benchExtent } from './electronics/Bench';
+import { Network, networkExtent } from './network/Network';
 import { Topology } from './software/Topology';
 import { Warehouse } from './warehouse/Warehouse';
 
@@ -11,6 +12,15 @@ interface View {
 }
 
 const tilted = (span: number): [number, number, number] => [-span * 0.1, span * 0.78, span * 0.78];
+
+/** Every flow-network domain shares one scene, framed to the network's size. */
+const network: View = {
+  Scene: Network,
+  camera(environment) {
+    const { width, depth } = networkExtent(environment.spec as NetSpec);
+    return tilted(Math.max(40, width * 1.05, depth * 1.6));
+  },
+};
 
 export const VIEWS: Record<DomainId, View> = {
   warehouse: {
@@ -43,4 +53,11 @@ export const VIEWS: Record<DomainId, View> = {
       return [0, distance * 0.94, distance * 0.34];
     },
   },
+  power: network,
+  water: network,
+  supply: network,
+  hospital: network,
+  factory: network,
+  airport: network,
+  callcenter: network,
 };
