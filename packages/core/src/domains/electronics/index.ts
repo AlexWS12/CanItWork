@@ -284,33 +284,100 @@ function explore(spec: CircuitSpec) {
 const TEST_TICKS = 24;
 
 // Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
+function netsOf(spec: CircuitSpec) {
+  const parent = new Map<string, string>();
+  const find = (k: string): string => {
+    if (!parent.has(k)) parent.set(k, k);
+    let r = k;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    parent.set(k, r);
+    return r;
+  };
+  for (const w of spec.wires) parent.set(find(w.from), find(w.to));
+  const members = new Map<string, string[]>();
+  for (const part of spec.parts)
+    for (const pin of pinsOf(part)) {
+      const key = `${part.id}.${pin}`;
+      const root = find(key);
+      members.set(root, [...(members.get(root) ?? []), key]);
+    }
+  return { find, members };
+}
+
+// Follows a wrong output back to the chip output driving it, with that output's logic and the level each of its inputs had, so a repair knows where the logic breaks.
+function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
+  const { find, members } = netsOf(spec);
+  const part = spec.parts.find((p) => p.id === outputId);
+  if (!part) return '';
+  const nets = new Set(pinsOf(part).map((pin) => find(`${part.id}.${pin}`)));
+  // Step through series resistors, the usual LED current limiter.
+  for (const net of [...nets]) {
+    for (const key of members.get(net) ?? []) {
+      const [id, pin] = key.split('.');
+      const passive = spec.parts.find((p) => p.id === id && p.type === 'resistor');
+      if (passive && passive.id !== outputId) nets.add(find(`${id}.${pin === 'a' ? 'b' : 'a'}`));
+    }
+  }
+  const sourceOf = (key: string) =>
+    (members.get(find(key)) ?? []).find((k) => {
+      if (k === key) return false;
+      const [id, pin] = k.split('.');
+      const p = spec.parts.find((x) => x.id === id);
+      return p && (p.type === 'switch' || p.type === 'button' || p.custom?.drivers.some((d) => d.pin === pin));
+    });
+  const found: string[] = [];
+  for (const chip of spec.parts) {
+    for (const driver of chip.custom?.drivers ?? []) {
+      if (!nets.has(find(`${chip.id}.${driver.pin}`))) continue;
+      let inputs = '';
+      try {
+        const names = [...namesIn(compile(driver.when))].filter((n) => pinsOf(chip).includes(n));
+        inputs = names
+          .map((n) => {
+            const level = run.voltsBetween(`${chip.id}.${n}`, `${chip.id}.${driver.ref}`) >= driver.aboveVolts ? 1 : 0;
+            const from = sourceOf(`${chip.id}.${n}`);
+            return `${n}=${level}${from ? ` from ${from}` : ' (unconnected)'}`;
+          })
+          .join(', ');
+      } catch {
+        inputs = '';
+      }
+      found.push(`${outputId} is driven by ${chip.id}.${driver.pin} = "${driver.when}"${inputs ? ` with ${inputs}` : ''}`);
+    }
+  }
+  return found.length ? found.join('; ') : `nothing drives ${outputId}`;
+}
+
+// Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
 export function runTests(spec: CircuitSpec) {
   const failures: string[] = [];
+  const traces: string[] = [];
   let passed = 0;
   for (const [i, test] of (spec.tests ?? []).entries()) {
     const run = new CircuitRun(spec, 1, true);
     for (const [target, value] of Object.entries(test.set)) run.inject({ type: 'set_reading', target, value });
     for (let t = 0; t < TEST_TICKS; t++) run.step();
-    const wrong = [
-      ...test.on.flatMap((id) => {
+    const bad: Array<[string, string]> = [
+      ...test.on.flatMap((id): Array<[string, string]> => {
         const part = spec.parts.find((p) => p.id === id);
-        return part && !run.isRunning(part) ? [`${id} should be on but is off`] : [];
+        return part && !run.isRunning(part) ? [[id, `${id} should be on but is off`]] : [];
       }),
-      ...test.off.flatMap((id) => {
+      ...test.off.flatMap((id): Array<[string, string]> => {
         const part = spec.parts.find((p) => p.id === id);
-        return part && run.isRunning(part) ? [`${id} should be off but is on`] : [];
+        return part && run.isRunning(part) ? [[id, `${id} should be off but is on`]] : [];
       }),
     ];
-    if (!wrong.length) {
+    if (!bad.length) {
       passed++;
       continue;
     }
     const inputs = Object.entries(test.set)
       .map(([id, v]) => `${id}=${v}`)
       .join(', ');
-    failures.push(`Test ${test.name ? `"${test.name}"` : i + 1} (${inputs || 'no inputs'}): ${wrong.join(', ')}`);
+    failures.push(`Test ${test.name ? `"${test.name}"` : i + 1} (${inputs || 'no inputs'}): ${bad.map(([, m]) => m).join(', ')}`);
+    if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0])}`);
   }
-  return { passed, total: spec.tests?.length ?? 0, failures };
+  return { passed, total: spec.tests?.length ?? 0, failures, traces };
 }
 
 function checkTests(spec: CircuitSpec): Issue[] {
@@ -333,12 +400,20 @@ function checkTests(spec: CircuitSpec): Issue[] {
     for (const id of [...test.on, ...test.off]) if (!ids.has(id)) issues.push({ severity: 'error', message: `A test checks ${id}, which isn't a part` });
   }
   if (issues.length) return issues;
-  const { failures, total } = runTests(spec);
+  const wanted = 2 ** inputs.length;
+  if (!spec.program?.length && inputs.length && inputs.length <= 4 && (spec.tests?.length ?? 0) < wanted) {
+    issues.push({
+      severity: 'warning',
+      message: `There are ${inputs.length} inputs (${inputs.map((p) => p.id).join(', ')}) but only ${spec.tests?.length ?? 0} behaviour tests; list all ${wanted} combinations so every case is checked`,
+      repair: true,
+    });
+  }
+  const { failures, total, traces } = runTests(spec);
   // Report a few in full, so a repair has concrete rows to fix without drowning in them.
   if (failures.length)
     issues.push({
       severity: 'warning',
-      message: `${failures.length} of ${total} behaviour tests fail. ${failures.slice(0, 5).join('; ')}${failures.length > 5 ? `; and ${failures.length - 5} more` : ''}. Trace the logic from each input to each output and fix the wiring or the chip logic`,
+      message: `${failures.length} of ${total} behaviour tests fail. ${failures.slice(0, 5).join('; ')}${failures.length > 5 ? `; and ${failures.length - 5} more` : ''}. ${traces.join('. ')}. Fix the wiring or the chip logic so every row passes`,
       repair: true,
     });
   return issues;
@@ -670,7 +745,7 @@ motor_driver is only an L298N-style dual H-bridge; any other driver chip (A4988,
 custom: any other component or board. Never leave out a component the user named: if it isn't a type above, define it with type "custom" and a "custom" object, using realistic datasheet values:
 {"label": name, "pins": [names], "paths": [{"a": pin, "b": pin, "ohms": number}], "switches": [{"a": pin, "b": pin, "ohms": number, "when": control pin, "ref": its reference pin, "aboveVolts": number}], "drivers": [{"pin": output pin, "high": pin, "low": pin, "when": control pin, "ref": its reference pin, "aboveVolts": number, "ohms": number, "invert": boolean}], "sources": [{"pos": pin, "neg": pin, "volts": number, "ohms": number, "from"?: input pin, "dropout"?: volts}], "gpio": [pins the program can drive], "gpioVolts": number, "supply": {"pos": pin, "neg": pin, "minVolts": number, "maxVolts": number}, "maxAmps": number, "output": true if it does something observable, "sensor"?: Sensor, "actuator"?: Actuator, "visual": [{"shape": "box"|"cylinder"|"sphere", "size": [x,y,z], "at": [x,y,z], "color": "#rrggbb", "moves": true for a moving part}]}
 "paths" are its resistive paths: model what it draws as a path between its power pins (a part drawing 100 mA at 5 V is 50 ohms), and a pass-through such as a driver's power rail as a very low value. "switches" are paths that only conduct when a control pin is high, for relay contacts and transistors. A relay is {"a":"COM","b":"NO","ohms":0.05,"when":"IN","ref":"GND","aboveVolts":2}. "drivers" are outputs that swing between two rails from a control pin, for motor drivers, H-bridges and stepper drivers. A coil or motor needs its two ends on opposite rails, so give each pair one normal and one inverted output: {"pin":"1A","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1} and {"pin":"1B","high":"VMOT","low":"GND","when":"STEP","ref":"GND","aboveVolts":2,"ohms":1,"invert":true}. "maxAmps" is the part's highest rated current, including what its outputs carry. "sources" are voltages it produces, such as a board's 3.3 V rail; a regulator takes "from" its input pin and "dropout", so it fails when its input sags. For any board other than an Arduino Uno or Nano (Seeed XIAO, Raspberry Pi Pico, ESP32, STM32 and so on) use custom with "package": "module", the board's exact name as "label", its real pin names, "sources" for its rails (a 3V3 regulator "from" its 5V or VIN pin), "gpio" for its I/O pins and "gpioVolts": 3.3; the sketch drives those pins as "PartId.pin" exactly like an Arduino's.
-Logic: the "when" of a switch or driver can also be a logic expression over the part's own pins, where each pin name is 1 when it is at least "aboveVolts" over "ref", "v.PIN" is that pin's voltage over "ref", and != is XOR. Name chip pins so they work in expressions (letters first, such as A1, B1, Y1). A 74HC08 quad AND gate is {"label":"74HC08 quad AND","pins":["VCC","GND","A1","B1","Y1","A2","B2","Y2"],"paths":[{"a":"VCC","b":"GND","ohms":5000}],"drivers":[{"pin":"Y1","high":"VCC","low":"GND","when":"A1 && B1","ref":"GND","aboveVolts":2.5,"ohms":50},{"pin":"Y2","high":"VCC","low":"GND","when":"A2 && B2","ref":"GND","aboveVolts":2.5,"ohms":50}],"supply":{"pos":"VCC","neg":"GND","minVolts":2,"maxVolts":6}}; a 74HC86 XOR output is "when":"A1 != B1", a 74HC32 OR is "A1 || B1", a NOT is "!A1". Only list the gates you wire. Wire chips to each other directly, output pin to input pin, and power every chip's VCC and GND.
+Logic: the "when" of a switch or driver can also be a logic expression over the part's own pins, where each pin name is 1 when it is at least "aboveVolts" over "ref", "v.PIN" is that pin's voltage over "ref", and != is XOR. Name chip pins so they work in expressions (letters first, such as A1, B1, Y1). A 74HC08 quad AND gate is {"label":"74HC08 quad AND","pins":["VCC","GND","A1","B1","Y1","A2","B2","Y2"],"paths":[{"a":"VCC","b":"GND","ohms":5000}],"drivers":[{"pin":"Y1","high":"VCC","low":"GND","when":"A1 && B1","ref":"GND","aboveVolts":2.5,"ohms":50},{"pin":"Y2","high":"VCC","low":"GND","when":"A2 && B2","ref":"GND","aboveVolts":2.5,"ohms":50}],"supply":{"pos":"VCC","neg":"GND","minVolts":2,"maxVolts":6}}; a 74HC86 XOR output is "when":"A1 != B1", a 74HC32 OR is "A1 || B1", a NOT is "!A1". Only list the gates you wire. Wire chips to each other directly, output pin to input pin, and power every chip's VCC and GND. Arithmetic from gates: a half adder is S = A XOR B and C = A AND B; a full adder is S = (A XOR B) XOR Cin and Cout = (A AND B) OR (Cin AND (A XOR B)); a 2-bit adder is a half adder on bit 0 whose carry feeds a full adder on bit 1, giving S0, S1 and the carry as the 4s bit. Before writing wires, write down which gate output each signal comes from.
 Chips with memory (flip-flops, counters, shift registers, 555 timers) add "state": {"ref": pin, "aboveVolts": number, "vars": {"name": start}, "rules": [{"edge"?: pin that must have just risen, "when"?: expression, "set": var, "to": expression}]}, and their outputs' "when" read those vars. A 4-bit counter is "state":{"ref":"GND","aboveVolts":2.5,"vars":{"n":0},"rules":[{"edge":"CLK","set":"n","to":"(n + 1) % 16"}]} with outputs "when":"n % 2 >= 1", "n % 4 >= 2", "n % 8 >= 4", "n % 16 >= 8". A 555 timer has pins GND, TRIG, OUT, RST, CV, THR, DIS, VCC, a path VCC to GND of 1500 ohms, "state":{"ref":"GND","aboveVolts":2,"vars":{"q":1},"rules":[{"when":"v.TRIG < v.VCC / 3","set":"q","to":1},{"when":"v.THR > v.VCC * 2 / 3","set":"q","to":0}]}, a driver OUT "when":"q" between VCC and GND, and a switch DIS to GND "when":"!q"; in astable mode RA runs from VCC to DIS, RB from DIS to THR, THR joins TRIG and the capacitor to ground, RST to VCC, and it blinks at 1.44 / ((RA + 2 RB) C) Hz, so choose a rate a person can see (about 1 Hz: RA 1k, RB 4.7k, C 100 uF).
 A transistor is custom "to92": an NPN such as a 2N2222 is {"pins":["C","B","E"],"paths":[{"a":"B","b":"E","ohms":1000}],"switches":[{"a":"C","b":"E","ohms":0.3,"when":"B","ref":"E","aboveVolts":0.65}],"maxAmps":0.6}, with a base resistor (1k to 10k) from whatever drives it, and a flyback diode across any motor or relay it switches.
 "tests" are checked in simulation, so add them for anything with defined behaviour (logic, calculators, counters' first states, switches or buttons controlling outputs): [{"name": short label, "set": {"input part id": 1 or 0, or a sensor id: reading}, "on": [output ids that must be on], "off": [output ids that must be off]}], with every input not listed left at its default. A 2-bit adder needs all 16 input combinations, each listing every sum LED as on or off; an AND gate needs all 4. Work out each expected row from what the circuit is for, not from your wiring, then make the wiring pass them.
