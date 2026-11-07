@@ -53,10 +53,7 @@ export class SchemaRun implements Run {
     const tables = [query.table, ...query.joins.map((j) => j.table)];
     const locked = tables.find((t) => this.locked.has(t));
     if (locked) return `${locked} is locked`;
-    const columns = [
-      ...query.where.map((c) => `${query.table}.${c}`),
-      ...query.joins.flatMap((j) => [`${query.table}.${j.local}`, `${j.table}.${j.foreign}`]),
-    ];
+    const columns = [...query.where.map((c) => `${query.table}.${c}`), ...query.joins.flatMap((j) => [`${query.table}.${j.local}`, `${j.table}.${j.foreign}`])];
     const missing = columns.find((c) => this.droppedColumns.has(c));
     if (missing) return `${missing} was dropped`;
     if (!this.table(query.table)) return `${query.table} doesn't exist`;

@@ -32,7 +32,8 @@ function checkProgram(spec: CircuitSpec): Issue[] {
   }
   for (const action of actionsOf(spec)) {
     if ('show' in action) {
-      if (!spec.parts.some((p) => p.id === action.show && p.custom?.actuator?.quantity === 'text')) issues.push({ severity: 'error', message: `The program shows text on ${action.show}, which isn't a display` });
+      if (!spec.parts.some((p) => p.id === action.show && p.custom?.actuator?.quantity === 'text'))
+        issues.push({ severity: 'error', message: `The program shows text on ${action.show}, which isn't a display` });
     } else if (!drivable(spec, action.pin)) {
       issues.push({ severity: 'error', message: `The program drives ${action.pin}, which isn't a pin a board can drive` });
     }
@@ -130,7 +131,9 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
       issues.push({ severity: 'warning', message: overload, target: part.id, repair: true });
     } else if (isOutput(part) && !burned.has(part.id) && !ran.has(part.id)) {
       const display = part.custom?.actuator?.quantity === 'text' && !shown.has(part.id);
-      const message = display ? `${part.id} is a display, but no program rule shows anything on it` : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}`;
+      const message = display
+        ? `${part.id} is a display, but no program rule shows anything on it`
+        : `${part.id} never turns on with this wiring${sensed ? ' at any sensor reading' : ''}`;
       issues.push({ severity: 'warning', message, target: part.id, repair: true });
     }
     if (TWO_PINS.has(part.type)) {
@@ -223,7 +226,10 @@ function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
   const sensor = spec.parts.find((p) => p.custom?.sensor && (spec.program ?? []).some((r) => r.if?.read === p.id));
   if (sensor?.custom?.sensor) {
-    out.push({ claim: `If ${sensor.id} fails and reads ${sensor.custom.sensor.min}, the program acts on a false reading.`, incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min } });
+    out.push({
+      claim: `If ${sensor.id} fails and reads ${sensor.custom.sensor.min}, the program acts on a false reading.`,
+      incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min },
+    });
   }
   for (const part of spec.parts.filter(isOutput).slice(0, 2)) {
     const wire = wireTouching(spec, part.id);
@@ -232,7 +238,11 @@ function hypotheses(spec: CircuitSpec): Hypothesis[] {
   const resistor = spec.parts.find((p) => p.type === 'resistor');
   if (resistor) out.push({ claim: `If ${resistor.id} shorts, nothing limits the current through its LED and pin.`, incident: { type: 'short_part', target: resistor.id } });
   const battery = spec.parts.find((p) => p.type === 'battery');
-  if (battery) out.push({ claim: `A sagging ${battery.id} drops everything it powers below working voltage.`, incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 3 } });
+  if (battery)
+    out.push({
+      claim: `A sagging ${battery.id} drops everything it powers below working voltage.`,
+      incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 3 },
+    });
   return out.slice(0, 3);
 }
 
@@ -241,13 +251,28 @@ function recoveries(spec: CircuitSpec, incident: Incident | undefined): Recovery
   const replace = { author: 'Bench rules', title: `Replace ${target}`, rationale: 'Swap in a working part.', patches: [{ op: 'replace_part', part: target }] };
   const wire = wireTouching(spec, target);
   const limited = wire
-    ? { author: 'Bench rules', title: `Replace ${target} and add 220 Ω`, rationale: 'A new part plus a series resistor keeps the current inside its rating.', patches: [{ op: 'replace_part', part: target }, { op: 'insert_resistor', wire, ohms: 220 }] }
+    ? {
+        author: 'Bench rules',
+        title: `Replace ${target} and add 220 Ω`,
+        rationale: 'A new part plus a series resistor keeps the current inside its rating.',
+        patches: [
+          { op: 'replace_part', part: target },
+          { op: 'insert_resistor', wire, ohms: 220 },
+        ],
+      }
     : null;
   switch (incident?.type) {
     case 'loose_wire':
       return [{ author: 'Bench rules', title: `Reseat ${target}`, rationale: 'Reconnect the loose wire.', patches: [{ op: 'secure_wire', wire: target }] }];
     case 'low_supply':
-      return [{ author: 'Bench rules', title: 'Fit a fresh battery', rationale: 'Restore the rated supply voltage.', patches: [{ op: 'set_volts', part: target, volts: spec.parts.find((p) => p.id === target)?.volts ?? 9 }] }];
+      return [
+        {
+          author: 'Bench rules',
+          title: 'Fit a fresh battery',
+          rationale: 'Restore the rated supply voltage.',
+          patches: [{ op: 'set_volts', part: target, volts: spec.parts.find((p) => p.id === target)?.volts ?? 9 }],
+        },
+      ];
     case 'sensor_fault':
       return [replace];
     case 'burn_part':
@@ -264,7 +289,11 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   blurb: 'Arduino projects and circuits, with real voltages, currents and sketch logic over time',
   capabilities:
     'Electronics projects of any kind. Built-in parts cover Arduino-style boards, resistors, capacitors, LEDs, buttons, buzzers, DC motors, H-bridge drivers, ultrasonic sensors and batteries, and any other component or board (servos, ESP32s, relays, displays, sensors, regulators, drivers) is defined from its pins, electrical paths, ratings, sensor reading or actuator output. Simulates over time: voltages and currents, PWM, capacitor charging, motor spin-up and back-EMF, board power and brownout, sensor readings, servo angles, display text and the sketch as rules that react to readings. Checks ratings and burns out overloaded parts.',
-  limits: ['Time runs in 1/12 s steps, so radio, audio and fast signal waveforms are averaged', 'Sketches are rules over readings and pin states, not compiled code', 'Mechanical load, heat and physical motion beyond rotation are not simulated'],
+  limits: [
+    'Time runs in 1/12 s steps, so radio, audio and fast signal waveforms are averaged',
+    'Sketches are rules over readings and pin states, not compiled code',
+    'Mechanical load, heat and physical motion beyond rotation are not simulated',
+  ],
   examples: ['An Arduino with a motor driver, two motors and an ultrasonic sensor', 'A blinking LED wired to an Arduino with no resistor'],
   suggestions: ['What happens if the battery runs low?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
   keywords: /arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
@@ -280,7 +309,10 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   "program": [{"if"?: {"read": sensor id or "PartId.pin", "op": "<"|">"|"<="|">="|"=="|"!=", "value": number}, "then": [Action], "else"?: [Action]}]
 }
 Types and their pins:
-${Object.entries(PINS).filter(([type]) => type !== 'custom').map(([type, pins]) => `${type}: ${pins.join(', ')}`).join('\n')}
+${Object.entries(PINS)
+  .filter(([type]) => type !== 'custom')
+  .map(([type, pins]) => `${type}: ${pins.join(', ')}`)
+  .join('\n')}
 Give every motor, pump or fan its rated "volts", winding "ohms" and rated "maxAmps": a 12 V pump drawing 1 A is volts 12, ohms 12, maxAmps 1.5; a small hobby motor is volts 6, ohms 6, maxAmps 1.2. Motors spin up over time and draw less once turning. Give every battery the "maxAmps" it can really supply: a 9 V PP3 is about 0.5, AA packs about 2, LiPo packs and 12 V adapters 3 to 10. Size it for everything it powers at once. A capacitor needs "farads" (100 uF is 0.0001) and charges and discharges over time.
 An arduino runs from USB unless its VIN is wired; through VIN it needs about 6 V or more or it browns out and resets. Set "usb": true on a board that is plugged into USB as well. A battery powers a board through VIN, never its 5V or 3V3 pins.
 motor_driver is only an L298N-style dual H-bridge; any other driver chip (A4988, DRV8825, TB6612, ULN2003) is custom.

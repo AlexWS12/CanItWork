@@ -8,8 +8,7 @@ export function createRng(seed: number) {
   };
   return {
     next,
-    int: (minInclusive: number, maxInclusive: number) =>
-      minInclusive + Math.floor(next() * (maxInclusive - minInclusive + 1)),
+    int: (minInclusive: number, maxInclusive: number) => minInclusive + Math.floor(next() * (maxInclusive - minInclusive + 1)),
     pick: <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)],
   };
 }

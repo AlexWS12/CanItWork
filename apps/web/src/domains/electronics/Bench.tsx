@@ -436,7 +436,17 @@ export function Bench() {
         <planeGeometry args={[width + 4, depth + 4]} />
         <meshStandardMaterial color="#1b2636" roughness={0.75} metalness={0.15} />
       </mesh>
-      <Grid position={[centerX, 0, centerZ]} args={[width + 4, depth + 4]} cellSize={0.5} cellThickness={0.4} cellColor="#2a3a52" sectionSize={2.5} sectionThickness={0.8} sectionColor="#3a4e70" fadeDistance={90} />
+      <Grid
+        position={[centerX, 0, centerZ]}
+        args={[width + 4, depth + 4]}
+        cellSize={0.5}
+        cellThickness={0.4}
+        cellColor="#2a3a52"
+        sectionSize={2.5}
+        sectionThickness={0.8}
+        sectionColor="#3a4e70"
+        fadeDistance={90}
+      />
       {spec.parts.map((part) => {
         const at = positions.get(part.id) ?? [0, 0];
         return (

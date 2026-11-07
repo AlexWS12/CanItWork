@@ -1,6 +1,21 @@
 import { z } from 'zod';
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
-import { FORWARD_VOLTS, GPIO, LIMITS, PIN_LIMIT, RAIL_LIMIT, RESISTOR_WATTS, RuleSchema, isOutput, pinsOf, withUnit, type Action, type CircuitSpec, type CustomPart, type Part } from './parts';
+import {
+  FORWARD_VOLTS,
+  GPIO,
+  LIMITS,
+  PIN_LIMIT,
+  RAIL_LIMIT,
+  RESISTOR_WATTS,
+  RuleSchema,
+  isOutput,
+  pinsOf,
+  withUnit,
+  type Action,
+  type CircuitSpec,
+  type CustomPart,
+  type Part,
+} from './parts';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
 
@@ -462,7 +477,10 @@ export class CircuitRun implements Run {
       let elements: Element[] = [];
       for (let iteration = 0; iteration < 14; iteration++) {
         elements = this.elements(on, logic, h, segment.low);
-        v = nodal(size, elements.map((el) => ({ a: node(el.a), b: node(el.b), g: el.g, e: el.e })));
+        v = nodal(
+          size,
+          elements.map((el) => ({ a: node(el.a), b: node(el.b), g: el.g, e: el.e })),
+        );
         const at = (key: string) => v[node(key)] ?? 0;
         let changed = false;
         const update = (key: string, value: boolean) => {
@@ -480,7 +498,8 @@ export class CircuitRun implements Run {
               else on.delete(part.id);
             }
           }
-          const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) => update(key, at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts);
+          const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) =>
+            update(key, at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts);
           part.custom?.switches.forEach((sw, i) => control(`${part.id}.switch${i}`, sw));
           part.custom?.drivers.forEach((driver, i) => control(`${part.id}.driver${i}`, driver));
           if (part.type === 'motor_driver') {
@@ -851,7 +870,12 @@ export class CircuitRun implements Run {
     const worst = this.worstLoad();
     let supply = 0;
     for (const part of this.spec.parts) {
-      const keys = part.type === 'battery' || part.custom?.sources.some((source) => !source.from) ? [part.id] : part.type === 'arduino' && this.usbPowered(part) ? [`${part.id}.5V`, `${part.id}.3V3`] : [];
+      const keys =
+        part.type === 'battery' || part.custom?.sources.some((source) => !source.from)
+          ? [part.id]
+          : part.type === 'arduino' && this.usbPowered(part)
+            ? [`${part.id}.5V`, `${part.id}.3V3`]
+            : [];
       for (const key of keys) supply += this.readings.get(key)?.amps ?? 0;
     }
     const metrics: Metric[] = [
@@ -868,16 +892,26 @@ export class CircuitRun implements Run {
   breakables(): Breakable[] {
     const out: Breakable[] = [];
     const output = this.outputParts().find((p) => !this.burned.has(p.id));
-    if (output) out.push({ label: `Burn ${output.custom?.label ?? output.id}`, incident: { type: 'burn_part', target: output.id }, keywords: [output.id.toLowerCase(), output.type, (output.custom?.label ?? '').toLowerCase(), 'burn', 'fail'].filter(Boolean) });
+    if (output)
+      out.push({
+        label: `Burn ${output.custom?.label ?? output.id}`,
+        incident: { type: 'burn_part', target: output.id },
+        keywords: [output.id.toLowerCase(), output.type, (output.custom?.label ?? '').toLowerCase(), 'burn', 'fail'].filter(Boolean),
+      });
     const sensor = this.spec.parts.find((p) => p.custom?.sensor && !this.faults.has(p.id));
     if (sensor?.custom?.sensor) {
       const label = sensor.custom.label;
-      out.push({ label: `Fault ${label}`, incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min }, keywords: [sensor.id.toLowerCase(), label.toLowerCase(), 'sensor', 'reading', 'fault'] });
+      out.push({
+        label: `Fault ${label}`,
+        incident: { type: 'sensor_fault', target: sensor.id, value: sensor.custom.sensor.min },
+        keywords: [sensor.id.toLowerCase(), label.toLowerCase(), 'sensor', 'reading', 'fault'],
+      });
     }
     const wire = this.spec.wires.findIndex((_, i) => !this.loose.has(i));
     if (wire >= 0) out.push({ label: `Loose ${wireId(wire)}`, incident: { type: 'loose_wire', target: wireId(wire) }, keywords: ['wire', 'loose', 'disconnect'] });
     const battery = this.spec.parts.find((p) => p.type === 'battery');
-    if (battery) out.push({ label: 'Low battery', incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 2 }, keywords: ['battery', 'supply', 'power'] });
+    if (battery)
+      out.push({ label: 'Low battery', incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 2 }, keywords: ['battery', 'supply', 'power'] });
     else {
       const resistor = this.spec.parts.find((p) => p.type === 'resistor' && !this.shorted.has(p.id));
       if (resistor) out.push({ label: `Short ${resistor.id}`, incident: { type: 'short_part', target: resistor.id }, keywords: [resistor.id.toLowerCase(), 'resistor', 'short'] });
@@ -909,7 +943,15 @@ export class CircuitRun implements Run {
     if (!part) return null;
     const reading = this.readings.get(target);
     const broken = this.burned.has(target) || this.shorted.has(target) || this.faults.has(target);
-    const status = this.burned.has(target) ? 'Burned out' : this.shorted.has(target) ? 'Shorted' : this.faults.has(target) ? 'Faulty reading' : (reading?.load ?? 0) > 1 ? 'Over its rating' : 'OK';
+    const status = this.burned.has(target)
+      ? 'Burned out'
+      : this.shorted.has(target)
+        ? 'Shorted'
+        : this.faults.has(target)
+          ? 'Faulty reading'
+          : (reading?.load ?? 0) > 1
+            ? 'Over its rating'
+            : 'OK';
     const rows: Array<[string, string | number]> = [
       ['Type', part.custom?.label ?? part.type.replace('_', ' ')],
       ['Status', status],

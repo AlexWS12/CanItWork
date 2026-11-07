@@ -33,7 +33,11 @@ function Refusal() {
     <div className="refusal">
       <b>Nothing was built</b>
       <p>{refusal.reason}</p>
-      {closest && <p>The closest fit is {closest.label.toLowerCase()}: {closest.blurb.toLowerCase()}.</p>}
+      {closest && (
+        <p>
+          The closest fit is {closest.label.toLowerCase()}: {closest.blurb.toLowerCase()}.
+        </p>
+      )}
       <ul>
         {domainList().map((d) => (
           <li key={d.id}>
@@ -171,7 +175,11 @@ function UsageRow({ usage }: { usage: Usage }) {
       </button>
       {open && (
         <pre className="receipt">
-          {JSON.stringify({ model: usage.model, via: usage.via, routedModel: usage.routedModel, cacheHit: usage.cacheHit, saved: usage.costSavedUsd, receipt: usage.receipt }, null, 2)}
+          {JSON.stringify(
+            { model: usage.model, via: usage.via, routedModel: usage.routedModel, cacheHit: usage.cacheHit, saved: usage.costSavedUsd, receipt: usage.receipt },
+            null,
+            2,
+          )}
         </pre>
       )}
     </>

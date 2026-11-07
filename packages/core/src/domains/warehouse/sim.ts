@@ -10,16 +10,7 @@ const STALL_LIMIT = 10;
 const RETRY_TICKS = 4;
 const LOW_BATTERY = 0.08;
 
-export type RobotMode =
-  | 'idle'
-  | 'to_shelf'
-  | 'picking'
-  | 'to_drop'
-  | 'dropping'
-  | 'to_charger'
-  | 'charging'
-  | 'to_home'
-  | 'failed';
+export type RobotMode = 'idle' | 'to_shelf' | 'picking' | 'to_drop' | 'dropping' | 'to_charger' | 'charging' | 'to_home' | 'failed';
 
 export type OrderState = 'queued' | 'assigned' | 'carried' | 'belt' | 'sorting' | 'chute' | 'done' | 'stranded';
 
@@ -348,7 +339,7 @@ export class Sim {
   private dispatch() {
     const free = this.robots.filter((r) => this.canTakeOrder(r));
     if (!free.length) return;
-    for (let i = 0; i < this.queue.length && free.length; ) {
+    for (let i = 0; i < this.queue.length && free.length;) {
       const order = this.queue[i];
       const access = order.shelf.access;
       if (this.heldByFailed(this.grid.idx(access.x, access.y))) {
@@ -564,7 +555,7 @@ export class Sim {
       return r.path.length ? r.path[this.tick - r.pathStart] : grid.idx(r.x, r.y);
     });
     const here = robots.map((r) => this.cell(r));
-    for (let changed = true; changed; ) {
+    for (let changed = true; changed;) {
       changed = false;
       for (let i = 0; i < robots.length; i++) {
         if (intent[i] === here[i]) continue;
@@ -654,11 +645,7 @@ export class Sim {
       if (r.battery <= 0) {
         r.battery = 0;
         this.fail(r, 'battery');
-      } else if (
-        r.battery / capacity < this.policy.chargeThreshold &&
-        r.mode === 'idle' &&
-        !this.chargers.some((c) => !c.offline && !c.claimedBy)
-      ) {
+      } else if (r.battery / capacity < this.policy.chargeThreshold && r.mode === 'idle' && !this.chargers.some((c) => !c.offline && !c.claimedBy)) {
         this.chargeWaitTicks++;
       }
     }
