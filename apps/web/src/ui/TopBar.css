@@ -16,8 +16,9 @@
 }
 
 .wordmark {
-  letter-spacing: 0.22em;
+  letter-spacing: 0.03em;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .status .wordmark {

@@ -30,11 +30,12 @@
 }
 
 .landing h1 {
-  font-size: var(--text-display);
+  /* Scales down on narrow screens so the name stays on one line */
+  font-size: min(var(--text-display), 13vw);
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
   line-height: 0.9;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   min-width: 0;
 }
 
