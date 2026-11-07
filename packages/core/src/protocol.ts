@@ -73,8 +73,11 @@ export type StreamEvent =
   | { type: 'error'; message: string }
   | { type: 'done' };
 
+export type KeyCheck = 'ok' | 'failing' | 'unchecked';
+
 export interface ProviderStatus {
   gemini: 'prune' | 'direct' | 'off';
   swarms: boolean;
   prune: boolean;
+  checks?: Record<'gemini' | 'swarms' | 'prune', KeyCheck>;
 }
