@@ -804,7 +804,7 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
     'An Arduino with a motor driver, two motors and an ultrasonic sensor',
     'A blinking LED wired to an Arduino with no resistor',
   ],
-  suggestions: ['What happens if the battery runs low?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
+  suggestions: ['What happens if the power supply sags?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
   keywords:
     /planter|soil|greenhouse|irrigat|thermostat|relay|pump|arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
   ticksPerSecond: 12,

@@ -183,7 +183,7 @@ export const database: Domain<DatabaseSpec, DatabaseSpec> = {
     'Relational schemas: tables, columns, primary and foreign keys, indexes, row counts and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load and how they change with data growth.',
   limits: ['Costs are estimates from a simple scan and seek model, not a real query planner', 'No transactions, isolation or replication lag', 'Relational schemas only'],
   examples: ['A university database with students, courses, instructors and enrollments'],
-  suggestions: ['What happens if the enrollments table grows ten times?', 'What happens if a migration locks the busiest table?', 'Which queries need an index?'],
+  suggestions: ['What happens if the biggest table grows ten times?', 'What happens if a migration locks the busiest table?', 'Which queries need an index?'],
   keywords: /database|schema|\bsql\b|postgres|mysql|\btables?\b|foreign key|normali[sz]/i,
   ticksPerSecond: 8,
   horizon: 300,
