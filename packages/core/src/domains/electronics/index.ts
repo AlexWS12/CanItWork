@@ -743,7 +743,7 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   "layout"?: "breadboard" | "bench"
 }
 Build what the user asked for, the way a person would really build it. Only use a microcontroller when the user names one or the behaviour needs code; a lamp, a logic circuit, a 555 blinker, a transistor switch or a calculator made of gates is built from batteries, switches, chips and discrete parts, with no board, no "drive" and no "program". Use type "arduino" only for an Arduino Uno or Nano.
-Set "layout": "breadboard" when the user mentions a breadboard, and for small hobby circuits of discrete parts and chips; use "bench" for projects of modules, motors and boards.
+Set "layout": "breadboard" when the user mentions a breadboard, or when the circuit is low-voltage signal work only: LEDs, logic chips, 555 timers, small transistors, switches and resistors. Use "bench" for anything that drives a real load (heaters, lamps and bulbs, motors, pumps, fans, relays switching power) or is built around a board and modules. The layout only changes how it is drawn, never what is simulated.
 Give every part a "package" for how it looks: "dip" for chips in a DIP package, "module" for boards and breakout modules, "to92" for small transistors and regulators, "to220" for power transistors and regulators, "axial" for diodes, "radial" for electrolytic capacitors, "bulb" for lamps, "display" for LCDs, OLEDs and 7-segment displays, "pot" for potentiometers, "relay", "motor" for motors, pumps, fans and servos, "speaker" for buzzers and speakers, "sensor" for sensors.
 Types and their pins:
 ${Object.entries(PINS)
