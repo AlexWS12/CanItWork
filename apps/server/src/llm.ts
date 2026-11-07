@@ -250,9 +250,10 @@ async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z
       return opts.schema.parse(extractJson(repair.text));
     } catch (error) {
       if (error instanceof ShieldBlock) throw error;
-      if (route.via === 'prune' && /HTTP 429/.test(String(error)) && /provider_upstream|exceeded your current quota/.test(String(error))) {
+      // Prune's own upstream key out of quota (429) or rejected (401/403): it will fail every call the same way for a while.
+      if (route.via === 'prune' && /HTTP (429|401|403)/.test(String(error)) && /provider_upstream|exceeded your current quota|rejected the API key/.test(String(error))) {
         pruneRestUntil = Date.now() + PRUNE_REST_MS;
-        console.warn("[llm] Prune's upstream Gemini quota is exhausted; going direct for 10 minutes");
+        console.warn("[llm] Prune's upstream Gemini key is out of quota or rejected; going direct for 10 minutes");
       } else console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
       lastError = error;
     }
