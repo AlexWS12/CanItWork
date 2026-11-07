@@ -226,7 +226,7 @@ function geminiInterpret(prompt: string, emit: Emit, step: Step, refuse: (reason
       onUsage: onUsage(emit),
       system: `You route requests for a platform that turns descriptions of systems into working simulations. It has these domains:
 ${describeCapabilities()}
-Pick the domain whose simulator can genuinely model what the user wants to explore. If the heart of the request fits a domain but parts of it don't, still pick that domain, because the next step records what was left out. Never force a request into a domain just because a word overlaps: when the thing the user wants to explore can't be modelled at all, use domain null rather than a misleading model.
+Pick the domain whose simulator can genuinely model what the user wants to explore. If the heart of the request fits a domain but parts of it don't, still pick that domain, because the next step records what was left out. People often describe a product by what it does rather than how it is built: an app, website, API or platform is a request to model its software architecture, a gadget or device is a request to model its circuit, and data to store is a request to model its schema, so route those to that domain. Never force a request into a domain just because a word overlaps: when the thing the user wants to explore can't be modelled at all, use domain null rather than a misleading model.
 Reply with JSON only: {"domain": one of ${DOMAIN_IDS.join(', ')} or null, "reason": "one sentence", "closest": a domain id or null}.
 When domain is null, "reason" says plainly what is missing and "closest" names the nearest domain, if any is useful.`,
       user: prompt,
