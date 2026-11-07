@@ -237,3 +237,28 @@ describe('behaviour tests', () => {
     expect(parsed.parts[0].custom?.pins).toEqual(['C', 'B', 'E']);
   });
 });
+
+describe('Red Team rules on logic circuits', () => {
+  it('attack from the test case that lights the most outputs, so the damage shows', () => {
+    const spec = board([chip('U1', '74HC08 AND', { Y1: 'A1 && B1' }, ['A1', 'B1'])], { S1: 'U1.A1', S2: 'U1.B1' }, { L1: 'U1.Y1' });
+    spec.tests = [
+      { name: 'both off', set: { S1: 0, S2: 0 }, on: [], off: ['L1'] },
+      { name: 'both on', set: { S1: 1, S2: 1 }, on: ['L1'], off: [] },
+    ];
+    const claims = electronics.rules.hypotheses(spec);
+    const chipClaim = claims.find((c) => c.incident.type === 'burn_part');
+    expect(chipClaim?.incident.target).toBe('U1');
+    expect(chipClaim?.setup).toEqual([
+      { type: 'set_reading', target: 'S1', value: 1 },
+      { type: 'set_reading', target: 'S2', value: 1 },
+    ]);
+    // With the setup applied, burning the chip really does take the LED out.
+    const run = new CircuitRun(spec, 1);
+    for (const incident of chipClaim!.setup!) run.inject(incident);
+    for (let i = 0; i < 4; i++) run.step();
+    expect(lit(run, ['L1'])).toBe('1');
+    run.inject(chipClaim!.incident);
+    for (let i = 0; i < 4; i++) run.step();
+    expect(lit(run, ['L1'])).toBe('0');
+  });
+});

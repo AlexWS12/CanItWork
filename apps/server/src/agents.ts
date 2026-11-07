@@ -99,9 +99,13 @@ function baselineOf(domain: Domain, model: unknown, ticks: number, events: Timed
 
 function testClaim(domain: Domain, model: unknown, base: Evaluation, claim: Hypothesis): Finding {
   const at = Math.floor(domain.horizon * 0.2);
-  const after = baselineOf(domain, model, domain.horizon, [{ at, incident: claim.incident }]);
-  const { hurt, evidence } = domain.compare?.(base, after, claim.incident) ?? defaultCompare(base, after);
-  return { claim: claim.claim, incident: claim.incident, verdict: hurt ? 'confirmed' : 'refuted', evidence: `${humanize(claim.incident)}: ${evidence}` };
+  // A claim with a setup is judged against the same setup without the incident, so only the incident's own effect counts.
+  const setup: TimedEvent[] = (claim.setup ?? []).map((incident) => ({ at: 0, incident }));
+  const before = setup.length ? baselineOf(domain, model, domain.horizon, setup) : base;
+  const after = baselineOf(domain, model, domain.horizon, [...setup, { at, incident: claim.incident }]);
+  const { hurt, evidence } = domain.compare?.(before, after, claim.incident) ?? defaultCompare(before, after);
+  const given = claim.setup?.length ? `With ${claim.setup.map((i) => `${i.target}${i.value !== undefined ? ` at ${i.value}` : ''}`).join(', ')}: ` : '';
+  return { claim: claim.claim, incident: claim.incident, verdict: hurt ? 'confirmed' : 'refuted', evidence: `${given}${humanize(claim.incident)}: ${evidence}` };
 }
 
 const describeCapabilities = () =>
@@ -332,7 +336,7 @@ async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, 
   if (!swarmsConfigured(redTeam)) return rules();
   const schema = z.object({
     hypotheses: z
-      .array(z.object({ claim: z.string(), incident: IncidentSchema }))
+      .array(z.object({ claim: z.string(), incident: IncidentSchema, setup: z.array(IncidentSchema).max(8).optional() }))
       .min(1)
       .max(3),
   });
@@ -350,7 +354,7 @@ async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, 
               system_prompt: `You are the Red Team. Another AI designed this ${domain.label.toLowerCase()} environment; your job is to find how it breaks. Be specific and sceptical.
 Each hypothesis is tested in a real simulator, so a vague or wrong claim will be publicly refuted.
 Only the incident is simulated, so state each claim as what happens when that incident occurs, such as "If R1 shorts, D1 burns out", never as a flaw the incident doesn't cause.
-Reply with JSON only: {"hypotheses":[{"claim":"one sentence naming the specific weakness","incident":Incident}]} with 1-3 items.
+Reply with JSON only: {"hypotheses":[{"claim":"one sentence naming the specific weakness","incident":Incident,"setup"?:[Incident]}]} with 1-3 items. "setup" holds conditions applied from the start, before the incident, such as setting inputs or readings so the outputs you attack are active; leave it out when the default state already shows the failure.
 Incident is one of:
 ${domain.incidentDoc}
 Use only ids that exist in the system.`,

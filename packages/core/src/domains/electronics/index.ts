@@ -678,7 +678,53 @@ function buildCircuit(prompt: string): CircuitSpec {
   return { parts, wires, drive };
 }
 
+// The behaviour-test row that turns on the most outputs: attacks from there show their damage, where the default state may have everything off.
+function busiestRow(spec: CircuitSpec) {
+  const rows = (spec.tests ?? []).filter((t) => Object.keys(t.set).length && t.on.length);
+  return rows.sort((a, b) => b.on.length - a.on.length)[0];
+}
+
+function attacksFromTests(spec: CircuitSpec): Hypothesis[] {
+  const row = busiestRow(spec);
+  if (!row) return [];
+  const setup: Incident[] = Object.entries(row.set).map(([target, value]) => ({ type: 'set_reading', target, value }));
+  const lit = row.on.map((id) => id.split('.')[0]);
+  const out: Hypothesis[] = [];
+  const { find, members } = netsOf(spec);
+  // The chip whose outputs reach the most of the lit parts, through at most one resistor.
+  const reach = (chip: Part) =>
+    lit.filter((id) => {
+      const part = spec.parts.find((p) => p.id === id);
+      if (!part) return false;
+      const nets = new Set(pinsOf(part).map((pin) => find(`${id}.${pin}`)));
+      for (const net of [...nets])
+        for (const key of members.get(net) ?? []) {
+          const [rid, pin] = key.split('.');
+          if (spec.parts.find((p) => p.id === rid)?.type === 'resistor') nets.add(find(`${rid}.${pin === 'a' ? 'b' : 'a'}`));
+        }
+      return (chip.custom?.drivers ?? []).some((d) => nets.has(find(`${chip.id}.${d.pin}`)));
+    }).length;
+  const chip = spec.parts
+    .filter((p) => p.custom?.drivers.length)
+    .map((p) => ({ p, n: reach(p) }))
+    .sort((a, b) => b.n - a.n)[0];
+  const label = row.name ? `"${row.name}"` : 'the busiest test case';
+  if (chip?.n) out.push({ claim: `In ${label}, if ${chip.p.id} burns out, ${lit.slice(0, 3).join(' and ')} go dark.`, incident: { type: 'burn_part', target: chip.p.id }, setup });
+  const wire = wireTouching(spec, lit[0]);
+  if (wire) out.push({ claim: `In ${label}, ${lit[0]} depends on ${wire}: one loose wire takes it out.`, incident: { type: 'loose_wire', target: wire }, setup });
+  const battery = spec.parts.find((p) => p.type === 'battery');
+  if (battery)
+    out.push({
+      claim: `In ${label}, a sagging ${battery.id} drops the logic below its threshold and the result is lost.`,
+      incident: { type: 'low_supply', target: battery.id, value: (battery.volts ?? 9) / 3 },
+      setup,
+    });
+  return out;
+}
+
 function hypotheses(spec: CircuitSpec): Hypothesis[] {
+  const fromTests = attacksFromTests(spec);
+  if (fromTests.length) return fromTests.slice(0, 3);
   const out: Hypothesis[] = [];
   const rules = spec.program ?? [];
   const sensed = spec.parts.filter((p) => sensorOf(p));

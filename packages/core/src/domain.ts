@@ -70,6 +70,8 @@ export interface Run {
 export interface Hypothesis {
   claim: string;
   incident: Incident;
+  // Conditions applied from the start, before the incident, such as inputs set so the outputs under attack are active.
+  setup?: Incident[];
 }
 
 export interface RecoveryOption {
