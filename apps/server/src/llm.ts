@@ -40,6 +40,8 @@ export function providerStatus(): ProviderStatus {
 
 export const hasGemini = () => routes().length > 0;
 
+export const architectModel = () => env().ARCHITECT_MODEL?.trim() || geminiModel();
+
 function num(value: unknown): number | null {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
@@ -64,7 +66,7 @@ async function complete(
     method: 'POST',
     headers,
     body: JSON.stringify({ model, messages, temperature: 0.4, response_format: { type: 'json_object' } }),
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(45_000),
   });
   const shield = res.headers.get('x-prune-shield-code');
   if (shield) throw new ShieldBlock(shield);
@@ -98,6 +100,16 @@ async function complete(
   };
 }
 
+async function completeWithRetry(...args: Parameters<typeof complete>) {
+  try {
+    return await complete(...args);
+  } catch (error) {
+    if (args[0].via !== 'direct' || !String(error).includes('HTTP 503')) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return complete(...args);
+  }
+}
+
 function extractJson(text: string): unknown {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
   const start = trimmed.search(/[[{]/);
@@ -113,11 +125,12 @@ export async function chatJson<S extends z.ZodTypeAny>(opts: {
   user: string;
   schema: S;
   feature: string;
+  model?: string;
   onUsage: (usage: Usage) => void;
 }): Promise<z.infer<S>> {
   const available = routes();
   if (!available.length) throw new NoCredentials('Gemini has no credentials');
-  const model = geminiModel();
+  const model = opts.model ?? geminiModel();
   const messages = [
     { role: 'system', content: opts.system },
     { role: 'user', content: opts.user },
@@ -126,7 +139,7 @@ export async function chatJson<S extends z.ZodTypeAny>(opts: {
   let lastError: unknown;
   for (const route of available) {
     try {
-      const first = await complete(route, model, messages, opts.feature);
+      const first = await completeWithRetry(route, model, messages, opts.feature);
       opts.onUsage(first.usage);
       let problem = '';
       try {

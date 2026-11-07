@@ -30,7 +30,170 @@ const runFor = (spec: CircuitSpec, ticks: number) => {
   return run;
 };
 
+const servo = (volts: number, maxVolts = 6): CircuitSpec['parts'][number] => ({
+  id: 'SV1',
+  type: 'custom',
+  custom: {
+    label: 'Servo',
+    pins: ['VCC', 'GND', 'SIG'],
+    paths: [{ a: 'VCC', b: 'GND', ohms: volts / 0.25 }],
+    switches: [],
+    drivers: [],
+    sources: [],
+    gpio: [],
+    supply: { pos: 'VCC', neg: 'GND', minVolts: 4, maxVolts },
+    output: true,
+    visual: [],
+  },
+});
+
 describe('electronics', () => {
+  it('runs a component it has never seen from its own definition', () => {
+    const spec: CircuitSpec = {
+      parts: [{ id: 'U1', type: 'arduino' }, servo(5)],
+      wires: [
+        { from: 'U1.5V', to: 'SV1.VCC' },
+        { from: 'U1.GND', to: 'SV1.GND' },
+      ],
+      drive: [],
+    };
+    expect(electronics.validate(spec)).toEqual([]);
+    const run = runFor(spec, 3);
+    expect(run.readings.get('SV1')!.amps).toBeCloseTo(0.25, 1);
+    expect(run.isRunning(spec.parts[1])).toBe(true);
+    expect(run.telemetry()[0].value).toBe('1/1');
+  });
+
+  it('burns a custom part given too much voltage', () => {
+    const spec: CircuitSpec = {
+      parts: [{ id: 'B1', type: 'battery', volts: 12 }, servo(5)],
+      wires: [
+        { from: 'B1.pos', to: 'SV1.VCC' },
+        { from: 'B1.neg', to: 'SV1.GND' },
+      ],
+      drive: [],
+    };
+    expect(runFor(spec, 20).burned.has('SV1')).toBe(true);
+  });
+
+  it('lets a custom board power and drive things at its own logic level', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'E1', type: 'custom', custom: { label: 'ESP32', pins: ['3V3', 'GND', 'IO2'], paths: [], switches: [], drivers: [], sources: [{ pos: '3V3', neg: 'GND', volts: 3.3, ohms: 0.5 }], gpio: ['IO2'], gpioVolts: 3.3, output: false, visual: [] } },
+        { id: 'R1', type: 'resistor', ohms: 220 },
+        { id: 'D1', type: 'led', color: 'red' },
+      ],
+      wires: [
+        { from: 'E1.IO2', to: 'R1.a' },
+        { from: 'R1.b', to: 'D1.anode' },
+        { from: 'D1.cathode', to: 'E1.GND' },
+      ],
+      drive: [{ pin: 'E1.IO2', mode: 'high' }],
+    };
+    expect(electronics.validate(spec)).toEqual([]);
+    expect(runFor(spec, 3).readings.get('D1')!.amps).toBeCloseTo((3.3 - 1.9) / (25 + 220 + 12), 3);
+  });
+
+  it('switches a pump through a relay only when the control pin is high', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'U1', type: 'arduino' },
+        { id: 'B1', type: 'battery', volts: 9 },
+        { id: 'P1', type: 'motor' },
+        {
+          id: 'K1',
+          type: 'custom',
+          custom: {
+            label: 'Relay',
+            pins: ['IN', 'VCC', 'GND', 'COM', 'NO'],
+            paths: [{ a: 'VCC', b: 'GND', ohms: 70 }],
+            switches: [{ a: 'COM', b: 'NO', ohms: 0.05, when: 'IN', ref: 'GND', aboveVolts: 2 }],
+            drivers: [],
+            sources: [],
+            gpio: [],
+            output: false,
+            visual: [],
+          },
+        },
+      ],
+      wires: [
+        { from: 'U1.D7', to: 'K1.IN' },
+        { from: 'U1.5V', to: 'K1.VCC' },
+        { from: 'U1.GND', to: 'K1.GND' },
+        { from: 'B1.neg', to: 'U1.GND' },
+        { from: 'B1.pos', to: 'K1.COM' },
+        { from: 'K1.NO', to: 'P1.a' },
+        { from: 'P1.b', to: 'B1.neg' },
+      ],
+      drive: [{ pin: 'U1.D7', mode: 'high' }],
+    };
+    expect(runFor(spec, 4).readings.get('P1')!.volts).toBeGreaterThan(6);
+    const off = { ...spec, drive: [{ pin: 'U1.D7', mode: 'low' as const }] };
+    expect(runFor(off, 4).readings.get('P1')?.volts ?? 0).toBeLessThan(0.5);
+  });
+
+  it('drives a coil from a stepper driver it has never seen', () => {
+    const output = (pin: string, invert: boolean) => ({ pin, high: 'VMOT', low: 'GND', when: 'STEP', ref: 'GND', aboveVolts: 2, ohms: 1, invert });
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'U1', type: 'arduino' },
+        { id: 'B1', type: 'battery', volts: 12 },
+        { id: 'M1', type: 'motor' },
+        {
+          id: 'A1',
+          type: 'custom',
+          custom: {
+            label: 'A4988',
+            pins: ['VMOT', 'GND', 'STEP', '1A', '1B'],
+            paths: [],
+            switches: [],
+            drivers: [output('1A', false), output('1B', true)],
+            sources: [],
+            gpio: [],
+            output: false,
+            visual: [],
+          },
+        },
+      ],
+      wires: [
+        { from: 'B1.pos', to: 'A1.VMOT' },
+        { from: 'B1.neg', to: 'A1.GND' },
+        { from: 'B1.neg', to: 'U1.GND' },
+        { from: 'U1.D3', to: 'A1.STEP' },
+        { from: 'A1.1A', to: 'M1.a' },
+        { from: 'A1.1B', to: 'M1.b' },
+      ],
+      drive: [{ pin: 'U1.D3', mode: 'high' }],
+    };
+    expect(runFor(spec, 4).readings.get('M1')!.volts).toBeGreaterThan(6);
+  });
+
+  it('says a part is over its voltage rating instead of claiming it never turns on', () => {
+    const spec: CircuitSpec = {
+      parts: [{ id: 'B1', type: 'battery', volts: 7.4 }, servo(7.4)],
+      wires: [
+        { from: 'B1.pos', to: 'SV1.VCC' },
+        { from: 'B1.neg', to: 'SV1.GND' },
+      ],
+      drive: [],
+    };
+    const messages = electronics.validate(spec).map((i) => i.message);
+    expect(messages.some((m) => /SV1 gets 7\.\d V, above its 6 V maximum/.test(m))).toBe(true);
+    expect(messages.some((m) => m.includes('never turns on'))).toBe(false);
+  });
+
+  it('rejects a custom part that uses a pin it does not have', () => {
+    const part = servo(5);
+    part.custom!.paths = [{ a: 'VCC', b: 'NOPE', ohms: 10 }];
+    const spec: CircuitSpec = { parts: [{ id: 'U1', type: 'arduino' }, part], wires: [], drive: [] };
+    expect(electronics.validate(spec).some((i) => i.severity === 'error' && i.message.includes('NOPE'))).toBe(true);
+  });
+
+  it('flags a circuit where nothing does anything, so it gets redesigned', () => {
+    const spec: CircuitSpec = { parts: [{ id: 'U1', type: 'arduino' }, { id: 'B1', type: 'battery' }], wires: [], drive: [] };
+    expect(electronics.validate(spec).some((i) => i.repair && i.message.includes('Nothing in this circuit'))).toBe(true);
+  });
+
   it('solves an LED and resistor to the current Ohm\'s law predicts', () => {
     const run = runFor(ledCircuit(220), 3);
     expect(run.readings.get('D1')!.amps).toBeCloseTo((5 - 1.9) / (25 + 220 + 12), 3);

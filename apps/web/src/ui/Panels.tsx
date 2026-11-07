@@ -31,7 +31,7 @@ function Refusal() {
   const closest = refusal.closest ? DOMAINS[refusal.closest] : null;
   return (
     <div className="refusal">
-      <b>This can't be modelled yet</b>
+      <b>Nothing was built</b>
       <p>{refusal.reason}</p>
       {closest && <p>The closest fit is {closest.label.toLowerCase()}: {closest.blurb.toLowerCase()}.</p>}
       <ul>

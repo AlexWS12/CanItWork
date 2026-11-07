@@ -247,7 +247,28 @@ describe('agent pipelines', () => {
     expect((environmentOf(events)?.spec as { drive: unknown[] }).drive).toHaveLength(1);
   });
 
-  it('refuses a design that still fails the checks after one repair', async () => {
+  it('refuses when the design step fails, rather than showing a template', async () => {
+    process.env.GEMINI_API_KEY = 'g';
+    let call = 0;
+    mockFetch((_, init) => {
+      call++;
+      if (String(init.body).includes('You route requests')) return json(openAiReply(JSON.stringify({ domain: 'electronics', reason: 'r' })));
+      return new Response('overloaded', { status: 503 });
+    });
+    const { events, emit } = collect();
+    await build('An ESP32 with an OLED display', emit);
+    expect(call).toBeGreaterThan(1);
+    expect(environmentOf(events)).toBeNull();
+    expect(refusalOf(events)?.reason).toContain('design step failed');
+  });
+
+  it('says plainly when a keyless build is only a template', async () => {
+    const { events, emit } = collect();
+    await build('An ESP32 with an OLED display on an arduino', emit);
+    expect(environmentOf(events)?.unmodelled[0]).toContain('built-in template');
+  });
+
+  it('refuses a design that still fails the checks after repairs', async () => {
     process.env.GEMINI_API_KEY = 'g';
     const bad = { tables: [{ name: 'a', rows: 1, columns: [{ name: 'id', type: 'int', references: { table: 'ghost', column: 'id' } }], indexes: [] }], workload: [] };
     mockFetch((_, init) =>

@@ -1,6 +1,6 @@
 import { Grid } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { PINS, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
+import { pinsOf, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
@@ -33,9 +33,16 @@ export function benchExtent(spec: CircuitSpec) {
 }
 
 function pinPosition(part: Part, pin: string, [x, z]: [number, number]) {
-  const pins = PINS[part.type];
+  const pins = pinsOf(part);
   const i = Math.max(0, pins.indexOf(pin));
   switch (part.type) {
+    case 'custom': {
+      const half = Math.ceil(pins.length / 2);
+      const left = i < half;
+      const row = left ? i : i - half;
+      const count = left ? half : pins.length - half;
+      return new THREE.Vector3(x + (left ? -1.2 : 1.2), 0.25, z + (row - (count - 1) / 2) * 0.34);
+    }
     case 'arduino': {
       if (/^D\d+$/.test(pin)) return new THREE.Vector3(x - 2.9 + (Number(pin.slice(1)) - 2) * 0.52, 0.36, z - 2.45);
       const lower = ['5V', '3V3', 'GND', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5'].indexOf(pin);
@@ -191,8 +198,39 @@ function Ultrasonic() {
   );
 }
 
+function CustomBody({ part }: { part: Part }) {
+  const moving = useRef<Array<THREE.Mesh | null>>([]);
+  const visual = part.custom?.visual ?? [];
+  useFrame((_, dt) => {
+    if (!circuit()?.isRunning(part)) return;
+    for (const mesh of moving.current) if (mesh) mesh.rotation.y += dt * 3 * (runner.running ? runner.speed : 0);
+  });
+  if (!visual.length) {
+    return (
+      <mesh position={[0, 0.3, 0]} castShadow>
+        <boxGeometry args={[2, 0.5, 1.4]} />
+        <meshStandardMaterial color="#3d4d6e" roughness={0.5} />
+      </mesh>
+    );
+  }
+  return (
+    <group>
+      {visual.map((v, i) => (
+        <mesh key={i} ref={(m) => (moving.current[i] = v.moves ? m : null)} position={v.at as [number, number, number]} castShadow>
+          {v.shape === 'box' && <boxGeometry args={v.size as [number, number, number]} />}
+          {v.shape === 'cylinder' && <cylinderGeometry args={[v.size[0] / 2, v.size[0] / 2, v.size[1], 28]} />}
+          {v.shape === 'sphere' && <sphereGeometry args={[v.size[0] / 2, 24, 16]} />}
+          <meshStandardMaterial color={v.color} roughness={0.5} metalness={0.25} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 function PartBody({ part }: { part: Part }) {
   switch (part.type) {
+    case 'custom':
+      return <CustomBody part={part} />;
     case 'arduino':
       return <Board />;
     case 'led':
@@ -317,7 +355,7 @@ function Wires({ spec, positions }: { spec: CircuitSpec; positions: Map<string, 
 const describePart = (part: Part) => {
   if (part.type === 'resistor') return `${part.id} ${part.ohms ?? 1000} Ω`;
   if (part.type === 'battery') return `${part.id} ${part.volts ?? 9} V`;
-  return part.id;
+  return part.custom?.label ?? part.id;
 };
 
 export function Bench() {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
-import { FORWARD_VOLTS, GPIO, LIMITS, OUTPUTS, PIN_LIMIT, PINS, RAIL_LIMIT, RESISTOR_WATTS, type CircuitSpec, type Part } from './parts';
+import { FORWARD_VOLTS, GPIO, LIMITS, PIN_LIMIT, RAIL_LIMIT, RESISTOR_WATTS, isOutput, pinsOf, type CircuitSpec, type Part } from './parts';
 
 export const CircuitPatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set_ohms'), part: z.string(), ohms: z.number().positive() }),
@@ -109,7 +109,7 @@ export class CircuitRun implements Run {
   }
 
   private outputs() {
-    return this.spec.parts.filter((p) => OUTPUTS.includes(p.type));
+    return this.spec.parts.filter(isOutput);
   }
 
   private level(pin: string) {
@@ -131,14 +131,15 @@ export class CircuitRun implements Run {
       const pin = (name: string) => `${part.id}.${name}`;
       if (this.burned.has(part.id)) continue;
       if (this.shorted.has(part.id)) {
-        const pins = PINS[part.type];
-        add(part.id, pin(pins[0]), pin(pins[1]), 0.05);
+        const pins = pinsOf(part);
+        if (pins.length > 1) add(part.id, pin(pins[0]), pin(pins[1]), 0.05);
         continue;
       }
       switch (part.type) {
         case 'arduino':
           if (!this.burned.has(pin('5V'))) add(pin('5V'), pin('5V'), pin('GND'), 0.2, 5);
           if (!this.burned.has(pin('3V3'))) add(pin('3V3'), pin('3V3'), pin('GND'), 2, 3.3);
+          if (wired.has(pin('VIN'))) add(part.id, pin('VIN'), pin('GND'), 180);
           for (const name of GPIO) {
             const level = this.level(pin(name));
             if (level === null || this.burned.has(pin(name))) continue;
@@ -166,6 +167,28 @@ export class CircuitRun implements Run {
         case 'ultrasonic':
           add(part.id, pin('VCC'), pin('GND'), 333);
           break;
+        case 'custom': {
+          const custom = part.custom;
+          if (!custom) break;
+          for (const path of custom.paths) add(part.id, pin(path.a), pin(path.b), path.ohms);
+          custom.switches.forEach((sw, i) => {
+            if (logic.get(pin(`switch${i}`))) add(part.id, pin(sw.a), pin(sw.b), sw.ohms);
+          });
+          custom.drivers.forEach((driver, i) => {
+            const high = Boolean(logic.get(pin(`driver${i}`))) !== driver.invert;
+            if (high) add(part.id, pin(driver.high), pin(driver.pin), driver.ohms);
+            else add(part.id, pin(driver.pin), pin(driver.low), driver.ohms);
+          });
+          for (const source of custom.sources) add(part.id, pin(source.pos), pin(source.neg), source.ohms, source.volts);
+          const reference = custom.sources[0]?.neg ?? custom.supply?.neg;
+          if (!reference) break;
+          for (const name of custom.gpio) {
+            const level = this.level(pin(name));
+            if (level === null || this.burned.has(pin(name))) continue;
+            add(pin(name), pin(name), pin(reference), PIN_RESISTANCE, level ? (custom.gpioVolts ?? 3.3) : 0);
+          }
+          break;
+        }
         case 'motor_driver':
           if (wired.has(pin('VCC'))) add(part.id, pin('VCC'), pin('GND'), 140);
           if (!logic.get(pin('POWER'))) break;
@@ -189,7 +212,7 @@ export class CircuitRun implements Run {
       parent.set(key, root);
       return root;
     };
-    for (const part of this.spec.parts) for (const name of PINS[part.type]) parent.set(`${part.id}.${name}`, `${part.id}.${name}`);
+    for (const part of this.spec.parts) for (const name of pinsOf(part)) parent.set(`${part.id}.${name}`, `${part.id}.${name}`);
     const wired = new Set<string>();
     this.spec.wires.forEach((wire, i) => {
       if (this.loose.has(i) || !parent.has(wire.from) || !parent.has(wire.to)) return;
@@ -198,8 +221,9 @@ export class CircuitRun implements Run {
       parent.set(find(wire.from), find(wire.to));
     });
 
-    const ground = this.spec.parts.find((p) => p.type === 'arduino' || p.type === 'battery');
-    const groundKey = ground ? `${ground.id}.${ground.type === 'arduino' ? 'GND' : 'neg'}` : '';
+    const ground = this.spec.parts.find((p) => p.type === 'arduino' || p.type === 'battery' || p.custom?.sources.length);
+    const groundPin = ground?.type === 'arduino' ? 'GND' : ground?.type === 'battery' ? 'neg' : ground?.custom?.sources[0].neg;
+    const groundKey = ground ? `${ground.id}.${groundPin}` : '';
     const ids = new Map<string, number>();
     if (groundKey) ids.set(find(groundKey), 0);
     for (const key of parent.keys()) {
@@ -228,6 +252,13 @@ export class CircuitRun implements Run {
             else on.delete(part.id);
           }
         }
+        const updateControl = (key: string, control: { when: string; ref: string; aboveVolts: number }) => {
+          const active = at(`${part.id}.${control.when}`) - at(`${part.id}.${control.ref}`) >= control.aboveVolts;
+          if ((logic.get(key) ?? false) !== active) changed = true;
+          logic.set(key, active);
+        };
+        part.custom?.switches.forEach((sw, i) => updateControl(`${part.id}.switch${i}`, sw));
+        part.custom?.drivers.forEach((driver, i) => updateControl(`${part.id}.driver${i}`, driver));
         if (part.type === 'motor_driver') {
           const pin = (name: string) => `${part.id}.${name}`;
           const reference = at(pin('GND'));
@@ -255,6 +286,14 @@ export class CircuitRun implements Run {
       if (Math.abs(amps) > entry.amps) totals.set(el.owner, { amps: Math.abs(amps), volts: Math.abs(drop) });
     }
     for (const [owner, { amps, volts: drop }] of totals) this.readings.set(owner, this.rate(owner, amps, drop));
+    for (const part of this.spec.parts) {
+      const supply = part.custom?.supply;
+      if (!supply || this.burned.has(part.id)) continue;
+      const across = (v[node(`${part.id}.${supply.pos}`)] ?? 0) - (v[node(`${part.id}.${supply.neg}`)] ?? 0);
+      const reading = this.readings.get(part.id) ?? this.rate(part.id, 0, 0);
+      const overVolts = across / supply.maxVolts;
+      this.readings.set(part.id, { ...reading, volts: across, load: Math.max(reading.load, overVolts), burnAt: Math.min(reading.burnAt, 1.5) });
+    }
     this.wireAmps = this.spec.wires.map((wire, i) => {
       if (this.loose.has(i)) return 0;
       const from = pinAmps.get(wire.from) ?? 0;
@@ -273,6 +312,10 @@ export class CircuitRun implements Run {
       const watts = amps * amps * (part.ohms ?? 1000);
       return { volts: drop, amps, load: watts / RESISTOR_WATTS.rated, burnAt: RESISTOR_WATTS.burn / RESISTOR_WATTS.rated, rated: '0.25 W' };
     }
+    if (part.custom?.maxAmps) {
+      const rated = part.custom.maxAmps;
+      return { volts: drop, amps, load: amps / rated, burnAt: 2, rated: milli(rated) };
+    }
     const limit = LIMITS[part.type];
     if (!limit) return { volts: drop, amps, load: 0, burnAt: Infinity, rated: 'n/a' };
     return { volts: drop, amps, load: amps / limit.rated, burnAt: limit.burn / limit.rated, rated: milli(limit.rated) };
@@ -290,6 +333,10 @@ export class CircuitRun implements Run {
         return reading.volts >= 1.5;
       case 'ultrasonic':
         return reading.volts >= 4.5 && reading.volts <= 5.5;
+      case 'custom': {
+        const supply = part.custom?.supply;
+        return supply ? reading.volts >= supply.minVolts && reading.volts <= supply.maxVolts : reading.amps > 0.001;
+      }
       default:
         return false;
     }
@@ -465,7 +512,7 @@ export class CircuitRun implements Run {
   breakables(): Breakable[] {
     const out: Breakable[] = [];
     const output = this.outputs().find((p) => !this.burned.has(p.id));
-    if (output) out.push({ label: `Burn ${output.id}`, incident: { type: 'burn_part', target: output.id }, keywords: [output.id.toLowerCase(), output.type, 'burn', 'fail'] });
+    if (output) out.push({ label: `Burn ${output.custom?.label ?? output.id}`, incident: { type: 'burn_part', target: output.id }, keywords: [output.id.toLowerCase(), output.type, (output.custom?.label ?? '').toLowerCase(), 'burn', 'fail'].filter(Boolean) });
     const resistor = this.spec.parts.find((p) => p.type === 'resistor' && !this.shorted.has(p.id));
     if (resistor) out.push({ label: `Short ${resistor.id}`, incident: { type: 'short_part', target: resistor.id }, keywords: [resistor.id.toLowerCase(), 'resistor', 'short'] });
     const wire = this.spec.wires.findIndex((_, i) => !this.loose.has(i));
@@ -501,7 +548,7 @@ export class CircuitRun implements Run {
     const broken = this.burned.has(target) || this.shorted.has(target);
     const status = this.burned.has(target) ? 'Burned out' : this.shorted.has(target) ? 'Shorted' : (reading?.load ?? 0) > 1 ? 'Over its rating' : 'OK';
     const rows: Array<[string, string | number]> = [
-      ['Type', part.type.replace('_', ' ')],
+      ['Type', part.custom?.label ?? part.type.replace('_', ' ')],
       ['Status', status],
     ];
     if (part.ohms) rows.push(['Value', `${part.ohms} Ω`]);

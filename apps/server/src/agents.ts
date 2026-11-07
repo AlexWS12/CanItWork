@@ -21,12 +21,13 @@ import {
 } from '@tv/core';
 import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
-import { NoCredentials, ShieldBlock, chatJson, hasGemini } from './llm';
+import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
 export type Emit = (event: StreamEvent) => void;
 type Step = ReturnType<typeof stepper>;
 
+const MAX_REPAIRS = 2;
 const DOMAIN_IDS = domainList().map((d) => d.id) as [DomainId, ...DomainId[]];
 
 function stepper(emit: Emit) {
@@ -148,22 +149,29 @@ Spec:
 ${domain.specDoc}
 Honour every number the user gives and pick sensible values for anything unstated. Be honest in "unmodelled": never pretend to represent something you left out.`;
 
-async function architect(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft> {
-  const rules = () =>
-    step('architect', 'rules', 'Drafting from a template', async (detail) => {
+async function architect(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft | null> {
+  if (!hasGemini()) {
+    return step('architect', 'rules', 'Drafting from a template', async (detail) => {
       detail(`Local ${domain.label.toLowerCase()} template`);
-      return { name: `${domain.label} example`, summary: prompt.slice(0, 240), unmodelled: [], spec: domain.rules.spec(prompt) };
+      return {
+        name: `${domain.label} template`,
+        summary: 'A built-in example, because no AI is connected to design what you described.',
+        unmodelled: ['This is a built-in template, not a design of your request'],
+        spec: domain.rules.spec(prompt),
+      };
     });
-  if (!hasGemini()) return rules();
-  return orRules(
-    () =>
-      step('architect', 'gemini', 'Designing the environment', async (detail) => {
-        const draft = (await chatJson({ feature: 'architect', schema: draftSchema(domain), onUsage: onUsage(emit), system: architectPrompt(domain), user: prompt })) as Draft;
-        detail(draft.name);
-        return draft;
-      }),
-    rules,
-  );
+  }
+  try {
+    return await step('architect', 'gemini', 'Designing the environment', async (detail) => {
+      const draft = (await chatJson({ feature: 'architect', model: architectModel(), schema: draftSchema(domain), onUsage: onUsage(emit), system: architectPrompt(domain), user: prompt })) as Draft;
+      detail(draft.name);
+      return draft;
+    });
+  } catch (error) {
+    if (error instanceof ShieldBlock) throw error;
+    emit({ type: 'refusal', refusal: { reason: "The design step failed, so I haven't built anything rather than show you the wrong thing. Please try again.", closest: domain.id } });
+    return null;
+  }
 }
 
 async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, issues: string[], emit: Emit, step: Step): Promise<Hypothesis[]> {
@@ -216,7 +224,9 @@ export async function build(prompt: string, emit: Emit) {
   const id = await interpret(prompt, emit, step);
   if (!id) return;
   const domain = DOMAINS[id];
-  let draft = await architect(prompt, domain, emit, step);
+  const first = await architect(prompt, domain, emit, step);
+  if (!first) return;
+  let draft = first;
 
   const check = (candidate: Draft) => domain.validate(domain.compile(candidate.spec));
   let issues = await step('validator', 'simulator', 'Checking the design', async (detail) => {
@@ -225,27 +235,29 @@ export async function build(prompt: string, emit: Emit) {
     return found;
   });
   const errorsOf = () => issues.filter((i) => i.severity === 'error').map((i) => i.message);
-  const toRepair = issues.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message);
+  const toRepair = () => issues.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message);
 
-  if (toRepair.length && hasGemini()) {
+  for (let attempt = 0; attempt < MAX_REPAIRS && toRepair().length && hasGemini(); attempt++) {
     const previous = draft;
+    const found = toRepair();
     draft = await orRules(
       () =>
         step('architect', 'gemini', 'Fixing what the checks found', async () =>
           (await chatJson({
             feature: 'architect-repair',
+            model: architectModel(),
             schema: draftSchema(domain),
             onUsage: onUsage(emit),
             system: architectPrompt(domain),
-            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${toRepair.join('; ')}\nReturn a corrected design. Keep a flaw only if the user explicitly asked for it.`,
+            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Keep a flaw only if the user explicitly asked for it.`,
           })) as Draft,
         ),
       async () => previous,
     );
     issues = await step('validator', 'simulator', 'Rechecking the design', async (detail) => {
-      const found = check(draft);
-      detail(found.length ? found.map((i) => i.message).slice(0, 4).join('; ') : 'No problems found');
-      return found;
+      const result = check(draft);
+      detail(result.length ? result.map((i) => i.message).slice(0, 4).join('; ') : 'No problems found');
+      return result;
     });
   }
   if (errorsOf().length) {
