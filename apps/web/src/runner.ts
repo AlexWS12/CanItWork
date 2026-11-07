@@ -1,4 +1,4 @@
-import { DOMAINS, type Domain, type Environment, type Incident, type Run } from '@tv/core';
+import { DOMAINS, type Domain, type Environment, type Incident, type Run, type TimedEvent } from '@tv/core';
 import { useStore } from './store';
 
 const PUBLISH_EVERY = 0.2;
@@ -29,6 +29,24 @@ class Runner {
     this.running = true;
     this.statHistory = {};
     this.sampledTick = -1;
+    this.publish();
+  }
+
+  // Rebuilds a run from its event log in the same order evaluate() uses, so a shared run lands on exactly the same state.
+  replay(environment: Environment, seed: number, tick: number, events: TimedEvent[]) {
+    this.load(environment, seed);
+    const run = this.run!;
+    const queue = [...events].sort((a, b) => a.at - b.at);
+    let next = 0;
+    for (let t = 0; t < tick; t++) {
+      while (next < queue.length && queue[next].at <= t) {
+        const event = queue[next++];
+        if ('incident' in event) run.inject(event.incident);
+        else run.apply(event.patches);
+      }
+      run.step();
+    }
+    if (events.some((e) => 'patches' in e)) useStore.getState().bumpStructure();
     this.publish();
   }
 

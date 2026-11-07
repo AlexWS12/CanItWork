@@ -1,6 +1,7 @@
 import type { Candidate, Environment, Incident, ProviderStatus, StreamEvent } from '@tv/core';
 import { matchEntities } from './entities';
 import { runner } from './runner';
+import { decodeRun, encodeRun, runHash, shortHash } from './share';
 import { useStore, type Message } from './store';
 
 const store = () => useStore.getState();
@@ -60,6 +61,31 @@ function reply(text: string) {
 function loadEnvironment(environment: Environment) {
   runner.load(environment);
   store().set({ environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
+}
+
+export async function shareRun() {
+  const environment = store().environment;
+  const history = runner.history();
+  if (!environment || !history) return null;
+  const shared = await encodeRun({ environment, seed: history.seed, tick: history.tick, events: history.events });
+  window.history.replaceState(null, '', shared.url);
+  return shared;
+}
+
+// Opens a run from a shared link and checks it replays to the hash the link carries.
+export async function openSharedRun() {
+  const shared = await decodeRun();
+  if (!shared) return;
+  runner.replay(shared.environment, shared.seed, shared.tick, shared.events);
+  store().set({ environment: shared.environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
+  const replayed = runHash(shared.environment, shared.seed, shared.tick, shared.events);
+  store().addMessage({
+    role: 'app',
+    text:
+      replayed === shared.hash
+        ? `Replayed a shared run exactly: ${shared.tick} ticks and ${shared.events.length} event${shared.events.length === 1 ? '' : 's'}. Its provenance hash ${shortHash(replayed)} matches the link.`
+        : `This link doesn't replay to its own provenance hash (${shortHash(shared.hash)} in the link, ${shortHash(replayed)} replayed), so something in it was changed.`,
+  });
 }
 
 export async function fetchStatus() {

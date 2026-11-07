@@ -81,6 +81,8 @@ failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Anal
 
 Agents propose and the simulators decide. Simulators are deterministic, so an environment, seed and event log always replay to the same result.
 
+**Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch.
+
 ## Electronics in brief
 
 - **Parts** are built in (boards, resistors, capacitors, LEDs, buttons, motors, H-bridges, ultrasonic sensors, batteries) or defined by the Architect from pins, electrical paths, ratings, a sensor reading or an actuator output, so any board, sensor, relay, display or driver can be modelled.
