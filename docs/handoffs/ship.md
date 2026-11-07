@@ -30,7 +30,7 @@ You own deployment, sponsor integrations, `README.md` and the Devpost submission
 ## 3. Done vs pending
 
 **Done:**
-- The README covers what tv is, how to run it, configuration, the pipeline and how to add a domain.
+- The README covers what CanItWork is, how to run it, configuration, the pipeline and how to add a domain.
 
 **Pending, roughly in order:**
 - **Vultr deploy from main.**

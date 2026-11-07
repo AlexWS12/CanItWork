@@ -1,8 +1,8 @@
-# tv
+# CanItWork
 
 Describe a system in plain English and get an interactive model of it. Run it, break it, and compare fixes by what they actually do.
 
-tv is a general environment builder. It works out what kind of system you described, designs it, checks it, and runs it in a simulator built for that kind of system. If it can't model something, it says so.
+CanItWork is a general environment builder. It works out what kind of system you described, designs it, checks it, and runs it in a simulator built for that kind of system. If it can't model something, it says so.
 
 Built at SharkByte 2026.
 

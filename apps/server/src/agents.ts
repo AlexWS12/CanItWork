@@ -117,7 +117,7 @@ type Reading = { kind: 'route'; id: DomainId } | { kind: 'refuse'; reason: strin
 
 function refusalReason(closest: DomainId | null) {
   if (!closest)
-    return `None of these simulators can model that. tv builds ${domainList()
+    return `None of these simulators can model that. CanItWork builds ${domainList()
       .map((d) => d.label.toLowerCase())
       .join(', ')}.`;
   const domain = DOMAINS[closest];

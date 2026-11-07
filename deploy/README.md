@@ -13,10 +13,10 @@ curl -fsSL https://get.docker.com | sh
 ## 2. Build and run
 
 ```bash
-git clone https://github.com/AlexWS12/livepresentationai.git tv && cd tv
+git clone https://github.com/AlexWS12/CanItWork.git canitwork && cd canitwork
 cp .env.example .env   # then fill in the keys this deploy should use
-docker build -t tv .
-docker run -d --name tv --restart unless-stopped --env-file .env -p 8787:8787 tv
+docker build -t canitwork .
+docker run -d --name canitwork --restart unless-stopped --env-file .env -p 8787:8787 canitwork
 ```
 
 Open `http://<server-ip>:8787`.
@@ -31,7 +31,7 @@ Before sharing the URL, set these in the deploy's `.env`:
 | `GEMINI_RPM=12` | Only with a free-tier key: paces calls under its 15-a-minute limit. |
 | `DESIGN_COUNCIL=on` | Optional: three Swarms architects per build. Each build then costs a Swarms run. |
 
-The server re-reads `.env` on every API request, so after editing it, `docker restart tv` is only needed for `PORT`.
+The server re-reads `.env` on every API request, so after editing it, `docker restart canitwork` is only needed for `PORT`.
 
 ## 3. HTTPS and a domain
 
@@ -48,10 +48,10 @@ Behind Caddy, set `TRUST_PROXY=1` in `.env` and publish the container on localho
 ## 4. Updating
 
 ```bash
-git pull && docker build -t tv . && docker rm -f tv && docker run -d --name tv --restart unless-stopped --env-file .env -p 8787:8787 tv
+git pull && docker build -t canitwork . && docker rm -f canitwork && docker run -d --name canitwork --restart unless-stopped --env-file .env -p 8787:8787 canitwork
 ```
 
 ## What survives a redeploy
 
 - **Verified designs** that ship in `apps/server/data/verified-designs.json` are part of the image.
-- **Designs verified while running** (`apps/server/.cache`) and the **spend ledger** (`apps/server/.spend`) live in the container and reset on each redeploy. To keep them, mount volumes: `-v tv-cache:/app/apps/server/.cache -v tv-spend:/app/apps/server/.spend`.
+- **Designs verified while running** (`apps/server/.cache`) and the **spend ledger** (`apps/server/.spend`) live in the container and reset on each redeploy. To keep them, mount volumes: `-v canitwork-cache:/app/apps/server/.cache -v canitwork-spend:/app/apps/server/.spend`.

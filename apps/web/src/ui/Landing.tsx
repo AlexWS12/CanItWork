@@ -84,7 +84,7 @@ export function Landing() {
   return (
     <div className="landing">
       <header className="landing-head">
-        <h1>tv</h1>
+        <h1>CanItWork</h1>
         <p className="tagline">Describe a system. Run it. Break it. Fix it.</p>
       </header>
       <div className="landing-main">

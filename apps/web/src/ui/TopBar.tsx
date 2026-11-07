@@ -71,7 +71,7 @@ export function TopBar() {
   if (!environment) {
     return (
       <div className="status">
-        <span className="wordmark">tv</span>
+        <span className="wordmark">CanItWork</span>
         <Integrations variant="chip" />
       </div>
     );
@@ -79,7 +79,7 @@ export function TopBar() {
   const domain = DOMAINS[environment.domain];
   return (
     <header className="topbar" data-incident={incident}>
-      <span className="wordmark">tv</span>
+      <span className="wordmark">CanItWork</span>
       <span className="divider" aria-hidden />
       <div className="identity" title={environment.summary}>
         <b>{environment.name}</b>

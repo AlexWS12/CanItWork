@@ -153,7 +153,7 @@ export function Building() {
   return (
     <div className="building">
       <section className="build-main">
-        <span className="wordmark">tv</span>
+        <span className="wordmark">CanItWork</span>
         <div className="build-sentence">
           <span className="build-state">
             <span className="pulse" aria-hidden /> Building
