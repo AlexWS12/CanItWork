@@ -62,7 +62,9 @@ export async function runDesignCouncil<D>(opts: {
   for (const reply of replies) {
     const parsed = opts.schema.safeParse(reply.json);
     if (!parsed.success) {
-      candidates.push({ author: reply.agent, draft: undefined as D, score: -Infinity, issues: [], verdict: 'unreadable' });
+      const first = parsed.error.issues[0];
+      const why = first ? ` (${first.path.join('.')}: ${first.message})` : '';
+      candidates.push({ author: reply.agent, draft: undefined as D, score: -Infinity, issues: [], verdict: `unreadable${why}` });
       continue;
     }
     let scored: { score: number; issues: Issue[] } | null = null;

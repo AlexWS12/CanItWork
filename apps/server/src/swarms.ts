@@ -102,6 +102,13 @@ export async function runCouncil(opts: {
   });
   if (!res.ok) throw new Error(`Swarms: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
   const body = (await res.json()) as SwarmResponse;
+  // SWARMS_DUMP=1 keeps each raw reply in .spend for debugging what agents actually sent.
+  if (process.env.SWARMS_DUMP === '1') {
+    const { mkdirSync, writeFileSync } = await import('node:fs');
+    const dir = new URL('../.spend/', import.meta.url);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(new URL(`swarms-${opts.feature}-${Date.now()}.json`, dir), JSON.stringify(body, null, 1));
+  }
 
   opts.onUsage({
     engine: 'swarms',
