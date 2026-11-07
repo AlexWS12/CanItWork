@@ -81,6 +81,12 @@ Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:
   - All simulator steps together under 0.8 s.
   - Cost was about $0.0104, nearly all Swarms.
   - The Interpreter is the smallest call but the slowest, which points to call latency rather than generation. It's one sample.
+- **The same build with Jev routing (2026-11-07) took about 18 s:**
+  - Interpreter on Jev: 175 ms, Warehouses (95%), 1,561 tokens.
+  - Architect 12.0 s, now the bulk of the build. It was 7.4 s in the run above, so Gemini varies a lot between runs.
+  - Red Team (Swarms) 4.6 s.
+  - Simulator steps about 0.9 s together.
+  - Cost was about $0.0105, nearly all Swarms. Jev's cost isn't in that total: the SDK reports tokens but no price.
 
 ## 3. Done vs pending
 
@@ -95,10 +101,11 @@ Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:
 - Jev in the protocol, status chip and trace (`eduardo/jev-contract`), and Jev routing in the Interpreter (`eduardo/jev-interpreter`). Mocked tests, plus one live eval.
 
 **Pending:**
-- **Jev's thresholds have one live eval behind them** (2026-11-07, `npm run eval:interpreter`, 20 billed requests, under 4 s in total). All 16 clear prompts were right with wide margins: routes had fit 81–97%, refusals had no fit above 14%. The four borderline prompts now go to Gemini. Without Gemini, the smart home routes to electronics, and the factory line (warehouse 45%) and bank ledger (database 36%) are refused. Add real user prompts to the eval before moving `JEV` in `agents.ts`, and time a keyed build: the Interpreter was 12.7 s of the 25 s build on Gemini.
+- **Jev's thresholds have one live eval behind them** (2026-11-07, `npm run eval:interpreter`, 20 billed requests, under 4 s in total). All 16 clear prompts were right with wide margins: routes had fit 81–97%, refusals had no fit above 14%. The four borderline prompts now go to Gemini. Without Gemini, the smart home routes to electronics, and the factory line (warehouse 45%) and bank ledger (database 36%) are refused. Add real user prompts to the eval before moving `JEV` in `agents.ts`. A keyed build with Jev is timed in section 2.
 - **A Jev-only refusal has a template reason** built from the closest domain's `limits`, not Gemini's sentence.
 - **The Editor's intent and target could move to Jev next:** a Choice of intent and a Choice over `breakables()` in one request, with a higher bar for `inject` than `whatif`.
-- **Builds take about 25 s, mostly the Interpreter.** Compare the same build with Gemini direct (blank `PRUNE_API_KEY` for one run) before changing anything. If direct is much faster, route the Interpreter direct.
+- **Builds take about 18 s, mostly the Architect** now that Jev routes. Compare the same build with Gemini direct (blank `PRUNE_API_KEY` for one run) before changing anything.
+- **The usage ledger leaves out Jev's cost.** Add it once TypeSafe's per-token price is known.
 - **The Prune vault's Gemini key is unconfirmed.** The Prune key check only lists models, so it can't see which Gemini key Prune forwards. A keyed build through Prune did succeed today. To be sure, check the Prune dashboard (Connect > Providers).
 - **A fix that disables a broken output can score the same as a real repair** in electronics ranking. Agree any tie-break with the Electronics lane.
 - **Chat edits of electronics sketches** (`set_program` in its `patchDoc`) haven't been tried live.
@@ -108,7 +115,7 @@ Repo: CI (`.github/workflows/ci.yml`) runs typecheck, tests and `npm run format:
 ## 4. Exact next action
 
 1. Merge `eduardo/jev-contract` on its own and announce the `protocol.ts` change, then `eduardo/jev-interpreter`. Run the eval before trusting Jev's routing.
-2. Run one build with Gemini direct (`PRUNE_API_KEY` blank for that run) and compare its step times with the 25.1 s Prune build above. Ask in team chat first, since the Red Team still spends Swarms credit. Then decide whether to route the Interpreter direct.
+2. Run one build with Gemini direct (`PRUNE_API_KEY` blank for that run) and compare the Architect's time with the Prune builds above. Ask in team chat first, since the Red Team still spends Swarms credit. Then decide whether to route the Architect direct.
 3. Tell Ship about the README's "once" (it's up to two repair rounds).
 4. Agree the electronics ranking tie-break with the Electronics lane.
 5. Try a chat edit of an electronics sketch live.
