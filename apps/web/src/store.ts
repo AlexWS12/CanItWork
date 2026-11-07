@@ -1,9 +1,11 @@
-import type { Breakable, Environment, Finding, Metric, ProviderStatus, RecoveryReport, Refusal, StepEvent, Usage } from '@tv/core';
+import type { AgentId, Breakable, DomainId, Engine, Environment, Finding, Metric, ProviderStatus, RecoveryReport, Refusal, StepEvent, Usage } from '@tv/core';
 import { create } from 'zustand';
 
 export interface Message {
   role: 'user' | 'app';
   text: string;
+  /** The step that produced an app message, when known */
+  source?: { agent: AgentId; engine: Engine };
 }
 
 export interface Telemetry {
@@ -12,10 +14,11 @@ export interface Telemetry {
   breakables: Breakable[];
   running: boolean;
   speed: number;
-  history: number[];
+  /** Recent samples per stat label, oldest first */
+  statHistory: Record<string, number[]>;
 }
 
-const EMPTY_TELEMETRY: Telemetry = { tick: 0, stats: [], breakables: [], running: false, speed: 1, history: [] };
+const EMPTY_TELEMETRY: Telemetry = { tick: 0, stats: [], breakables: [], running: false, speed: 1, statHistory: {} };
 
 interface State {
   environment: Environment | null;
@@ -23,6 +26,12 @@ interface State {
   structure: number;
   refusal: Refusal | null;
   building: boolean;
+  /** The sentence being built, shown on the build screen */
+  prompt: string;
+  /** Substrings of the prompt that name parts of the built environment */
+  entities: string[];
+  /** Jev's per-domain probabilities from the Interpreter, when it ran */
+  domainOdds: Partial<Record<DomainId, number>> | null;
   chatting: boolean;
   recovering: boolean;
   status: ProviderStatus | null;
@@ -51,6 +60,9 @@ export const useStore = create<State>((set) => ({
   structure: 0,
   refusal: null,
   building: false,
+  prompt: '',
+  entities: [],
+  domainOdds: null,
   chatting: false,
   recovering: false,
   status: null,
@@ -77,7 +89,20 @@ export const useStore = create<State>((set) => ({
       return { steps };
     }),
   addMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
-  reset: () => set({ environment: null, refusal: null, steps: [], findings: [], messages: [], report: null, appliedId: null, selected: null, telemetry: EMPTY_TELEMETRY }),
+  reset: () =>
+    set({
+      environment: null,
+      refusal: null,
+      steps: [],
+      findings: [],
+      messages: [],
+      report: null,
+      appliedId: null,
+      selected: null,
+      entities: [],
+      domainOdds: null,
+      telemetry: EMPTY_TELEMETRY,
+    }),
 }));
 
 export const select = (id: string | null) => useStore.getState().set({ selected: id });

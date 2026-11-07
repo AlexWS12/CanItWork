@@ -29,7 +29,8 @@ function ViewShift() {
   const open = useStore((s) => Boolean(s.report) && s.reportOpen);
   const shift = useRef(0);
   useFrame(({ camera, size }) => {
-    const target = open ? size.height * 0.16 : 0;
+    // Lifts the scene so the failed part stays visible above the recovery sheet
+    const target = open ? size.height * 0.26 : 0;
     shift.current = reducedMotion() ? target : shift.current + (target - shift.current) * 0.09;
     (camera as THREE.PerspectiveCamera).setViewOffset(size.width, size.height, 0, shift.current, size.width, size.height);
   });

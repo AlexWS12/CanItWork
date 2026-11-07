@@ -1,6 +1,6 @@
 .spark {
-  width: 76px;
-  height: 34px;
+  width: 80px;
+  height: 30px;
   color: var(--color-teal);
 }
 
@@ -15,21 +15,21 @@
   vector-effect: non-scaling-stroke;
 }
 
-.chart .ref {
+.chart polyline.ref {
   stroke: var(--color-muted);
   stroke-dasharray: 4 4;
 }
 
-.chart .alt {
+.chart polyline.alt {
   stroke: var(--color-line-strong);
   stroke-width: 1;
 }
 
-.chart .bad {
+.chart polyline.bad {
   stroke: var(--color-danger);
 }
 
-.chart .win {
+.chart polyline.win {
   stroke: var(--color-teal);
   stroke-width: 2.25;
 }
@@ -44,9 +44,23 @@
   opacity: 0.7;
 }
 
+.chart .band {
+  fill: var(--color-teal-band);
+  stroke: none;
+}
+
 .tick-label {
-  font: 10px var(--font-mono);
+  font: 9px var(--font-mono);
   fill: var(--color-muted);
+}
+
+.tick-label.incident-label {
+  fill: var(--color-danger);
+}
+
+.saved {
+  font: 600 var(--text-xs) var(--font-mono);
+  fill: var(--color-teal);
 }
 
 .end-label {

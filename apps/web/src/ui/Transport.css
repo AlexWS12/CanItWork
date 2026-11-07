@@ -1,63 +1,101 @@
+/* Dock: controls, one KPI tile per stat, then the break buttons */
 .transport {
   position: fixed;
   left: var(--gutter);
   right: var(--gutter);
   bottom: var(--gutter);
   height: var(--dock-h);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-5);
-  padding: 0 var(--space-4);
+  display: grid;
+  grid-template-columns: auto repeat(var(--stats, 4), minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: stretch;
+  padding: 10px;
 }
 
-.controls,
-.breakers,
-.stats {
+.controls {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.controls button[aria-pressed='true'] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 var(--space-2);
 }
 
 .play {
-  min-width: 64px;
+  min-height: 0;
+  padding: 6px var(--space-4);
+  border: 0;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: var(--text-md);
+  font-weight: 600;
 }
 
-.tick {
-  font-family: var(--font-mono);
-  color: var(--color-muted);
-  font-size: var(--text-sm);
-  margin-left: var(--space-2);
-  min-width: 64px;
+.play:hover:not(:disabled) {
+  background: var(--color-accent-hover);
 }
 
-.stats {
-  gap: var(--space-5);
-  flex: 1;
-  min-width: 0;
+.speeds {
+  display: flex;
   justify-content: center;
+  gap: var(--space-half);
+  font: var(--text-xs) var(--font-mono);
+}
+
+.speeds button {
+  min-height: 0;
+  padding: var(--space-half) 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--color-muted);
+}
+
+.speeds button:hover:not(:disabled) {
+  background: var(--color-fill);
+  color: var(--color-text);
+}
+
+.speeds button[aria-pressed='true'] {
+  background: var(--color-fill-hover);
+  color: var(--color-accent);
+}
+
+/* The tiles sit straight in the dock's grid; narrow screens give them their own row */
+.stats {
+  display: contents;
 }
 
 .stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill-subtle);
   white-space: nowrap;
 }
 
+.stat-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .stat b {
-  display: block;
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: var(--text-xl);
-  line-height: 1.15;
+  font: 500 var(--text-2xl) / 1.1 var(--font-mono);
 }
 
 .stat span {
   color: var(--color-muted);
   font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat[data-primary='true'] b {
+  color: var(--color-teal);
 }
 
 .stat[data-tone='warn'] b {
@@ -68,24 +106,45 @@
   color: var(--color-danger);
 }
 
-.breakers {
-  min-width: 0;
+.stat .spark {
+  flex: none;
+  color: var(--color-muted);
 }
 
-.breakers > span {
-  color: var(--color-muted);
-  font-size: var(--text-sm);
-  margin-right: var(--space-half);
+.stat[data-primary='true'] .spark {
+  color: var(--color-teal);
+}
+
+.breakers {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  align-content: center;
+  gap: var(--space-1);
+  padding-left: 6px;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.breakers-head {
+  grid-column: 1 / -1;
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-danger);
 }
 
 .breakers button {
-  max-width: 132px;
+  min-height: 0;
+  max-width: 160px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-2xs);
+  border: 1px solid var(--color-danger-line);
+  background: none;
+  color: var(--color-danger-soft);
   font-size: var(--text-sm);
-  padding: var(--space-1) var(--space-2);
   overflow: hidden;
   text-overflow: ellipsis;
-  border-color: var(--color-danger-line);
-  color: var(--color-danger-soft);
 }
 
 .breakers button:hover:not(:disabled) {
@@ -93,36 +152,38 @@
   border-color: var(--color-danger);
 }
 
-@media (max-width: 1100px) {
-  .stats .spark {
+@media (max-width: 1280px) {
+  .stat .spark {
     display: none;
-  }
-
-  .stats {
-    gap: var(--space-4);
   }
 }
 
 /* Two rows: controls and stats on top, the break buttons scroll sideways below */
 @media (max-width: 900px) {
   .transport {
-    display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-content: center;
-    gap: var(--space-2) var(--space-4);
+    gap: var(--space-2) var(--space-3);
     padding: var(--space-2) var(--space-3);
   }
 
-  .tick {
-    min-width: 0;
+  .controls {
+    flex-direction: row;
+    align-items: center;
+    padding: 0;
   }
 
   .stats {
-    justify-content: safe flex-end;
-    gap: var(--space-4);
+    display: flex;
+    gap: var(--space-2);
     overflow-x: auto;
     scrollbar-width: none;
+  }
+
+  .stat {
+    flex: none;
+    padding: var(--space-1) var(--space-2);
   }
 
   .stat b {
@@ -131,8 +192,14 @@
 
   .breakers {
     grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
     overflow-x: auto;
-    scrollbar-width: none;
+    overflow-y: visible;
+  }
+
+  .breakers-head {
+    margin-right: var(--space-1);
   }
 
   .breakers button {
@@ -141,11 +208,7 @@
 }
 
 @media (max-width: 480px) {
-  .controls button:not(.play) {
-    padding: var(--space-1) var(--space-2);
-  }
-
-  .tick {
+  .speeds {
     display: none;
   }
 }

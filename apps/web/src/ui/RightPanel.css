@@ -1,5 +1,6 @@
 .panel.right {
   right: var(--gutter);
+  width: var(--panel-right-w);
 }
 
 .tabs {
@@ -38,7 +39,6 @@
   outline-offset: -2px;
 }
 
-.trace,
 .ledger {
   flex: 1;
   overflow-y: auto;
@@ -48,13 +48,141 @@
   gap: var(--space-2);
 }
 
-.trace h3 {
-  font-size: var(--text-xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+.agents {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* How the Red Team's claims fared in the simulator */
+.scoreboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: var(--space-4);
+  border-bottom: var(--rule);
+}
+
+.score-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-card);
+  font-size: var(--text-sm);
+}
+
+.score-tile b {
+  font: 500 32px / 1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.score-tile[data-verdict='confirmed'] {
+  background: var(--color-danger-fill);
+  color: var(--color-danger-soft);
+}
+
+.score-tile[data-verdict='confirmed'] b {
+  color: var(--color-danger);
+}
+
+.score-tile[data-verdict='refuted'] {
+  background: var(--color-teal-fill);
+  color: var(--color-teal);
+}
+
+.claims {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: var(--text-md);
+}
+
+.claim {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.claim .verdict {
+  flex: none;
+  width: 72px;
+}
+
+.claim[data-verdict='confirmed'] .verdict {
+  color: var(--color-danger);
+}
+
+.claim[data-verdict='refuted'] .verdict {
+  color: var(--color-teal);
+}
+
+.claim .delta {
+  display: block;
+  margin-top: var(--space-half);
+}
+
+/* Compact trace: one line per step, pinned to the bottom */
+.trace {
+  list-style: none;
+  margin: auto 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.trace-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 0;
+  padding: var(--space-half) 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.trace-line:hover:not(:disabled) {
+  background: none;
+  color: var(--color-text);
+}
+
+.trace-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trace-line[data-status='failed'] .trace-title {
+  color: var(--color-danger-soft);
+}
+
+.trace-engine {
+  flex: none;
+  font: var(--text-xs) var(--font-mono);
   color: var(--color-muted);
-  margin-top: var(--space-2);
+}
+
+.trace-engine[data-engine='simulator'] {
+  color: var(--color-teal);
+}
+
+.trace-line[data-status='running'] .trace-engine {
+  color: var(--color-accent);
+}
+
+.trace .step {
+  margin: var(--space-1) 0 var(--space-2);
 }
 
 /* Each step carries its status as a dot beside the agent name */
@@ -103,13 +231,6 @@
   background: var(--status);
 }
 
-.step-ms {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-muted);
-}
-
 .step small {
   display: block;
   color: var(--color-muted);
@@ -141,28 +262,9 @@
   border-color: var(--color-accent-line);
 }
 
-.finding {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  border: var(--rule);
-  font-size: var(--text-sm);
-}
-
 .verdict {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-}
-
-.finding[data-verdict='confirmed'] .verdict {
-  color: var(--color-danger);
-}
-
-.finding[data-verdict='refuted'] .verdict {
-  color: var(--color-teal);
-}
-
-.finding p {
-  margin: var(--space-1) 0;
 }
 
 .delta {

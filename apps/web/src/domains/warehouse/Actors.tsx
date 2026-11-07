@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { useStore } from '../../store';
-import { pick } from '../shared';
+import { ClaimPin, pick } from '../shared';
 import { COLORS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
@@ -113,6 +113,7 @@ function Robot({ world, index }: { world: World; index: number }) {
         <Html position={[0, 1.15, 0]} center zIndexRange={[10, 0]} wrapperClass="robot-tag-wrap">
           <div ref={label} className="scene-tag" style={{ ['--tag' as string]: tint }} />
         </Html>
+        <ClaimPin id={warehouseSim()?.robots[index]?.id ?? ''} position={[0, 0.4, 0]} />
       </group>
     </>
   );

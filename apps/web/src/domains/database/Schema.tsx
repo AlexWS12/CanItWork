@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { pick } from '../shared';
+import { ClaimPin, pick } from '../shared';
 
 const engine = () => runner.run as SchemaRun | null;
 const WIDTH = 5.6;
@@ -159,6 +159,7 @@ function Card({ table, at }: { table: Table; at: THREE.Vector3 }) {
         <planeGeometry args={[WIDTH + 0.28, height + 0.28]} />
         <meshBasicMaterial color="#22d3ee" toneMapped={false} />
       </mesh>
+      <ClaimPin id={table.name} position={[0, 0.1, 0]} />
     </group>
   );
 }

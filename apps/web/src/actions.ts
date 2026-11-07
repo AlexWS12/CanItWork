@@ -1,6 +1,7 @@
 import type { Candidate, Environment, Incident, ProviderStatus, StreamEvent } from '@tv/core';
+import { matchEntities } from './entities';
 import { runner } from './runner';
-import { useStore } from './store';
+import { useStore, type Message } from './store';
 
 const store = () => useStore.getState();
 
@@ -34,6 +35,7 @@ function common(event: StreamEvent) {
   switch (event.type) {
     case 'step':
       store().addStep(event);
+      if (event.odds) store().set({ domainOdds: event.odds });
       break;
     case 'usage':
       store().set({ usage: [...store().usage, event.usage] });
@@ -45,6 +47,14 @@ function common(event: StreamEvent) {
       store().addMessage({ role: 'app', text: event.message });
       break;
   }
+}
+
+// Credits a reply to the step that just ran, which is the one that produced it
+function reply(text: string) {
+  const last = store().steps[store().steps.length - 1];
+  const message: Message = { role: 'app', text };
+  if (last) message.source = { agent: last.agent, engine: last.engine };
+  store().addMessage(message);
 }
 
 function loadEnvironment(environment: Environment) {
@@ -62,14 +72,17 @@ export async function fetchStatus() {
 }
 
 export async function buildEnvironment(prompt: string) {
-  store().set({ building: true, steps: [], findings: [], report: null, appliedId: null, refusal: null });
+  store().set({ building: true, prompt, entities: [], domainOdds: null, steps: [], findings: [], report: null, appliedId: null, refusal: null });
   store().addMessage({ role: 'user', text: prompt });
   try {
     await stream('/api/build', { prompt }, (event) => {
       common(event);
-      if (event.type === 'environment') loadEnvironment(event.environment);
+      if (event.type === 'environment') {
+        store().set({ entities: matchEntities(prompt, event.environment.spec) });
+        loadEnvironment(event.environment);
+      }
       if (event.type === 'refusal') store().set({ refusal: event.refusal });
-      if (event.type === 'reply') store().addMessage({ role: 'app', text: event.text });
+      if (event.type === 'reply') reply(event.text);
     });
   } catch (error) {
     store().addMessage({ role: 'app', text: String(error) });
@@ -92,7 +105,7 @@ export async function sendChat(message: string) {
     await stream('/api/chat', { environment, message, ...history, metrics: telemetry.stats }, (event) => {
       common(event);
       if (event.type !== 'reply') return;
-      store().addMessage({ role: 'app', text: event.text });
+      reply(event.text);
       const { action } = event;
       if (action.kind === 'patch') runner.applyPatches(action.patches);
       if (action.kind === 'rebuild') loadEnvironment(action.environment);

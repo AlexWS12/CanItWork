@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { Tag, pick } from '../shared';
+import { ClaimPin, Tag, pick } from '../shared';
 
 const system = () => runner.run as SystemRun | null;
 const LAYER_GAP = 7;
@@ -260,6 +260,7 @@ export function Topology() {
             <NodeBody node={node} />
             <Beacon node={node} />
             <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3} />
+            <ClaimPin id={node.id} position={[0, 1.6, 0]} />
           </group>
         );
       })}

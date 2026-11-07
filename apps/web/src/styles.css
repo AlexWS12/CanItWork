@@ -76,9 +76,7 @@ p {
 
 .num,
 .stat b,
-.score,
-.step-ms,
-.tick {
+.score {
   font-variant-numeric: tabular-nums;
 }
 
@@ -99,9 +97,8 @@ p {
 /* Side panels */
 .panel {
   position: fixed;
-  top: var(--gutter);
+  top: calc(var(--top-h) + var(--gutter));
   bottom: calc(var(--dock-h) + var(--gutter) * 2);
-  width: var(--panel-w);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -133,25 +130,144 @@ p {
   border-color: var(--color-danger);
 }
 
-/* The status strip needs its own row once the panels close in on it */
-@media (max-width: 1180px) {
-  .panel {
-    top: var(--top-h);
+/* Small uppercase label over a section */
+.kicker {
+  font: 500 var(--text-xs) var(--font-mono);
+  color: var(--color-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Pulsing dot for anything running */
+.pulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  animation: tvpulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tvpulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--color-accent-halo);
   }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Red Team claims pinned over the part they're about. The dot sits on the part. */
+.claim-pin {
+  --pin: var(--color-danger);
+  --pin-line: var(--color-danger-line);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  transform: translate(-24px, calc(-100% + 5px));
+  pointer-events: none;
+  animation: claim-in 200ms var(--ease-out) 200ms backwards;
+}
+
+.claim-pin[data-side='left'] {
+  align-items: flex-end;
+  transform: translate(calc(-100% + 24px), calc(-100% + 5px));
+}
+
+.claim-pin[data-verdict='refuted'] {
+  --pin: var(--color-teal);
+  --pin-line: var(--color-teal-line);
+}
+
+@keyframes claim-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.claim-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: max-content;
+  max-width: 260px;
+  min-height: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--pin-line);
+  background: var(--color-surface-opaque);
+  font-size: var(--text-md);
+  text-align: left;
+  white-space: normal;
+  pointer-events: auto;
+}
+
+.claim-card:hover:not(:disabled) {
+  background: var(--color-surface-opaque);
+  border-color: var(--pin);
+}
+
+.claim-pin[data-verdict='confirmed'] .claim-card {
+  box-shadow: 0 0 30px var(--color-danger-glow);
+}
+
+.claim-kicker {
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pin);
+}
+
+.claim-leader {
+  width: 1px;
+  height: 52px;
+  margin: 0 24px;
+  background: var(--pin-line);
+}
+
+.claim-dot {
+  width: 10px;
+  height: 10px;
+  margin: 0 19px;
+  border-radius: var(--radius-pill);
+  background: var(--pin);
+}
+
+.claim-pin[data-verdict='confirmed'] .claim-dot {
+  box-shadow: 0 0 0 6px var(--color-danger-glow);
 }
 
 /* Narrow screens: one panel at a time, picked from the view switcher */
 @media (max-width: 900px) {
+  /* The view switcher gets its own row under the top bar */
   :root {
     --gutter: var(--space-2);
-    --top-h: 92px;
+    --top-h: calc(var(--bar-h) + 44px);
     --dock-h: 116px;
   }
 
-  .panel {
+  .panel,
+  .panel.left,
+  .panel.right {
     left: var(--gutter);
     right: var(--gutter);
     width: auto;
+  }
+
+  .claim-pin {
+    display: none;
   }
 
   :root[data-view='scene'] .panel,
