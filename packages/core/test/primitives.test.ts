@@ -1,0 +1,327 @@
+import { describe, expect, it } from 'vitest';
+import { CircuitRun, DOMAINS, type CircuitSpec } from '../src';
+
+const { electronics } = DOMAINS;
+const settle = (spec: CircuitSpec, setup?: (run: CircuitRun) => void, ticks = 6) => {
+  const run = new CircuitRun(spec, 1);
+  setup?.(run);
+  for (let i = 0; i < ticks; i++) run.step();
+  return run;
+};
+const part = (spec: CircuitSpec, id: string) => spec.parts.find((p) => p.id === id)!;
+
+describe('diode', () => {
+  const circuit = (reversed: boolean): CircuitSpec => ({
+    parts: [
+      { id: 'B1', type: 'battery', volts: 9 },
+      { id: 'D1', type: 'diode' },
+      { id: 'R1', type: 'resistor', ohms: 470 },
+      { id: 'L1', type: 'led', color: 'red' },
+    ],
+    wires: [
+      { from: 'B1.pos', to: reversed ? 'D1.cathode' : 'D1.anode' },
+      { from: reversed ? 'D1.anode' : 'D1.cathode', to: 'R1.a' },
+      { from: 'R1.b', to: 'L1.anode' },
+      { from: 'L1.cathode', to: 'B1.neg' },
+    ],
+    drive: [],
+  });
+
+  it('conducts forwards with about 0.7 V across it', () => {
+    const spec = circuit(false);
+    const run = settle(spec);
+    expect(run.isRunning(part(spec, 'L1'))).toBe(true);
+    expect(run.voltsBetween('D1.anode', 'D1.cathode')).toBeCloseTo(0.7, 0);
+  });
+
+  it('blocks current backwards', () => {
+    const spec = circuit(true);
+    expect(settle(spec).isRunning(part(spec, 'L1'))).toBe(false);
+  });
+});
+
+describe('Zener diode', () => {
+  it('regulates a 9 V supply to its 5.1 V rating through a series resistor, and holds under load', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'B1', type: 'battery', volts: 9 },
+        { id: 'R1', type: 'resistor', ohms: 220 },
+        { id: 'Z1', type: 'diode', zener: 5.1 },
+        { id: 'RL', type: 'resistor', ohms: 1000 },
+      ],
+      wires: [
+        { from: 'B1.pos', to: 'R1.a' },
+        { from: 'R1.b', to: 'Z1.cathode' },
+        { from: 'Z1.anode', to: 'B1.neg' },
+        { from: 'R1.b', to: 'RL.a' },
+        { from: 'RL.b', to: 'B1.neg' },
+      ],
+      drive: [],
+    };
+    expect(settle(spec).voltsBetween('Z1.cathode', 'Z1.anode')).toBeCloseTo(5.1, 0);
+    // Without the Zener the divider would sit at 9 x 1000/1220 = 7.4 V.
+    const plain = structuredClone(spec);
+    plain.parts = plain.parts.filter((p) => p.id !== 'Z1');
+    plain.wires = plain.wires.filter((w) => !w.to.startsWith('Z1') && !w.from.startsWith('Z1'));
+    expect(settle(plain).voltsBetween('RL.a', 'B1.neg')).toBeCloseTo(7.4, 0);
+  });
+});
+
+describe('potentiometer', () => {
+  const dimmer: CircuitSpec = {
+    parts: [
+      { id: 'B1', type: 'battery', volts: 9 },
+      { id: 'P1', type: 'pot', ohms: 10000 },
+      { id: 'R1', type: 'resistor', ohms: 220 },
+      { id: 'L1', type: 'led', color: 'green' },
+    ],
+    wires: [
+      { from: 'B1.pos', to: 'P1.a' },
+      { from: 'P1.wiper', to: 'R1.a' },
+      { from: 'R1.b', to: 'L1.anode' },
+      { from: 'L1.cathode', to: 'B1.neg' },
+    ],
+    drive: [],
+  };
+  const amps = (position: number) => settle(dimmer, (r) => r.inject({ type: 'set_reading', target: 'P1', value: position })).readings.get('L1')?.amps ?? 0;
+
+  it('brightens the LED as it is turned up', () => {
+    expect(amps(95)).toBeGreaterThan(amps(50));
+    expect(amps(50)).toBeGreaterThan(amps(5));
+  });
+});
+
+describe('light and temperature sensors', () => {
+  const divider = (type: 'ldr' | 'thermistor'): CircuitSpec => ({
+    parts: [
+      { id: 'B1', type: 'battery', volts: 5 },
+      { id: 'S1', type },
+      { id: 'R1', type: 'resistor', ohms: 10000 },
+    ],
+    wires: [
+      { from: 'B1.pos', to: 'S1.a' },
+      { from: 'S1.b', to: 'R1.a' },
+      { from: 'R1.b', to: 'B1.neg' },
+    ],
+    drive: [],
+  });
+  const out = (type: 'ldr' | 'thermistor', value: number) => settle(divider(type), (r) => r.inject({ type: 'set_reading', target: 'S1', value })).voltsBetween('R1.a', 'B1.neg');
+
+  it('an LDR divider rises with light', () => {
+    expect(out('ldr', 90)).toBeGreaterThan(out('ldr', 50));
+    expect(out('ldr', 50)).toBeGreaterThan(out('ldr', 10));
+  });
+
+  it('a 10k NTC thermistor reads 10k at 25 C and falls as it warms', () => {
+    expect(out('thermistor', 25)).toBeCloseTo(2.5, 1);
+    expect(out('thermistor', 60)).toBeGreaterThan(out('thermistor', 25));
+  });
+});
+
+describe('7-segment display', () => {
+  // A CD4511-style decoder: four input switches set a BCD digit, which the display shows.
+  const decoder = {
+    0: 'abcdef',
+    1: 'bc',
+    2: 'abdeg',
+    3: 'abcdg',
+    4: 'bcfg',
+    5: 'acdfg',
+    6: 'acdefg',
+    7: 'abc',
+    8: 'abcdefg',
+    9: 'abcdfg',
+  } as Record<number, string>;
+  const segment = (seg: string) =>
+    Object.entries(decoder)
+      .filter(([, lit]) => lit.includes(seg))
+      .map(([n]) => `n == ${n}`)
+      .join(' || ');
+  const spec: CircuitSpec = {
+    parts: [
+      { id: 'B1', type: 'battery', volts: 5 },
+      {
+        id: 'U1',
+        type: 'custom',
+        package: 'dip',
+        custom: {
+          label: 'CD4511 BCD to 7-segment decoder',
+          pins: ['VDD', 'VSS', 'A', 'B', 'C', 'D', 'a', 'b', 'c', 'd', 'e', 'f', 'g'],
+          paths: [{ a: 'VDD', b: 'VSS', ohms: 5000 }],
+          switches: [],
+          drivers: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((seg) => ({
+            pin: seg,
+            high: 'VDD',
+            low: 'VSS',
+            when: segment(seg).replace(/n/g, '(A + 2 * B + 4 * C + 8 * D)'),
+            ref: 'VSS',
+            aboveVolts: 2.5,
+            ohms: 50,
+            invert: false,
+          })),
+          sources: [],
+          gpio: [],
+          supply: { pos: 'VDD', neg: 'VSS', minVolts: 3, maxVolts: 18 },
+          output: false,
+          visual: [],
+        },
+      },
+      { id: 'X1', type: 'seven_segment', common: 'cathode' },
+      ...['A', 'B', 'C', 'D'].flatMap((bit) => [
+        { id: `S${bit}`, type: 'switch' as const },
+        { id: `RP${bit}`, type: 'resistor' as const, ohms: 10000 },
+      ]),
+      ...['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((seg) => ({ id: `R${seg}`, type: 'resistor' as const, ohms: 330 })),
+    ],
+    wires: [
+      { from: 'B1.pos', to: 'U1.VDD' },
+      { from: 'U1.VSS', to: 'B1.neg' },
+      { from: 'X1.com', to: 'B1.neg' },
+      ...['A', 'B', 'C', 'D'].flatMap((bit) => [
+        { from: 'B1.pos', to: `S${bit}.a` },
+        { from: `S${bit}.b`, to: `U1.${bit}` },
+        { from: `U1.${bit}`, to: `RP${bit}.a` },
+        { from: `RP${bit}.b`, to: 'B1.neg' },
+      ]),
+      ...['a', 'b', 'c', 'd', 'e', 'f', 'g'].flatMap((seg) => [
+        { from: `U1.${seg}`, to: `R${seg}.a` },
+        { from: `R${seg}.b`, to: `X1.${seg}` },
+      ]),
+    ],
+    drive: [],
+  };
+
+  it('shows the digit set on the switches', () => {
+    for (const n of [0, 1, 2, 5, 7, 8, 9]) {
+      const run = settle(spec, (r) => ['A', 'B', 'C', 'D'].forEach((bit, i) => r.inject({ type: 'set_reading', target: `S${bit}`, value: (n >> i) & 1 })));
+      expect(run.glyph(part(spec, 'X1')), `digit ${n}`).toBe(String(n));
+    }
+  });
+
+  it('lets behaviour tests name a segment pin, as in "X1.g is lit"', () => {
+    const tests = [
+      { name: '1', set: { SA: 1, SB: 0, SC: 0, SD: 0 }, on: ['X1.b', 'X1.c'], off: ['X1.a', 'X1.g'] },
+      { name: '8 wrong on purpose', set: { SA: 0, SB: 0, SC: 0, SD: 1 }, on: [], off: ['X1.g'] },
+    ];
+    const issue = electronics.validate({ ...spec, tests }).find((i) => /behaviour tests fail/.test(i.message));
+    expect(issue?.message).toMatch(/1 of 2 behaviour tests fail/);
+    expect(issue?.message).toMatch(/X1\.g should be off but is on/);
+  });
+
+  it('validates, with every segment lighting in some case', () => {
+    const issues = electronics.validate({ ...spec, tests: [{ name: '8', set: { SA: 0, SB: 0, SC: 0, SD: 1 }, on: ['X1'], off: [] }] });
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+  });
+});
+
+describe('boards on USB', () => {
+  // A Pico-style board: its 3V3 rail comes from VBUS, and a servo is powered from VBUS.
+  const board = (battery: boolean): CircuitSpec => ({
+    parts: [
+      {
+        id: 'P1',
+        type: 'custom',
+        package: 'module',
+        custom: {
+          label: 'Raspberry Pi Pico',
+          pins: ['VBUS', 'VSYS', '3V3', 'GND', 'GP0'],
+          paths: [],
+          switches: [],
+          drivers: [],
+          sources: [{ pos: '3V3', neg: 'GND', volts: 3.3, ohms: 1, from: 'VBUS', dropout: 0.3 }],
+          gpio: ['GP0'],
+          gpioVolts: 3.3,
+          output: false,
+          visual: [],
+        },
+      },
+      { id: 'R1', type: 'resistor', ohms: 100 },
+      ...(battery ? [{ id: 'B1', type: 'battery' as const, volts: 3 }] : []),
+    ],
+    wires: [
+      { from: 'P1.VBUS', to: 'R1.a' },
+      { from: 'R1.b', to: 'P1.GND' },
+      ...(battery
+        ? [
+            { from: 'B1.pos', to: 'P1.VBUS' },
+            { from: 'B1.neg', to: 'P1.GND' },
+          ]
+        : []),
+    ],
+    drive: [],
+  });
+
+  it('puts USB 5 V on the regulator input pin for loads wired to it', () => {
+    expect(settle(board(false)).voltsBetween('P1.VBUS', 'P1.GND')).toBeCloseTo(5, 0);
+  });
+
+  it('runs from a real supply when one feeds that pin, with no USB 5 V added', () => {
+    // A 3 V battery on VBUS leaves VBUS near 3 V: USB isn't assumed once a supply is wired in.
+    expect(settle(board(true)).voltsBetween('P1.VBUS', 'P1.GND')).toBeLessThan(3.2);
+  });
+});
+
+describe('transistors', () => {
+  // Night light: 47k from +9 V to the base node, LDR from the base node to ground, 1k into the base; the LED hangs off the collector.
+  // (With only 10k on top, daylight still leaves the base node near 1.5 V and the light stays on, as it would on a real bench.)
+  const nightLight: CircuitSpec = {
+    parts: [
+      { id: 'B1', type: 'battery', volts: 9 },
+      { id: 'RT', type: 'resistor', ohms: 47000 },
+      { id: 'LDR1', type: 'ldr' },
+      { id: 'RB', type: 'resistor', ohms: 1000 },
+      { id: 'Q1', type: 'npn' },
+      { id: 'RL', type: 'resistor', ohms: 470 },
+      { id: 'D1', type: 'led', color: 'yellow' },
+    ],
+    wires: [
+      { from: 'B1.pos', to: 'RT.a' },
+      { from: 'RT.b', to: 'LDR1.a' },
+      { from: 'LDR1.b', to: 'B1.neg' },
+      { from: 'RT.b', to: 'RB.a' },
+      { from: 'RB.b', to: 'Q1.B' },
+      { from: 'Q1.E', to: 'B1.neg' },
+      { from: 'B1.pos', to: 'RL.a' },
+      { from: 'RL.b', to: 'D1.anode' },
+      { from: 'D1.cathode', to: 'Q1.C' },
+    ],
+    drive: [],
+  };
+  const lit = (spec: CircuitSpec, setup: (r: CircuitRun) => void) => settle(spec, setup).isRunning(part(spec, 'D1'));
+
+  it('an NPN night light turns on in the dark and off in daylight', () => {
+    expect(lit(nightLight, (r) => r.inject({ type: 'set_reading', target: 'LDR1', value: 5 }))).toBe(true);
+    expect(lit(nightLight, (r) => r.inject({ type: 'set_reading', target: 'LDR1', value: 90 }))).toBe(false);
+  });
+
+  it("an NPN's base sits at about 0.65 V when it conducts, like a real junction", () => {
+    const run = settle(nightLight, (r) => r.inject({ type: 'set_reading', target: 'LDR1', value: 5 }));
+    expect(run.voltsBetween('Q1.B', 'Q1.E')).toBeCloseTo(0.65, 1);
+  });
+
+  it('a logic-level MOSFET switches a load from a gate with a pull-down', () => {
+    const spec: CircuitSpec = {
+      parts: [
+        { id: 'B1', type: 'battery', volts: 5 },
+        { id: 'S1', type: 'switch' },
+        { id: 'RG', type: 'resistor', ohms: 100000 },
+        { id: 'M1', type: 'nmos' },
+        { id: 'RL', type: 'resistor', ohms: 220 },
+        { id: 'D1', type: 'led', color: 'red' },
+      ],
+      wires: [
+        { from: 'B1.pos', to: 'S1.a' },
+        { from: 'S1.b', to: 'M1.G' },
+        { from: 'M1.G', to: 'RG.a' },
+        { from: 'RG.b', to: 'B1.neg' },
+        { from: 'M1.S', to: 'B1.neg' },
+        { from: 'B1.pos', to: 'RL.a' },
+        { from: 'RL.b', to: 'D1.anode' },
+        { from: 'D1.cathode', to: 'M1.D' },
+      ],
+      drive: [],
+    };
+    expect(lit(spec, () => undefined)).toBe(false);
+    expect(lit(spec, (r) => r.inject({ type: 'set_reading', target: 'S1', value: 1 }))).toBe(true);
+  });
+});

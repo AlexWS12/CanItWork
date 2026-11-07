@@ -64,6 +64,15 @@ What's verified:
   - a self-watering planter, a robot that stops before a wall, and an ESP32 thermostat.
 - Checked in the browser with a mocked build: the planter holds its soil in range, and burning the pump turns the world panel red and drops the score.
 
+### Circuits without a microcontroller (branch `alex/circuits-beyond-arduino`)
+
+- **Logic:** a custom part's switch or driver `when` can be a logic expression over its own pins (`A1 && B1`, `A1 != B1` for XOR). A bare pin is its logic level, `v.PIN` its voltage over `ref`. Chips with memory add `state` (vars plus rules, optionally on a rising `edge`), which covers flip-flops, counters and the 555. It's all evaluated inside the solver's fixed point, so chained gates settle in one tick.
+- **Inputs:** `switch` is a toggle (`closed` sets its start), `button` is momentary. Clicking either on the bench flips it.
+- **Behaviour tests:** a spec can carry `tests` (`set` inputs, then outputs `on` or `off`). The validator runs every row. A failing row is traced back to the chip output that drives the wrong part, with its logic and each input's level and source, and goes to the Architect as a repair note. Program-free circuits with inputs must carry tests, with every combination when there are 4 inputs or fewer.
+- **Packages and breadboard:** every part can name a `package` (dip, module, to92, to220, axial, radial, bulb, display, pot, relay, motor, speaker, sensor). `Packages.tsx` draws each family from its pin count and label, so any chip or board looks right without its own model. `layout: "breadboard"` puts the circuit on a real breadboard (`Breadboard.tsx`): chips straddle the channel, leads go into holes, pull-downs go straight into the rails, and each spec wire becomes a jumper between holes. A wire whose two ends already share a strip isn't drawn, as on a real board.
+- **Named boards:** anything other than an Arduino Uno or Nano (Seeed XIAO, Pico, ESP32) is a custom `module` with its real pin names. A board whose regulator input is unwired runs from USB.
+- **Eval:** `npm run eval:suite -w @tv/server -- [domain|case-id|new|routing]` runs live prompts through the whole pipeline and scores them, including whether the design's own tests pass and whether it shipped with failing checks. Each call is appended to `apps/server/.spend/ledger.jsonl`. Free-tier Gemini keys allow 15 requests a minute, so set `GEMINI_RPM=12`. `GEMINI_API_KEY` takes several comma-separated keys and rotates on quota errors.
+
 ## 2. Decisions made and rationale
 
 - **Scoring against a fault-free copy.** It separates "off because conditions changed" from "off because broken", and it catches stuck sensors.

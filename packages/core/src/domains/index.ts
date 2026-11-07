@@ -6,11 +6,12 @@ import { electronics } from './electronics';
 import { factory } from './factory';
 import { hospital } from './hospital';
 import { power } from './power';
+import { fleet } from './fleet';
 import { software } from './software';
 import { supply } from './supply';
 import { warehouse } from './warehouse';
 import { water } from './water';
 
-export const DOMAINS: Record<DomainId, Domain> = { electronics, software, database, warehouse, power, water, supply, hospital, factory, airport, callcenter };
+export const DOMAINS: Record<DomainId, Domain> = { electronics, software, database, warehouse, power, water, supply, hospital, factory, airport, callcenter, fleet };
 
 export const domainList = () => Object.values(DOMAINS);

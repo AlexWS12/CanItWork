@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
 import {
   FORWARD_VOLTS,
+  SEGMENTS,
+  glyphOf,
   GPIO,
   LIMITS,
   PIN_LIMIT,
@@ -17,7 +19,8 @@ import {
   type CustomPart,
   type Part,
 } from './parts';
-import { compile, evaluate, type Expr } from './sketch';
+import { netsOf } from './nets';
+import { aliasPins, compile, evaluate, type Expr, type Node } from './sketch';
 
 const MODES = z.enum(['high', 'low', 'blink', 'pwm', 'angle']);
 
@@ -42,6 +45,13 @@ const LEAK = 1e-9;
 const BURN_TICKS = 6;
 const SERIES_STEP = 5;
 const LED_RESISTANCE = 12;
+const SEGMENT_VOLTS = 2;
+const USB_VOLTS = 5;
+const DIODE_RESISTANCE = 0.3;
+const BE_VOLTS = 0.65;
+const BE_RESISTANCE = 50;
+const CE_SATURATED = 0.2;
+const MOS_ON = 0.05;
 const PIN_RESISTANCE = 25;
 const BROWNOUT_VOLTS = 4.3;
 const REGULATOR_DROP = 1.2;
@@ -64,6 +74,7 @@ interface Element {
   b: string;
   g: number;
   e: number;
+  ctrl?: { p: string; n: string; gain: number };
 }
 
 export interface Reading {
@@ -74,19 +85,26 @@ export interface Reading {
   rated: string;
 }
 
-function nodal(size: number, elements: Array<{ a: number; b: number; g: number; e: number }>): number[] {
+// Elements are conductances with a series EMF; one with p, n and gain is a voltage-controlled source: its EMF is gain x (V(p) - V(n)).
+function nodal(size: number, elements: Array<{ a: number; b: number; g: number; e: number; p?: number; n?: number; gain?: number }>): number[] {
   const m = size - 1;
   if (m <= 0) return [0];
   const A = Array.from({ length: m }, () => new Float64Array(m + 1));
   const stamp = (r: number, c: number, value: number) => {
     if (r > 0 && c > 0) A[r - 1][c - 1] += value;
   };
-  for (const { a, b, g, e } of elements) {
+  for (const { a, b, g, e, p, n, gain } of elements) {
     if (a === b) continue;
     stamp(a, a, g);
     stamp(b, b, g);
     stamp(a, b, -g);
     stamp(b, a, -g);
+    if (gain && p !== undefined && n !== undefined) {
+      stamp(a, p, -g * gain);
+      stamp(a, n, g * gain);
+      stamp(b, p, g * gain);
+      stamp(b, n, -g * gain);
+    }
     if (a > 0) A[a - 1][m] += g * e;
     if (b > 0) A[b - 1][m] -= g * e;
   }
@@ -186,6 +204,11 @@ export class CircuitRun implements Run {
   private peakAmps = 0;
   private dirty = true;
   private signature = '';
+  private segmentsOn = new Set<string>();
+  private closedSwitches = new Set<string>();
+  private ampState = new Map<string, 'linear' | 'high' | 'low'>();
+  private chipVars = new Map<string, Map<string, number>>();
+  private chipPrev = new Map<string, number>();
 
   constructor(spec: CircuitSpec, seed: number, reference = false) {
     this.spec = structuredClone(spec);
@@ -199,12 +222,68 @@ export class CircuitRun implements Run {
       if (part.type === 'motor') this.speeds.set(part.id, 0);
     }
     for (const wire of this.spec.wires) this.wired.add(wire.from).add(wire.to);
+    this.resetChips();
     this.twin = reference ? null : new CircuitRun(spec, seed, true);
   }
 
   private resetPins(board?: string) {
     for (const key of [...this.pinStates.keys()]) if (!board || key.startsWith(`${board}.`)) this.pinStates.delete(key);
     for (const d of this.spec.drive) if (!board || d.pin.startsWith(`${board}.`)) this.pinStates.set(d.pin, { mode: d.mode, value: d.value, period: d.period });
+  }
+
+  private resetChips() {
+    for (const part of this.spec.parts) if (part.custom?.state) this.chipVars.set(part.id, new Map(Object.entries(part.custom.state.vars)));
+  }
+
+  private chipExprs = new Map<string, { node: Node; unalias: (name: string) => string }>();
+
+  // Evaluates an expression over a chip's own pins and state, whatever its pins are called.
+  private chipEval(part: Part, source: string, lookup: (name: string) => number) {
+    const key = `${part.id}|${source}`;
+    let entry = this.chipExprs.get(key);
+    if (!entry) {
+      const aliased = aliasPins(source, pinsOf(part));
+      entry = { node: compile(aliased.source), unalias: aliased.unalias };
+      this.chipExprs.set(key, entry);
+    }
+    const { unalias } = entry;
+    return evaluate(entry.node, (name) => lookup(unalias(name)));
+  }
+
+  // Names inside a chip's expression: a bare pin is its logic level (1 when at least aboveVolts over ref), v.PIN its voltage over ref, and anything else one of the chip's state variables.
+  private chipLookup(part: Part, at: (key: string) => number, ref: string, aboveVolts: number) {
+    const pins = new Set(pinsOf(part));
+    const vars = this.chipVars.get(part.id);
+    return (name: string) => {
+      if (vars?.has(name)) return vars.get(name)!;
+      if (name.startsWith('v.') && pins.has(name.slice(2))) return at(`${part.id}.${name.slice(2)}`) - at(`${part.id}.${ref}`);
+      if (pins.has(name)) return at(`${part.id}.${name}`) - at(`${part.id}.${ref}`) >= aboveVolts ? 1 : 0;
+      throw new Error(`${part.id} has no pin or state called ${name}`);
+    };
+  }
+
+  private controlled(part: Part, c: { when: string; ref: string; aboveVolts: number }, at: (key: string) => number) {
+    if (pinsOf(part).includes(c.when)) return at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts;
+    return Boolean(this.chipEval(part, c.when, this.chipLookup(part, at, c.ref, c.aboveVolts)));
+  }
+
+  private stepChips() {
+    const at = (key: string) => this.volt(key);
+    for (const part of this.spec.parts) {
+      const state = part.custom?.state;
+      const vars = this.chipVars.get(part.id);
+      if (!state || !vars || this.burned.has(part.id)) continue;
+      const lookup = this.chipLookup(part, at, state.ref, state.aboveVolts);
+      for (const rule of state.rules) {
+        if (rule.edge) {
+          const key = `${part.id}.${rule.edge}`;
+          if (!(lookup(rule.edge) && !this.chipPrev.get(key))) continue;
+        }
+        if (rule.when && !this.chipEval(part, rule.when, lookup)) continue;
+        vars.set(rule.set, typeof rule.to === 'number' ? rule.to : this.chipEval(part, rule.to, lookup));
+      }
+      for (const rule of state.rules) if (rule.edge) this.chipPrev.set(`${part.id}.${rule.edge}`, lookup(rule.edge));
+    }
   }
 
   private part(id: string) {
@@ -229,7 +308,9 @@ export class CircuitRun implements Run {
   }
 
   private get dynamic() {
-    return this.spec.parts.some((p) => p.type === 'capacitor' || p.type === 'motor' || (p.type === 'arduino' && !this.usbPowered(p)) || p.custom?.sources.some((s) => s.from));
+    return this.spec.parts.some(
+      (p) => p.type === 'capacitor' || p.type === 'motor' || p.custom?.state || (p.type === 'arduino' && !this.usbPowered(p)) || p.custom?.sources.some((s) => s.from),
+    );
   }
 
   private get hasCapacitors() {
@@ -287,6 +368,20 @@ export class CircuitRun implements Run {
     return null;
   }
 
+  // A settable input's current value (a pot's position, an LDR's light), whether set directly or read from the world.
+  private inputLevel(id: string) {
+    return this.faults.get(id) ?? this.sensed(id);
+  }
+
+  litSegments(part: Part) {
+    if (part.type !== 'seven_segment' || this.burned.has(part.id)) return [];
+    return SEGMENTS.filter((seg) => this.segmentsOn.has(`${part.id}.${seg}`));
+  }
+
+  glyph(part: Part) {
+    return glyphOf(this.litSegments(part));
+  }
+
   private sensed(id: string) {
     const measures = this.sensor(id)?.measures;
     return measures !== undefined && this.world.has(measures) ? this.world.get(measures)! : this.values.get(id)!;
@@ -336,7 +431,7 @@ export class CircuitRun implements Run {
     const sensorId = this.sensorFor(target);
     if (sensorId) {
       const part = this.part(sensorId)!;
-      const needsPower = part.type !== 'custom' || Boolean(part.custom?.supply);
+      const needsPower = part.type === 'ultrasonic' || Boolean(part.custom?.supply);
       if (this.burned.has(sensorId) || this.shorted.has(sensorId) || (needsPower && !this.isPowered(part))) return NaN;
       return this.faults.get(sensorId) ?? this.sensed(sensorId);
     }
@@ -415,10 +510,32 @@ export class CircuitRun implements Run {
     });
   }
 
+  // A board runs from USB, like an Arduino with nothing on VIN, unless a real supply feeds its regulator input.
+  // Wiring a load to that input (a servo on a Pico's VBUS) doesn't count: on USB the input pin is itself a live 5 V output.
+  private onUsb(part: Part, source: Source) {
+    if (!part.custom?.gpio.length || part.usb === false || !source.from) return false;
+    const { find } = this.nets();
+    const net = find(`${part.id}.${source.from}`);
+    const fed = this.spec.parts.some((p) => {
+      if (p.id === part.id) return false;
+      const supplies = p.type === 'battery' ? ['pos'] : p.type === 'arduino' ? ['5V', 'VIN', '3V3'] : (p.custom?.sources.map((s) => s.pos) ?? []);
+      return supplies.some((pin) => find(`${p.id}.${pin}`) === net);
+    });
+    return !fed;
+  }
+
+  private netCache: { version: number; nets: ReturnType<typeof netsOf> } | null = null;
+  private nets() {
+    if (this.netCache?.version !== this.version)
+      this.netCache = { version: this.version, nets: netsOf({ ...this.spec, wires: this.spec.wires.filter((_, i) => !this.loose.has(i)) }) };
+    return this.netCache.nets;
+  }
+
   private sourceVolts(part: Part, source: Source) {
     const sag = this.sag.get(part.id);
     const limit = sag !== undefined ? Math.min(sag, source.volts) : source.volts;
     if (!source.from) return limit;
+    if (this.onUsb(part, source)) return limit;
     const input = this.volt(`${part.id}.${source.from}`) - this.volt(`${part.id}.${source.neg}`);
     return clamp(input - (source.dropout ?? 0), 0, limit);
   }
@@ -449,7 +566,7 @@ export class CircuitRun implements Run {
 
   private elements(on: Set<string>, logic: Map<string, boolean>, h: number, low: Set<string>) {
     const out: Element[] = [];
-    const add = (owner: string, a: string, b: string, ohms: number, e = 0) => out.push({ owner, a, b, g: 1 / ohms, e });
+    const add = (owner: string, a: string, b: string, ohms: number, e = 0, ctrl?: Element['ctrl']) => out.push({ owner, a, b, g: 1 / ohms, e, ctrl });
     for (const part of this.spec.parts) {
       const pin = (name: string) => `${part.id}.${name}`;
       if (this.burned.has(part.id)) continue;
@@ -487,7 +604,58 @@ export class CircuitRun implements Run {
         case 'led':
           if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), LED_RESISTANCE, FORWARD_VOLTS[part.color ?? 'red']);
           break;
+        // A BJT's base-emitter junction is a diode; once it conducts, the transistor saturates and closes collector to emitter.
+        case 'npn':
+          if (on.has(pin('B'))) {
+            add(part.id, pin('B'), pin('E'), BE_RESISTANCE, BE_VOLTS);
+            add(part.id, pin('C'), pin('E'), CE_SATURATED);
+          }
+          break;
+        case 'pnp':
+          if (on.has(pin('B'))) {
+            add(part.id, pin('E'), pin('B'), BE_RESISTANCE, BE_VOLTS);
+            add(part.id, pin('E'), pin('C'), CE_SATURATED);
+          }
+          break;
+        // A MOSFET's gate draws nothing; past its threshold ("volts", default 2 V for logic-level parts) the channel closes.
+        case 'nmos':
+        case 'pmos':
+          if (on.has(pin('G'))) add(part.id, pin('D'), pin('S'), MOS_ON);
+          break;
+        case 'diode':
+          if (on.has(part.id)) add(part.id, pin('anode'), pin('cathode'), DIODE_RESISTANCE, part.volts ?? 0.7);
+          // A Zener also conducts backwards once the reverse voltage reaches its rating, holding it there.
+          else if (part.zener && on.has(`${part.id}.reverse`)) add(part.id, pin('cathode'), pin('anode'), DIODE_RESISTANCE, part.zener);
+          break;
+        case 'pot': {
+          const total = part.ohms ?? 10000;
+          // Turned up to 100%, the wiper sits at the "a" end, so wiring "a" to the supply makes a higher setting a higher voltage.
+          const at = clamp(this.inputLevel(part.id) / 100, 0, 1);
+          add(part.id, pin('a'), pin('wiper'), Math.max(1, total * (1 - at)));
+          add(part.id, pin('wiper'), pin('b'), Math.max(1, total * at));
+          break;
+        }
+        case 'ldr': {
+          // About 1 MOhm in the dark down to 1 kOhm in bright light, on a log scale.
+          const light = clamp(this.inputLevel(part.id) / 100, 0, 1);
+          add(part.id, pin('a'), pin('b'), 10 ** (6 - 3 * light));
+          break;
+        }
+        case 'thermistor': {
+          // NTC: ohms at 25 C (default 10k), beta 3950.
+          const kelvin = this.inputLevel(part.id) + 273.15;
+          add(part.id, pin('a'), pin('b'), (part.ohms ?? 10000) * Math.exp(3950 * (1 / kelvin - 1 / 298.15)));
+          break;
+        }
+        case 'seven_segment':
+          for (const seg of SEGMENTS) {
+            if (!on.has(pin(seg))) continue;
+            if (part.common === 'anode') add(part.id, pin('com'), pin(seg), LED_RESISTANCE, SEGMENT_VOLTS);
+            else add(part.id, pin(seg), pin('com'), LED_RESISTANCE, SEGMENT_VOLTS);
+          }
+          break;
         case 'button':
+        case 'switch':
           if ((this.faults.get(part.id) ?? this.values.get(part.id) ?? 0) >= 0.5) add(part.id, pin('a'), pin('b'), 0.05);
           break;
         case 'motor': {
@@ -513,9 +681,17 @@ export class CircuitRun implements Run {
             if (high) add(part.id, pin(driver.high), pin(driver.pin), driver.ohms);
             else add(part.id, pin(driver.pin), pin(driver.low), driver.ohms);
           });
+          (custom.amplifiers ?? []).forEach((amp, i) => {
+            const state = this.ampState.get(pin(`amp${i}`)) ?? 'linear';
+            if (state === 'high') add(part.id, pin(amp.out), pin(amp.high), amp.ohms, this.volt(pin(amp.out)) > this.volt(pin(amp.high)) ? 0 : -amp.headroom);
+            else if (state === 'low') add(part.id, pin(amp.out), pin(amp.low), amp.ohms, amp.headroom);
+            else add(part.id, pin(amp.out), pin(amp.low), amp.ohms, 0, { p: pin(amp.plus), n: pin(amp.minus), gain: amp.gain });
+          });
           for (const source of custom.sources) {
             const e = this.sourceVolts(part, source);
             if (e > 0.05) add(part.id, pin(source.pos), pin(source.neg), source.ohms, e);
+            // USB's own 5 V comes out of the regulator input pin (VBUS, 5V) for anything wired to it.
+            if (source.from && this.onUsb(part, source) && !this.burned.has(part.id)) add(part.id, pin(source.from), pin(source.neg), 0.3, USB_VOLTS);
           }
           const sensor = custom.sensor;
           if (sensor?.pin && custom.supply && this.isPowered(part)) {
@@ -592,6 +768,7 @@ export class CircuitRun implements Run {
   }
 
   private solve(h: number) {
+    this.stepChips();
     if (this.topology?.version !== this.version) this.topology = this.connect();
     const { size, node: nodes } = this.topology;
     this.wired = this.topology.wired;
@@ -610,7 +787,7 @@ export class CircuitRun implements Run {
         elements = this.elements(on, logic, h, segment.low);
         v = nodal(
           size,
-          elements.map((el) => ({ a: node(el.a), b: node(el.b), g: el.g, e: el.e })),
+          elements.map((el) => ({ a: node(el.a), b: node(el.b), g: el.g, e: el.e, ...(el.ctrl ? { p: node(el.ctrl.p), n: node(el.ctrl.n), gain: el.ctrl.gain } : {}) })),
         );
         const at = (key: string) => v[node(key)] ?? 0;
         let changed = false;
@@ -619,6 +796,28 @@ export class CircuitRun implements Run {
           logic.set(key, value);
         };
         for (const part of this.spec.parts) {
+          const conduct = (key: string, drop: number, threshold: number) => {
+            const conducting = on.has(key) ? drop > threshold * 0.98 : drop > threshold;
+            if (conducting !== on.has(key)) {
+              changed = true;
+              if (conducting) on.add(key);
+              else on.delete(key);
+            }
+          };
+          if (part.type === 'npn') conduct(`${part.id}.B`, at(`${part.id}.B`) - at(`${part.id}.E`), BE_VOLTS);
+          if (part.type === 'pnp') conduct(`${part.id}.B`, at(`${part.id}.E`) - at(`${part.id}.B`), BE_VOLTS);
+          if (part.type === 'nmos') conduct(`${part.id}.G`, at(`${part.id}.G`) - at(`${part.id}.S`), part.volts ?? 2);
+          if (part.type === 'pmos') conduct(`${part.id}.G`, at(`${part.id}.S`) - at(`${part.id}.G`), part.volts ?? 2);
+          if (part.type === 'diode') {
+            conduct(part.id, at(`${part.id}.anode`) - at(`${part.id}.cathode`), part.volts ?? 0.7);
+            if (part.zener) conduct(`${part.id}.reverse`, at(`${part.id}.cathode`) - at(`${part.id}.anode`), part.zener);
+          }
+          if (part.type === 'seven_segment') {
+            for (const seg of SEGMENTS) {
+              const drop = at(`${part.id}.${seg}`) - at(`${part.id}.com`);
+              conduct(`${part.id}.${seg}`, part.common === 'anode' ? -drop : drop, SEGMENT_VOLTS);
+            }
+          }
           if (part.type === 'led') {
             const threshold = FORWARD_VOLTS[part.color ?? 'red'];
             const drop = at(`${part.id}.anode`) - at(`${part.id}.cathode`);
@@ -629,9 +828,21 @@ export class CircuitRun implements Run {
               else on.delete(part.id);
             }
           }
-          const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) =>
-            update(key, at(`${part.id}.${c.when}`) - at(`${part.id}.${c.ref}`) >= c.aboveVolts);
+          const control = (key: string, c: { when: string; ref: string; aboveVolts: number }) => update(key, this.controlled(part, c, at));
           part.custom?.switches.forEach((sw, i) => control(`${part.id}.switch${i}`, sw));
+          (part.custom?.amplifiers ?? []).forEach((amp, i) => {
+            const key = `${part.id}.amp${i}`;
+            const pin = (name: string) => `${part.id}.${name}`;
+            const top = at(pin(amp.high)) - amp.headroom;
+            const bottom = at(pin(amp.low)) + amp.headroom;
+            const wanted = at(pin(amp.low)) + amp.gain * (at(pin(amp.plus)) - at(pin(amp.minus)));
+            const now = this.ampState.get(key) ?? 'linear';
+            const next = wanted > top ? 'high' : wanted < bottom ? 'low' : 'linear';
+            if (next !== now) {
+              this.ampState.set(key, next);
+              changed = true;
+            }
+          });
           part.custom?.drivers.forEach((driver, i) => control(`${part.id}.driver${i}`, driver));
           if (part.type === 'motor_driver') {
             const pin = (name: string) => `${part.id}.${name}`;
@@ -658,6 +869,8 @@ export class CircuitRun implements Run {
       }
     }
 
+    this.segmentsOn = new Set([...on].filter((key) => key.includes('.')));
+    this.closedSwitches = new Set([...logic].filter(([key, value]) => value && /\.switch\d+$/.test(key)).map(([key]) => key));
     for (const [key, index] of nodes) this.lastVolts.set(key, average[index] ?? 0);
     const at = (key: string) => average[node(key)] ?? 0;
     this.readings.clear();
@@ -760,6 +973,8 @@ export class CircuitRun implements Run {
     switch (part.type) {
       case 'led':
         return (reading?.amps ?? 0) > 0.002;
+      case 'seven_segment':
+        return this.litSegments(part).length > 0;
       case 'buzzer':
         return (reading?.amps ?? 0) > 0.005;
       case 'motor':
@@ -769,6 +984,8 @@ export class CircuitRun implements Run {
       case 'custom': {
         const actuator = part.custom?.actuator;
         if (!this.isPowered(part)) return false;
+        // A relay or other switching part is on when its contacts are closed, not just because it has power.
+        if (!actuator && part.custom?.switches.length) return part.custom.switches.some((_, i) => this.closedSwitches.has(`${part.id}.switch${i}`));
         if (!actuator || actuator.quantity === 'angle') return true;
         if (actuator.quantity === 'text') return Boolean(this.texts.get(part.id));
         return ((this.outputs.get(part.id) ?? actuator.min) - actuator.min) / (actuator.max - actuator.min || 1) > 0.05;
@@ -1126,10 +1343,11 @@ export class CircuitRun implements Run {
     }
     if (reading) rows.push(['Voltage', volts(reading.volts)], ['Current', milli(reading.amps)], ['Rated', reading.rated], ['Load', `${Math.round(reading.load * 100)}%`]);
     const actions: Inspection['actions'] = [];
-    if (part.type === 'button' && !broken) {
+    if ((part.type === 'button' || part.type === 'switch') && !broken) {
       const pressed = (this.values.get(target) ?? 0) >= 0.5;
+      const words = part.type === 'switch' ? ['Turn off', 'Turn on'] : ['Release', 'Press'];
       actions.push(
-        { label: pressed ? 'Release' : 'Press', incident: { type: 'set_reading', target, value: pressed ? 0 : 1 }, destructive: false },
+        { label: pressed ? words[0] : words[1], incident: { type: 'set_reading', target, value: pressed ? 0 : 1 }, destructive: false },
         { label: 'Stick it down', incident: { type: 'sensor_fault', target, value: 1 }, destructive: true },
       );
     } else if (sensor && !broken) {

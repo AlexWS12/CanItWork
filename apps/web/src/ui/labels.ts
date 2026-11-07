@@ -6,6 +6,7 @@ export const ENGINE_LABEL: Record<Engine, string> = {
   swarms: 'Swarms',
   simulator: 'Simulator',
   rules: 'Local rules',
+  cache: 'Verified cache',
 };
 
 export const AGENT_LABEL: Record<StepEvent['agent'], string> = {

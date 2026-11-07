@@ -1,0 +1,6848 @@
+{
+  "an led with a resistor powered by a 9v battery": {
+    "domain": "electronics",
+    "draft": {
+      "name": "9V LED Circuit",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 470,
+            "package": "axial"
+          },
+          {
+            "id": "LED1",
+            "type": "led",
+            "color": "red"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "LED1.anode"
+          },
+          {
+            "from": "LED1.cathode",
+            "to": "B1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard"
+      }
+    }
+  },
+  "a 555 timer blinking an led": {
+    "domain": "electronics",
+    "draft": {
+      "name": "555 Timer LED Blinker",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5
+          },
+          {
+            "id": "U1",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "NE555 Timer",
+              "pins": ["GND", "TRIG", "OUT", "RST", "CV", "THR", "DIS", "VCC"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 1500
+                }
+              ],
+              "switches": [
+                {
+                  "a": "DIS",
+                  "b": "GND",
+                  "ohms": 10,
+                  "when": "!q",
+                  "ref": "GND",
+                  "aboveVolts": 2
+                }
+              ],
+              "drivers": [
+                {
+                  "pin": "OUT",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "q",
+                  "ref": "GND",
+                  "aboveVolts": 2,
+                  "ohms": 10,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "state": {
+                "ref": "GND",
+                "aboveVolts": 2,
+                "vars": {
+                  "q": 1
+                },
+                "rules": [
+                  {
+                    "when": "v.TRIG < v.VCC / 3",
+                    "set": "q",
+                    "to": 1
+                  },
+                  {
+                    "when": "v.THR > v.VCC * 2 / 3",
+                    "set": "q",
+                    "to": 0
+                  }
+                ]
+              },
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 15
+              },
+              "maxAmps": 0.2,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 1000
+          },
+          {
+            "id": "R2",
+            "type": "resistor",
+            "ohms": 47000
+          },
+          {
+            "id": "C1",
+            "type": "capacitor",
+            "farads": 0.00001
+          },
+          {
+            "id": "R3",
+            "type": "resistor",
+            "ohms": 470
+          },
+          {
+            "id": "D1",
+            "type": "led",
+            "color": "red"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "U1.VCC"
+          },
+          {
+            "from": "B1.pos",
+            "to": "U1.RST"
+          },
+          {
+            "from": "B1.pos",
+            "to": "R1.a"
+          },
+          {
+            "from": "B1.neg",
+            "to": "U1.GND"
+          },
+          {
+            "from": "B1.neg",
+            "to": "C1.b"
+          },
+          {
+            "from": "B1.neg",
+            "to": "D1.cathode"
+          },
+          {
+            "from": "R1.b",
+            "to": "U1.DIS"
+          },
+          {
+            "from": "R1.b",
+            "to": "R2.a"
+          },
+          {
+            "from": "R2.b",
+            "to": "U1.THR"
+          },
+          {
+            "from": "R2.b",
+            "to": "U1.TRIG"
+          },
+          {
+            "from": "R2.b",
+            "to": "C1.a"
+          },
+          {
+            "from": "U1.OUT",
+            "to": "R3.a"
+          },
+          {
+            "from": "R3.b",
+            "to": "D1.anode"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard"
+      }
+    }
+  },
+  "a voltage divider that turns 12v into 5v": {
+    "domain": "electronics",
+    "draft": {
+      "name": "12V to 5V Voltage Divider",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "batt",
+            "type": "battery",
+            "volts": 12,
+            "maxAmps": 2,
+            "package": "module"
+          },
+          {
+            "id": "r1a",
+            "type": "resistor",
+            "ohms": 280,
+            "package": "axial"
+          },
+          {
+            "id": "r1b",
+            "type": "resistor",
+            "ohms": 280,
+            "package": "axial"
+          },
+          {
+            "id": "r2a",
+            "type": "resistor",
+            "ohms": 200,
+            "package": "axial"
+          },
+          {
+            "id": "r2b",
+            "type": "resistor",
+            "ohms": 200,
+            "package": "axial"
+          },
+          {
+            "id": "out_indicator",
+            "type": "led",
+            "color": "red",
+            "package": "bulb"
+          },
+          {
+            "id": "r_led",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "batt.pos",
+            "to": "r1a.a"
+          },
+          {
+            "from": "batt.pos",
+            "to": "r1b.a"
+          },
+          {
+            "from": "r1a.b",
+            "to": "r2a.a"
+          },
+          {
+            "from": "r1b.b",
+            "to": "r2b.a"
+          },
+          {
+            "from": "r2a.a",
+            "to": "r_led.a"
+          },
+          {
+            "from": "r_led.b",
+            "to": "out_indicator.anode"
+          },
+          {
+            "from": "r2a.b",
+            "to": "batt.neg"
+          },
+          {
+            "from": "r2b.b",
+            "to": "batt.neg"
+          },
+          {
+            "from": "out_indicator.cathode",
+            "to": "batt.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "bench",
+        "tests": [
+          {
+            "name": "Divider Output",
+            "set": {},
+            "on": [],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a seeed xiao esp32c3 blinking an led": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Seeed XIAO ESP32C3 LED Blink",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "mcu",
+            "type": "custom",
+            "usb": true,
+            "package": "module",
+            "custom": {
+              "label": "Seeed XIAO ESP32C3",
+              "pins": ["5V", "GND", "3V3", "D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "A0", "A1", "A2", "A3"],
+              "paths": [
+                {
+                  "a": "5V",
+                  "b": "GND",
+                  "ohms": 10000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [
+                {
+                  "pos": "3V3",
+                  "neg": "GND",
+                  "volts": 3.3,
+                  "ohms": 0.1,
+                  "from": "5V",
+                  "dropout": 0.3
+                }
+              ],
+              "gpio": ["D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9", "D10", "A0", "A1", "A2", "A3"],
+              "gpioVolts": 3.3,
+              "supply": {
+                "pos": "5V",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 6
+              },
+              "maxAmps": 1,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "r1",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "led1",
+            "type": "led",
+            "color": "red",
+            "package": "bulb"
+          }
+        ],
+        "wires": [
+          {
+            "from": "mcu.D10",
+            "to": "r1.a"
+          },
+          {
+            "from": "r1.b",
+            "to": "led1.anode"
+          },
+          {
+            "from": "led1.cathode",
+            "to": "mcu.GND"
+          }
+        ],
+        "drive": [],
+        "program": [
+          {
+            "every": 1,
+            "then": [
+              {
+                "pin": "mcu.D10",
+                "mode": "blink",
+                "period": 2
+              }
+            ]
+          }
+        ],
+        "layout": "breadboard"
+      }
+    }
+  },
+  "a raspberry pi pico sweeping a servo": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Raspberry Pi Pico Servo Sweep",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "pico",
+            "type": "custom",
+            "usb": true,
+            "package": "module",
+            "custom": {
+              "label": "Raspberry Pi Pico",
+              "pins": ["VBUS", "VSYS", "GND", "3V3", "GP0"],
+              "paths": [
+                {
+                  "a": "VBUS",
+                  "b": "GND",
+                  "ohms": 10000
+                },
+                {
+                  "a": "VSYS",
+                  "b": "GND",
+                  "ohms": 10000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [
+                {
+                  "pos": "3V3",
+                  "neg": "GND",
+                  "volts": 3.3,
+                  "ohms": 0.1,
+                  "from": "VBUS",
+                  "dropout": 0.2
+                }
+              ],
+              "gpio": ["GP0"],
+              "gpioVolts": 3.3,
+              "supply": {
+                "pos": "VBUS",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 5.5
+              },
+              "maxAmps": 1.5,
+              "output": false,
+              "visual": [
+                {
+                  "shape": "box",
+                  "size": [2.1, 0.1, 0.9],
+                  "at": [0, 0.05, 0],
+                  "color": "#15803d"
+                }
+              ]
+            }
+          },
+          {
+            "id": "servo",
+            "type": "custom",
+            "package": "motor",
+            "custom": {
+              "label": "Micro Servo",
+              "pins": ["VCC", "GND", "SIG"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 50
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.5,
+              "output": true,
+              "actuator": {
+                "quantity": "angle",
+                "pin": "SIG",
+                "min": 0,
+                "max": 180
+              },
+              "visual": [
+                {
+                  "shape": "box",
+                  "size": [1.6, 0.9, 0.8],
+                  "at": [0, 0.45, 0],
+                  "color": "#1f2937"
+                },
+                {
+                  "shape": "cylinder",
+                  "size": [0.3, 0.3, 0.3],
+                  "at": [0.4, 1.05, 0],
+                  "color": "#e5e7eb"
+                },
+                {
+                  "shape": "box",
+                  "size": [1.1, 0.08, 0.22],
+                  "at": [0.4, 1.22, 0],
+                  "color": "#f8fafc",
+                  "moves": true
+                }
+              ]
+            }
+          },
+          {
+            "id": "bat",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 3
+          }
+        ],
+        "wires": [
+          {
+            "from": "bat.pos",
+            "to": "pico.VBUS"
+          },
+          {
+            "from": "bat.neg",
+            "to": "pico.GND"
+          },
+          {
+            "from": "bat.pos",
+            "to": "servo.VCC"
+          },
+          {
+            "from": "bat.neg",
+            "to": "servo.GND"
+          },
+          {
+            "from": "pico.GP0",
+            "to": "servo.SIG"
+          }
+        ],
+        "drive": [],
+        "program": [
+          {
+            "every": 0.05,
+            "then": [
+              {
+                "set": "angle",
+                "to": "angle + step"
+              }
+            ]
+          },
+          {
+            "when": "angle >= 180",
+            "then": [
+              {
+                "set": "step",
+                "to": -5
+              }
+            ]
+          },
+          {
+            "when": "angle <= 0",
+            "then": [
+              {
+                "set": "step",
+                "to": 5
+              }
+            ]
+          },
+          {
+            "then": [
+              {
+                "pin": "pico.GP0",
+                "mode": "angle",
+                "value": "angle"
+              }
+            ]
+          }
+        ],
+        "vars": {
+          "angle": 0,
+          "step": 5
+        },
+        "layout": "bench"
+      }
+    }
+  },
+  "an arduino robot with two motors that stops before a wall": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Arduino Obstacle Avoiding Robot",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "U1",
+            "type": "arduino",
+            "usb": true,
+            "package": "module"
+          },
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 3,
+            "package": "module"
+          },
+          {
+            "id": "DRV1",
+            "type": "motor_driver",
+            "package": "module"
+          },
+          {
+            "id": "M1",
+            "type": "motor",
+            "ohms": 6,
+            "volts": 6,
+            "maxAmps": 1.2,
+            "package": "motor"
+          },
+          {
+            "id": "M2",
+            "type": "motor",
+            "ohms": 6,
+            "volts": 6,
+            "maxAmps": 1.2,
+            "package": "motor"
+          },
+          {
+            "id": "US1",
+            "type": "ultrasonic",
+            "measures": "distance",
+            "package": "sensor"
+          },
+          {
+            "id": "LED1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "DRV1.VS"
+          },
+          {
+            "from": "B1.neg",
+            "to": "DRV1.GND"
+          },
+          {
+            "from": "B1.neg",
+            "to": "U1.GND"
+          },
+          {
+            "from": "DRV1.VCC",
+            "to": "U1.5V"
+          },
+          {
+            "from": "DRV1.ENA",
+            "to": "U1.D3"
+          },
+          {
+            "from": "DRV1.IN1",
+            "to": "U1.D4"
+          },
+          {
+            "from": "DRV1.IN2",
+            "to": "U1.D5"
+          },
+          {
+            "from": "DRV1.IN3",
+            "to": "U1.D6"
+          },
+          {
+            "from": "DRV1.IN4",
+            "to": "U1.D7"
+          },
+          {
+            "from": "DRV1.ENB",
+            "to": "U1.D9"
+          },
+          {
+            "from": "DRV1.OUT1",
+            "to": "M1.a"
+          },
+          {
+            "from": "DRV1.OUT2",
+            "to": "M1.b"
+          },
+          {
+            "from": "DRV1.OUT3",
+            "to": "M2.a"
+          },
+          {
+            "from": "DRV1.OUT4",
+            "to": "M2.b"
+          },
+          {
+            "from": "US1.VCC",
+            "to": "U1.5V"
+          },
+          {
+            "from": "US1.GND",
+            "to": "U1.GND"
+          },
+          {
+            "from": "US1.TRIG",
+            "to": "U1.D11"
+          },
+          {
+            "from": "US1.ECHO",
+            "to": "U1.D12"
+          },
+          {
+            "from": "LED1.anode",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "U1.D10"
+          },
+          {
+            "from": "LED1.cathode",
+            "to": "U1.GND"
+          }
+        ],
+        "drive": [
+          {
+            "pin": "U1.D3",
+            "mode": "pwm",
+            "value": 1
+          },
+          {
+            "pin": "U1.D4",
+            "mode": "high"
+          },
+          {
+            "pin": "U1.D5",
+            "mode": "low"
+          },
+          {
+            "pin": "U1.D6",
+            "mode": "high"
+          },
+          {
+            "pin": "U1.D7",
+            "mode": "low"
+          },
+          {
+            "pin": "U1.D9",
+            "mode": "pwm",
+            "value": 1
+          },
+          {
+            "pin": "U1.D11",
+            "mode": "low"
+          },
+          {
+            "pin": "U1.D10",
+            "mode": "low"
+          }
+        ],
+        "program": [
+          {
+            "when": "distance < 45",
+            "then": [
+              {
+                "pin": "U1.D4",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D5",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D6",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D7",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D10",
+                "mode": "high"
+              }
+            ],
+            "else": [
+              {
+                "pin": "U1.D4",
+                "mode": "high"
+              },
+              {
+                "pin": "U1.D5",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D6",
+                "mode": "high"
+              },
+              {
+                "pin": "U1.D7",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D10",
+                "mode": "low"
+              }
+            ]
+          }
+        ],
+        "world": [
+          {
+            "id": "distance",
+            "label": "Distance to Wall",
+            "unit": "cm",
+            "start": 100,
+            "min": 2,
+            "max": 400,
+            "effects": [
+              {
+                "from": "M1",
+                "rate": -40
+              },
+              {
+                "from": "M2",
+                "rate": -40
+              }
+            ],
+            "target": {
+              "min": 10,
+              "max": 400
+            }
+          }
+        ],
+        "layout": "bench"
+      }
+    }
+  },
+  "a web app with a cache in front of postgres": {
+    "domain": "software",
+    "draft": {
+      "name": "Cached Web Application",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "traffic": 100,
+        "retries": 2,
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Web Client",
+            "kind": "client",
+            "replicas": 1
+          },
+          {
+            "id": "gateway",
+            "label": "Web App Gateway",
+            "kind": "gateway",
+            "replicas": 2,
+            "capacity": 100,
+            "latency": 10
+          },
+          {
+            "id": "cache",
+            "label": "Redis Cache",
+            "kind": "cache",
+            "replicas": 2,
+            "capacity": 200,
+            "latency": 2
+          },
+          {
+            "id": "db",
+            "label": "PostgreSQL",
+            "kind": "database",
+            "replicas": 2,
+            "capacity": 80,
+            "latency": 20
+          }
+        ],
+        "edges": [
+          {
+            "from": "client",
+            "to": "gateway",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "gateway",
+            "to": "cache",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "gateway",
+            "to": "db",
+            "mode": "sync",
+            "calls": 0.2,
+            "optional": true
+          }
+        ]
+      }
+    }
+  },
+  "an image upload service that resizes images through a job queue": {
+    "domain": "software",
+    "draft": {
+      "name": "Image Upload Service",
+      "summary": "",
+      "unmodelled": ["actual image processing logic and file size constraints", "object storage durability and bucket replication"],
+      "spec": {
+        "traffic": 100,
+        "retries": 2,
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Web Clients",
+            "kind": "client",
+            "replicas": 10,
+            "capacity": 50,
+            "latency": 5
+          },
+          {
+            "id": "gateway",
+            "label": "API Gateway",
+            "kind": "gateway",
+            "replicas": 3,
+            "capacity": 80,
+            "latency": 10
+          },
+          {
+            "id": "upload_service",
+            "label": "Upload Service",
+            "kind": "service",
+            "replicas": 3,
+            "capacity": 60,
+            "latency": 20
+          },
+          {
+            "id": "db",
+            "label": "Metadata Database",
+            "kind": "database",
+            "replicas": 2,
+            "capacity": 200,
+            "latency": 15
+          },
+          {
+            "id": "queue",
+            "label": "Job Queue",
+            "kind": "queue",
+            "replicas": 3,
+            "capacity": 500,
+            "latency": 5
+          },
+          {
+            "id": "worker_service",
+            "label": "Resize Worker Service",
+            "kind": "service",
+            "replicas": 4,
+            "capacity": 40,
+            "latency": 100
+          },
+          {
+            "id": "storage",
+            "label": "Object Storage",
+            "kind": "external",
+            "replicas": 2,
+            "capacity": 300,
+            "latency": 50
+          }
+        ],
+        "edges": [
+          {
+            "from": "client",
+            "to": "gateway",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "gateway",
+            "to": "upload_service",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "upload_service",
+            "to": "db",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "upload_service",
+            "to": "storage",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "upload_service",
+            "to": "queue",
+            "mode": "async",
+            "calls": 1
+          },
+          {
+            "from": "queue",
+            "to": "worker_service",
+            "mode": "async",
+            "calls": 1
+          },
+          {
+            "from": "worker_service",
+            "to": "storage",
+            "mode": "sync",
+            "calls": 2
+          },
+          {
+            "from": "worker_service",
+            "to": "db",
+            "mode": "sync",
+            "calls": 1
+          }
+        ]
+      }
+    }
+  },
+  "a payment system calling stripe with retries": {
+    "domain": "software",
+    "draft": {
+      "name": "Payment System with Stripe Integration",
+      "summary": "",
+      "unmodelled": ["Specific financial ledger consistency guarantees", "Webhook processing from Stripe"],
+      "spec": {
+        "traffic": 50,
+        "retries": 3,
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Payment Client",
+            "kind": "client"
+          },
+          {
+            "id": "gateway",
+            "label": "API Gateway",
+            "kind": "gateway",
+            "replicas": 2,
+            "capacity": 100,
+            "latency": 5
+          },
+          {
+            "id": "payment_service",
+            "label": "Payment Service",
+            "kind": "service",
+            "replicas": 2,
+            "capacity": 80,
+            "latency": 20
+          },
+          {
+            "id": "database",
+            "label": "Transaction DB",
+            "kind": "database",
+            "replicas": 2,
+            "capacity": 200,
+            "latency": 10
+          },
+          {
+            "id": "stripe_api",
+            "label": "Stripe External API",
+            "kind": "external",
+            "replicas": 1,
+            "capacity": 500,
+            "latency": 150
+          }
+        ],
+        "edges": [
+          {
+            "from": "client",
+            "to": "gateway",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "gateway",
+            "to": "payment_service",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "payment_service",
+            "to": "database",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "payment_service",
+            "to": "stripe_api",
+            "mode": "sync",
+            "calls": 1
+          }
+        ]
+      }
+    }
+  },
+  "a chat app with websockets, a message broker and a database": {
+    "domain": "software",
+    "draft": {
+      "name": "Chat App",
+      "summary": "",
+      "unmodelled": ["Persistent websocket connections"],
+      "spec": {
+        "traffic": 500,
+        "retries": 2,
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Chat Client",
+            "kind": "client",
+            "replicas": 1,
+            "capacity": 1000
+          },
+          {
+            "id": "gateway",
+            "label": "WebSocket Gateway",
+            "kind": "gateway",
+            "replicas": 2,
+            "capacity": 400,
+            "latency": 5
+          },
+          {
+            "id": "broker",
+            "label": "Message Broker",
+            "kind": "queue",
+            "replicas": 3,
+            "capacity": 300,
+            "latency": 2
+          },
+          {
+            "id": "service",
+            "label": "Chat Service",
+            "kind": "service",
+            "replicas": 3,
+            "capacity": 250,
+            "latency": 15
+          },
+          {
+            "id": "database",
+            "label": "Message Database",
+            "kind": "database",
+            "replicas": 2,
+            "capacity": 400,
+            "latency": 10
+          }
+        ],
+        "edges": [
+          {
+            "from": "client",
+            "to": "gateway",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "gateway",
+            "to": "broker",
+            "mode": "async",
+            "calls": 1
+          },
+          {
+            "from": "broker",
+            "to": "service",
+            "mode": "async",
+            "calls": 1
+          },
+          {
+            "from": "service",
+            "to": "database",
+            "mode": "sync",
+            "calls": 1
+          }
+        ]
+      }
+    }
+  },
+  "a university database with students, courses and enrollments": {
+    "domain": "database",
+    "draft": {
+      "name": "university_database",
+      "summary": "",
+      "unmodelled": ["Prerequisite courses and complex curriculum rules", "Semester-based historical archiving", "Professor and department assignments"],
+      "spec": {
+        "tables": [
+          {
+            "name": "students",
+            "rows": 15000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "uuid",
+                "primary": true
+              },
+              {
+                "name": "first_name",
+                "type": "text",
+                "nullable": false
+              },
+              {
+                "name": "last_name",
+                "type": "text",
+                "nullable": false
+              },
+              {
+                "name": "email",
+                "type": "text",
+                "unique": true,
+                "nullable": false
+              },
+              {
+                "name": "enrollment_date",
+                "type": "timestamp",
+                "nullable": false
+              }
+            ],
+            "indexes": [["last_name"], ["email"]]
+          },
+          {
+            "name": "courses",
+            "rows": 500,
+            "columns": [
+              {
+                "name": "id",
+                "type": "uuid",
+                "primary": true
+              },
+              {
+                "name": "code",
+                "type": "text",
+                "unique": true,
+                "nullable": false
+              },
+              {
+                "name": "title",
+                "type": "text",
+                "nullable": false
+              },
+              {
+                "name": "credits",
+                "type": "int",
+                "nullable": false
+              }
+            ],
+            "indexes": [["code"]]
+          },
+          {
+            "name": "enrollments",
+            "rows": 60000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "uuid",
+                "primary": true
+              },
+              {
+                "name": "student_id",
+                "type": "uuid",
+                "nullable": false,
+                "references": {
+                  "table": "students",
+                  "column": "id",
+                  "onDelete": "cascade"
+                }
+              },
+              {
+                "name": "course_id",
+                "type": "uuid",
+                "nullable": false,
+                "references": {
+                  "table": "courses",
+                  "column": "id",
+                  "onDelete": "cascade"
+                }
+              },
+              {
+                "name": "grade",
+                "type": "text",
+                "nullable": true
+              },
+              {
+                "name": "enrolled_at",
+                "type": "timestamp",
+                "nullable": false
+              }
+            ],
+            "indexes": [["student_id"], ["course_id"]]
+          }
+        ],
+        "workload": [
+          {
+            "name": "get_student_schedule",
+            "kind": "read",
+            "table": "enrollments",
+            "where": ["student_id"],
+            "joins": [
+              {
+                "table": "courses",
+                "local": "course_id",
+                "foreign": "id"
+              }
+            ],
+            "perSecond": 45
+          },
+          {
+            "name": "list_course_roster",
+            "kind": "read",
+            "table": "enrollments",
+            "where": ["course_id"],
+            "joins": [
+              {
+                "table": "students",
+                "local": "student_id",
+                "foreign": "id"
+              }
+            ],
+            "perSecond": 20
+          },
+          {
+            "name": "enroll_student",
+            "kind": "write",
+            "table": "enrollments",
+            "where": ["student_id", "course_id"],
+            "joins": [],
+            "perSecond": 5
+          }
+        ]
+      }
+    }
+  },
+  "an e-commerce schema with products, carts and reviews": {
+    "domain": "database",
+    "draft": {
+      "name": "Ecommerce Schema",
+      "summary": "",
+      "unmodelled": ["complex multi-item cart state machine", "review helpfulness voting counters"],
+      "spec": {
+        "tables": [
+          {
+            "name": "products",
+            "rows": 50000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "uuid",
+                "primary": true
+              },
+              {
+                "name": "name",
+                "type": "text",
+                "nullable": false
+              },
+              {
+                "name": "price",
+                "type": "decimal",
+                "nullable": false
+              },
+              {
+                "name": "created_at",
+                "type": "timestamp",
+                "nullable": false
+              }
+            ],
+            "indexes": [["created_at"]]
+          },
+          {
+            "name": "carts",
+            "rows": 100000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "uuid",
+                "primary": true
+              },
+              {
+                "name": "user_id",
+                "type": "uuid",
+                "nullable": false
+              },
+              {
+                "name": "product_id",
+                "type": "uuid",
+                "nullable": false,
+                "references": {
+                  "table": "products",
+                  "column": "id",
+                  "onDelete": "cascade"
+                }
+              },
+              {
+                "name": "quantity",
+                "type": "int",
+                "nullable": false
+              }
+            ],
+            "indexes": [["user_id"], ["product_id"]]
+          },
+          {
+            "name": "reviews",
+            "rows": 200000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "uuid",
+                "primary": true
+              },
+              {
+                "name": "product_id",
+                "type": "uuid",
+                "nullable": false,
+                "references": {
+                  "table": "products",
+                  "column": "id",
+                  "onDelete": "cascade"
+                }
+              },
+              {
+                "name": "rating",
+                "type": "int",
+                "nullable": false
+              },
+              {
+                "name": "comment",
+                "type": "text",
+                "nullable": true
+              },
+              {
+                "name": "created_at",
+                "type": "timestamp",
+                "nullable": false
+              }
+            ],
+            "indexes": [["product_id"]]
+          }
+        ],
+        "workload": [
+          {
+            "name": "get_product_details",
+            "kind": "read",
+            "table": "products",
+            "where": ["id"],
+            "joins": [],
+            "perSecond": 150
+          },
+          {
+            "name": "get_product_reviews",
+            "kind": "read",
+            "table": "reviews",
+            "where": ["product_id"],
+            "joins": [],
+            "perSecond": 50
+          },
+          {
+            "name": "get_user_cart",
+            "kind": "read",
+            "table": "carts",
+            "where": ["user_id"],
+            "joins": [
+              {
+                "table": "products",
+                "local": "product_id",
+                "foreign": "id"
+              }
+            ],
+            "perSecond": 80
+          },
+          {
+            "name": "add_to_cart",
+            "kind": "write",
+            "table": "carts",
+            "where": ["id"],
+            "joins": [],
+            "perSecond": 25
+          },
+          {
+            "name": "submit_review",
+            "kind": "write",
+            "table": "reviews",
+            "where": ["id"],
+            "joins": [],
+            "perSecond": 10
+          }
+        ]
+      }
+    }
+  },
+  "an orders table with 5 million rows that is slow to query by customer": {
+    "domain": "database",
+    "draft": {
+      "name": "Slow Orders by Customer",
+      "summary": "",
+      "unmodelled": ["query execution plan cache", "hardware specific disk I/O metrics"],
+      "spec": {
+        "tables": [
+          {
+            "name": "customers",
+            "rows": 500000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "bigint",
+                "primary": true
+              },
+              {
+                "name": "email",
+                "type": "text",
+                "unique": true
+              }
+            ],
+            "indexes": []
+          },
+          {
+            "name": "orders",
+            "rows": 5000000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "bigint",
+                "primary": true
+              },
+              {
+                "name": "customer_id",
+                "type": "bigint",
+                "nullable": false,
+                "references": {
+                  "table": "customers",
+                  "column": "id"
+                }
+              },
+              {
+                "name": "order_date",
+                "type": "timestamp",
+                "nullable": false
+              },
+              {
+                "name": "total_amount",
+                "type": "decimal",
+                "nullable": false
+              }
+            ],
+            "indexes": []
+          }
+        ],
+        "workload": [
+          {
+            "name": "find_orders_by_customer",
+            "kind": "read",
+            "table": "orders",
+            "where": ["customer_id"],
+            "joins": [],
+            "perSecond": 50
+          },
+          {
+            "name": "insert_order",
+            "kind": "write",
+            "table": "orders",
+            "where": [],
+            "joins": [],
+            "perSecond": 10
+          }
+        ]
+      }
+    }
+  },
+  "a warehouse with 6 robots and 3 aisles": {
+    "domain": "warehouse",
+    "draft": {
+      "name": "Compact 3-Aisle Warehouse",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "robots": 6,
+        "aisles": 3,
+        "shelvesPerAisle": 6,
+        "conveyors": 1,
+        "chargers": 2,
+        "docks": 1,
+        "demand": "steady",
+        "dispatch": "pooled"
+      }
+    }
+  },
+  "a fulfilment centre under heavy demand with two chargers": {
+    "domain": "warehouse",
+    "draft": {
+      "name": "Heavy Demand Fulfilment Centre",
+      "summary": "",
+      "unmodelled": [
+        "Specific robot count",
+        "Specific number of aisles",
+        "Specific number of shelves",
+        "Specific number of conveyors",
+        "Specific number of docks",
+        "Dispatch policy",
+        "Floor shape and storage zones"
+      ],
+      "spec": {
+        "robots": 6,
+        "aisles": 3,
+        "shelvesPerAisle": 6,
+        "conveyors": 1,
+        "chargers": 2,
+        "docks": 2,
+        "demand": "heavy",
+        "dispatch": "pooled"
+      }
+    }
+  },
+  "a binary counter with a 555 clock and four leds": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Binary Counter with 555 Clock and 4 LEDs",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "bat1",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1
+          },
+          {
+            "id": "u555",
+            "type": "custom",
+            "maxAmps": 0.2,
+            "package": "dip",
+            "custom": {
+              "label": "555 Timer Astable Clock",
+              "pins": ["GND", "TRIG", "OUT", "RST", "CV", "THR", "DIS", "VCC"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 1500
+                }
+              ],
+              "switches": [
+                {
+                  "a": "DIS",
+                  "b": "GND",
+                  "ohms": 10,
+                  "when": "!q",
+                  "ref": "GND",
+                  "aboveVolts": 2
+                }
+              ],
+              "drivers": [
+                {
+                  "pin": "OUT",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "q",
+                  "ref": "GND",
+                  "aboveVolts": 2,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "state": {
+                "ref": "GND",
+                "aboveVolts": 2,
+                "vars": {
+                  "q": 1
+                },
+                "rules": [
+                  {
+                    "when": "v.TRIG < v.VCC / 3",
+                    "set": "q",
+                    "to": 1
+                  },
+                  {
+                    "when": "v.THR > v.VCC * 2 / 3",
+                    "set": "q",
+                    "to": 0
+                  }
+                ]
+              },
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 16
+              },
+              "maxAmps": 0.2,
+              "output": true,
+              "visual": []
+            }
+          },
+          {
+            "id": "ra",
+            "type": "resistor",
+            "ohms": 1000
+          },
+          {
+            "id": "rb",
+            "type": "resistor",
+            "ohms": 47000
+          },
+          {
+            "id": "c1",
+            "type": "capacitor",
+            "farads": 0.00001
+          },
+          {
+            "id": "c2",
+            "type": "capacitor",
+            "farads": 1e-7
+          },
+          {
+            "id": "cnt",
+            "type": "custom",
+            "maxAmps": 0.1,
+            "package": "dip",
+            "custom": {
+              "label": "4-Bit Binary Counter",
+              "pins": ["GND", "CLK", "Q0", "Q1", "Q2", "Q3", "RST", "VCC"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Q0",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n % 2 >= 1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n % 4 >= 2",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q2",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n % 8 >= 4",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q3",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n % 16 >= 8",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "state": {
+                "ref": "GND",
+                "aboveVolts": 2.5,
+                "vars": {
+                  "n": 0
+                },
+                "rules": [
+                  {
+                    "edge": "CLK",
+                    "set": "n",
+                    "to": "(n + 1) % 16"
+                  }
+                ]
+              },
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.1,
+              "output": true,
+              "visual": []
+            }
+          },
+          {
+            "id": "r_led0",
+            "type": "resistor",
+            "ohms": 220
+          },
+          {
+            "id": "r_led1",
+            "type": "resistor",
+            "ohms": 220
+          },
+          {
+            "id": "r_led2",
+            "type": "resistor",
+            "ohms": 220
+          },
+          {
+            "id": "r_led3",
+            "type": "resistor",
+            "ohms": 220
+          },
+          {
+            "id": "led0",
+            "type": "led",
+            "color": "red"
+          },
+          {
+            "id": "led1",
+            "type": "led",
+            "color": "yellow"
+          },
+          {
+            "id": "led2",
+            "type": "led",
+            "color": "green"
+          },
+          {
+            "id": "led3",
+            "type": "led",
+            "color": "blue"
+          }
+        ],
+        "wires": [
+          {
+            "from": "bat1.pos",
+            "to": "u555.VCC"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "u555.RST"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "ra.a"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "cnt.VCC"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "u555.GND"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "cnt.GND"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "cnt.RST"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "c1.b"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "c2.b"
+          },
+          {
+            "from": "ra.b",
+            "to": "u555.DIS"
+          },
+          {
+            "from": "ra.b",
+            "to": "rb.a"
+          },
+          {
+            "from": "rb.b",
+            "to": "u555.THR"
+          },
+          {
+            "from": "u555.THR",
+            "to": "u555.TRIG"
+          },
+          {
+            "from": "u555.THR",
+            "to": "c1.a"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "c2.a"
+          },
+          {
+            "from": "u555.CV",
+            "to": "c2.a"
+          },
+          {
+            "from": "u555.OUT",
+            "to": "cnt.CLK"
+          },
+          {
+            "from": "cnt.Q0",
+            "to": "r_led0.a"
+          },
+          {
+            "from": "r_led0.b",
+            "to": "led0.anode"
+          },
+          {
+            "from": "led0.cathode",
+            "to": "bat1.neg"
+          },
+          {
+            "from": "cnt.Q1",
+            "to": "r_led1.a"
+          },
+          {
+            "from": "r_led1.b",
+            "to": "led1.anode"
+          },
+          {
+            "from": "led1.cathode",
+            "to": "bat1.neg"
+          },
+          {
+            "from": "cnt.Q2",
+            "to": "r_led2.a"
+          },
+          {
+            "from": "r_led2.b",
+            "to": "led2.anode"
+          },
+          {
+            "from": "led2.cathode",
+            "to": "bat1.neg"
+          },
+          {
+            "from": "cnt.Q3",
+            "to": "r_led3.a"
+          },
+          {
+            "from": "r_led3.b",
+            "to": "led3.anode"
+          },
+          {
+            "from": "led3.cathode",
+            "to": "bat1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Initial state zero",
+            "set": {},
+            "on": [],
+            "off": ["led0", "led1", "led2", "led3"]
+          }
+        ]
+      }
+    }
+  },
+  "an and gate with two push buttons lighting an led, on a breadboard": {
+    "domain": "electronics",
+    "draft": {
+      "name": "AND Gate with Two Push Buttons and LED",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "batt",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1,
+            "package": "axial"
+          },
+          {
+            "id": "btn1",
+            "type": "button",
+            "package": "axial"
+          },
+          {
+            "id": "btn2",
+            "type": "button",
+            "package": "axial"
+          },
+          {
+            "id": "res_pull",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "res_led",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "led",
+            "type": "led",
+            "color": "red",
+            "package": "bulb"
+          }
+        ],
+        "wires": [
+          {
+            "from": "batt.pos",
+            "to": "btn1.a"
+          },
+          {
+            "from": "btn1.b",
+            "to": "btn2.a"
+          },
+          {
+            "from": "btn2.b",
+            "to": "res_led.a"
+          },
+          {
+            "from": "res_led.b",
+            "to": "led.anode"
+          },
+          {
+            "from": "led.cathode",
+            "to": "batt.neg"
+          },
+          {
+            "from": "btn2.b",
+            "to": "res_pull.a"
+          },
+          {
+            "from": "res_pull.b",
+            "to": "batt.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Both buttons open",
+            "set": {
+              "btn1": 0,
+              "btn2": 0
+            },
+            "on": [],
+            "off": ["led"]
+          },
+          {
+            "name": "Button 1 pressed, Button 2 open",
+            "set": {
+              "btn1": 1,
+              "btn2": 0
+            },
+            "on": [],
+            "off": ["led"]
+          },
+          {
+            "name": "Button 1 open, Button 2 pressed",
+            "set": {
+              "btn1": 0,
+              "btn2": 1
+            },
+            "on": [],
+            "off": ["led"]
+          },
+          {
+            "name": "Both buttons pressed",
+            "set": {
+              "btn1": 1,
+              "btn2": 1
+            },
+            "on": ["led"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a transistor switch that turns on a motor when i press a button": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Transistor Motor Switch",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5,
+            "package": "module"
+          },
+          {
+            "id": "BTN1",
+            "type": "button",
+            "package": "module"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 1000,
+            "package": "axial"
+          },
+          {
+            "id": "R2",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "D1",
+            "type": "custom",
+            "package": "axial",
+            "custom": {
+              "label": "Flyback Diode 1N4007",
+              "pins": ["anode", "cathode"],
+              "paths": [
+                {
+                  "a": "cathode",
+                  "b": "anode",
+                  "ohms": 1000000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "cathode",
+                "neg": "anode",
+                "minVolts": 0,
+                "maxVolts": 1000
+              },
+              "maxAmps": 1,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "T1",
+            "type": "custom",
+            "package": "to92",
+            "custom": {
+              "label": "NPN Transistor 2N2222",
+              "pins": ["C", "B", "E"],
+              "paths": [
+                {
+                  "a": "B",
+                  "b": "E",
+                  "ohms": 1000
+                }
+              ],
+              "switches": [
+                {
+                  "a": "C",
+                  "b": "E",
+                  "ohms": 0.3,
+                  "when": "B",
+                  "ref": "E",
+                  "aboveVolts": 0.65
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 0.6,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "M1",
+            "type": "motor",
+            "ohms": 15,
+            "volts": 9,
+            "maxAmps": 0.8,
+            "package": "motor"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "BTN1.a"
+          },
+          {
+            "from": "BTN1.b",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "T1.B"
+          },
+          {
+            "from": "BTN1.b",
+            "to": "R2.a"
+          },
+          {
+            "from": "R2.b",
+            "to": "B1.neg"
+          },
+          {
+            "from": "T1.E",
+            "to": "B1.neg"
+          },
+          {
+            "from": "B1.pos",
+            "to": "M1.a"
+          },
+          {
+            "from": "M1.b",
+            "to": "T1.C"
+          },
+          {
+            "from": "M1.b",
+            "to": "D1.cathode"
+          },
+          {
+            "from": "M1.a",
+            "to": "D1.anode"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Button Released - Motor Off",
+            "set": {
+              "BTN1": 0
+            },
+            "on": [],
+            "off": ["M1"]
+          },
+          {
+            "name": "Button Pressed - Motor On",
+            "set": {
+              "BTN1": 1
+            },
+            "on": ["M1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "three bulbs in parallel on a 6v battery with a switch": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Three Bulbs in Parallel with Switch",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "BAT1",
+            "type": "battery",
+            "volts": 6,
+            "maxAmps": 3
+          },
+          {
+            "id": "SW1",
+            "type": "switch"
+          },
+          {
+            "id": "LAMP1",
+            "type": "custom",
+            "package": "bulb",
+            "custom": {
+              "label": "6V Light Bulb",
+              "pins": ["a", "b"],
+              "paths": [
+                {
+                  "a": "a",
+                  "b": "b",
+                  "ohms": 12
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 1,
+              "output": true,
+              "visual": []
+            }
+          },
+          {
+            "id": "LAMP2",
+            "type": "custom",
+            "package": "bulb",
+            "custom": {
+              "label": "6V Light Bulb",
+              "pins": ["a", "b"],
+              "paths": [
+                {
+                  "a": "a",
+                  "b": "b",
+                  "ohms": 12
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 1,
+              "output": true,
+              "visual": []
+            }
+          },
+          {
+            "id": "LAMP3",
+            "type": "custom",
+            "package": "bulb",
+            "custom": {
+              "label": "6V Light Bulb",
+              "pins": ["a", "b"],
+              "paths": [
+                {
+                  "a": "a",
+                  "b": "b",
+                  "ohms": 12
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 1,
+              "output": true,
+              "visual": []
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "BAT1.pos",
+            "to": "SW1.a"
+          },
+          {
+            "from": "SW1.b",
+            "to": "LAMP1.a"
+          },
+          {
+            "from": "SW1.b",
+            "to": "LAMP2.a"
+          },
+          {
+            "from": "SW1.b",
+            "to": "LAMP3.a"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "LAMP1.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "LAMP2.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "LAMP3.b"
+          }
+        ],
+        "drive": [],
+        "layout": "bench",
+        "tests": [
+          {
+            "name": "Switch ON",
+            "set": {
+              "SW1": 1
+            },
+            "on": ["LAMP1", "LAMP2", "LAMP3"],
+            "off": []
+          },
+          {
+            "name": "Switch OFF",
+            "set": {
+              "SW1": 0
+            },
+            "on": [],
+            "off": ["LAMP1", "LAMP2", "LAMP3"]
+          }
+        ]
+      }
+    }
+  },
+  "a web app for booking airline flights with a payment service and a database": {
+    "domain": "software",
+    "draft": {
+      "name": "Airline Flight Booking System",
+      "summary": "",
+      "unmodelled": ["Exact third-party payment gateway integration specifics", "Airline seat inventory locking algorithms"],
+      "spec": {
+        "traffic": 50,
+        "retries": 2,
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Web Browser",
+            "kind": "client"
+          },
+          {
+            "id": "gateway",
+            "label": "API Gateway",
+            "kind": "gateway",
+            "replicas": 2,
+            "capacity": 100,
+            "latency": 5
+          },
+          {
+            "id": "booking_service",
+            "label": "Booking Service",
+            "kind": "service",
+            "replicas": 2,
+            "capacity": 80,
+            "latency": 20
+          },
+          {
+            "id": "payment_service",
+            "label": "Payment Service",
+            "kind": "external",
+            "replicas": 2,
+            "capacity": 60,
+            "latency": 150
+          },
+          {
+            "id": "database",
+            "label": "Flight Database",
+            "kind": "database",
+            "replicas": 2,
+            "capacity": 200,
+            "latency": 10
+          }
+        ],
+        "edges": [
+          {
+            "from": "client",
+            "to": "gateway",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "gateway",
+            "to": "booking_service",
+            "mode": "sync",
+            "calls": 1
+          },
+          {
+            "from": "booking_service",
+            "to": "database",
+            "mode": "sync",
+            "calls": 2
+          },
+          {
+            "from": "booking_service",
+            "to": "payment_service",
+            "mode": "sync",
+            "calls": 1
+          }
+        ]
+      }
+    }
+  },
+  "a clinic database schema with patients, doctors and appointments": {
+    "domain": "database",
+    "draft": {
+      "name": "Clinic Database",
+      "summary": "",
+      "unmodelled": ["Medical history and clinical notes", "Prescriptions and billing details"],
+      "spec": {
+        "tables": [
+          {
+            "name": "doctors",
+            "rows": 15,
+            "columns": [
+              {
+                "name": "id",
+                "type": "bigint",
+                "primary": true,
+                "nullable": false
+              },
+              {
+                "name": "name",
+                "type": "text",
+                "nullable": false
+              },
+              {
+                "name": "specialty",
+                "type": "text",
+                "nullable": false
+              }
+            ],
+            "indexes": [["specialty"]]
+          },
+          {
+            "name": "patients",
+            "rows": 5000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "bigint",
+                "primary": true,
+                "nullable": false
+              },
+              {
+                "name": "name",
+                "type": "text",
+                "nullable": false
+              },
+              {
+                "name": "dob",
+                "type": "timestamp",
+                "nullable": false
+              },
+              {
+                "name": "phone",
+                "type": "text",
+                "nullable": true
+              }
+            ],
+            "indexes": [["name"]]
+          },
+          {
+            "name": "appointments",
+            "rows": 15000,
+            "columns": [
+              {
+                "name": "id",
+                "type": "bigint",
+                "primary": true,
+                "nullable": false
+              },
+              {
+                "name": "doctor_id",
+                "type": "bigint",
+                "nullable": false,
+                "references": {
+                  "table": "doctors",
+                  "column": "id",
+                  "onDelete": "cascade"
+                }
+              },
+              {
+                "name": "patient_id",
+                "type": "bigint",
+                "nullable": false,
+                "references": {
+                  "table": "patients",
+                  "column": "id",
+                  "onDelete": "cascade"
+                }
+              },
+              {
+                "name": "appointment_time",
+                "type": "timestamp",
+                "nullable": false
+              },
+              {
+                "name": "status",
+                "type": "text",
+                "nullable": false
+              }
+            ],
+            "indexes": [["doctor_id"], ["patient_id"], ["appointment_time"]]
+          }
+        ],
+        "workload": [
+          {
+            "name": "get_doctor_schedule",
+            "kind": "read",
+            "table": "appointments",
+            "where": ["doctor_id", "appointment_time"],
+            "joins": [
+              {
+                "table": "doctors",
+                "local": "doctor_id",
+                "foreign": "id"
+              }
+            ],
+            "perSecond": 5
+          },
+          {
+            "name": "get_patient_history",
+            "kind": "read",
+            "table": "appointments",
+            "where": ["patient_id"],
+            "joins": [
+              {
+                "table": "patients",
+                "local": "patient_id",
+                "foreign": "id"
+              }
+            ],
+            "perSecond": 3
+          },
+          {
+            "name": "book_appointment",
+            "kind": "write",
+            "table": "appointments",
+            "where": [],
+            "joins": [],
+            "perSecond": 1
+          }
+        ]
+      }
+    }
+  },
+  "a small solar panel charging a battery through a diode, lighting an led": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Solar Battery Charger with LED",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "solar",
+            "type": "custom",
+            "package": "module",
+            "custom": {
+              "label": "Solar Panel",
+              "pins": ["pos", "neg"],
+              "paths": [],
+              "switches": [],
+              "drivers": [],
+              "sources": [
+                {
+                  "pos": "pos",
+                  "neg": "neg",
+                  "volts": 5,
+                  "ohms": 10
+                }
+              ],
+              "gpio": [],
+              "maxAmps": 0.5,
+              "output": true,
+              "visual": [
+                {
+                  "shape": "box",
+                  "size": [2, 0.1, 1.5],
+                  "at": [0, 0.05, 0],
+                  "color": "#1e3a8a"
+                }
+              ]
+            }
+          },
+          {
+            "id": "d1",
+            "type": "custom",
+            "package": "axial",
+            "custom": {
+              "label": "Blocking Diode 1N4007",
+              "pins": ["a", "b"],
+              "paths": [
+                {
+                  "a": "a",
+                  "b": "b",
+                  "ohms": 0.1
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 1,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "bat",
+            "type": "battery",
+            "volts": 3.7,
+            "maxAmps": 1,
+            "package": "radial"
+          },
+          {
+            "id": "r1",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "led",
+            "type": "led",
+            "color": "green",
+            "package": "bulb"
+          }
+        ],
+        "wires": [
+          {
+            "from": "solar.pos",
+            "to": "d1.a"
+          },
+          {
+            "from": "d1.b",
+            "to": "bat.pos"
+          },
+          {
+            "from": "d1.b",
+            "to": "r1.a"
+          },
+          {
+            "from": "r1.b",
+            "to": "led.anode"
+          },
+          {
+            "from": "solar.neg",
+            "to": "bat.neg"
+          },
+          {
+            "from": "bat.neg",
+            "to": "led.cathode"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard"
+      }
+    }
+  },
+  "an arduino that runs a water pump when the tank level sensor reads low": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Automatic Water Pump System",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "U1",
+            "type": "arduino",
+            "usb": true,
+            "package": "module"
+          },
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 12,
+            "maxAmps": 5,
+            "package": "module"
+          },
+          {
+            "id": "S1",
+            "type": "custom",
+            "maxAmps": 0.05,
+            "measures": "tank_level",
+            "package": "sensor",
+            "custom": {
+              "label": "Water Level Sensor",
+              "pins": ["VCC", "OUT", "GND"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 10000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 5.5
+              },
+              "maxAmps": 0.05,
+              "output": false,
+              "sensor": {
+                "quantity": "level",
+                "unit": "%",
+                "min": 0,
+                "max": 100,
+                "value": 15,
+                "pin": "OUT"
+              },
+              "visual": []
+            }
+          },
+          {
+            "id": "D1",
+            "type": "motor_driver",
+            "package": "module"
+          },
+          {
+            "id": "M1",
+            "type": "motor",
+            "ohms": 12,
+            "volts": 12,
+            "maxAmps": 1.5,
+            "package": "motor"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "U1.5V",
+            "to": "S1.VCC"
+          },
+          {
+            "from": "U1.GND",
+            "to": "S1.GND"
+          },
+          {
+            "from": "S1.OUT",
+            "to": "U1.A0"
+          },
+          {
+            "from": "S1.OUT",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "U1.GND"
+          },
+          {
+            "from": "U1.5V",
+            "to": "D1.VCC"
+          },
+          {
+            "from": "U1.GND",
+            "to": "D1.GND"
+          },
+          {
+            "from": "B1.pos",
+            "to": "D1.VS"
+          },
+          {
+            "from": "B1.neg",
+            "to": "D1.GND"
+          },
+          {
+            "from": "B1.neg",
+            "to": "U1.GND"
+          },
+          {
+            "from": "U1.D3",
+            "to": "D1.ENA"
+          },
+          {
+            "from": "U1.D4",
+            "to": "D1.IN1"
+          },
+          {
+            "from": "U1.D5",
+            "to": "D1.IN2"
+          },
+          {
+            "from": "D1.OUT1",
+            "to": "M1.a"
+          },
+          {
+            "from": "D1.OUT2",
+            "to": "M1.b"
+          }
+        ],
+        "drive": [
+          {
+            "pin": "U1.D3",
+            "mode": "pwm",
+            "value": 1
+          },
+          {
+            "pin": "U1.D4",
+            "mode": "high"
+          },
+          {
+            "pin": "U1.D5",
+            "mode": "low"
+          }
+        ],
+        "program": [
+          {
+            "when": "tank_level < 20",
+            "then": [
+              {
+                "pin": "U1.D4",
+                "mode": "high"
+              },
+              {
+                "pin": "U1.D5",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D3",
+                "mode": "pwm",
+                "value": 1
+              }
+            ],
+            "else": [
+              {
+                "pin": "U1.D4",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D5",
+                "mode": "low"
+              },
+              {
+                "pin": "U1.D3",
+                "mode": "pwm",
+                "value": 0
+              }
+            ]
+          }
+        ],
+        "world": [
+          {
+            "id": "tank_level",
+            "label": "Water Level",
+            "unit": "%",
+            "start": 15,
+            "min": 0,
+            "max": 100,
+            "drift": -0.5,
+            "effects": [
+              {
+                "from": "M1",
+                "rate": 5
+              }
+            ],
+            "target": {
+              "min": 20,
+              "max": 90
+            }
+          }
+        ],
+        "layout": "bench"
+      }
+    }
+  },
+  "2 bit calculator on a breadboard": {
+    "domain": "electronics",
+    "draft": {
+      "name": "2-Bit Binary Calculator on Breadboard",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "BAT1",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1
+          },
+          {
+            "id": "SW_A1",
+            "type": "switch",
+            "package": "dip"
+          },
+          {
+            "id": "SW_A0",
+            "type": "switch",
+            "package": "dip"
+          },
+          {
+            "id": "SW_B1",
+            "type": "switch",
+            "package": "dip"
+          },
+          {
+            "id": "SW_B0",
+            "type": "switch",
+            "package": "dip"
+          },
+          {
+            "id": "R_A1",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "R_A0",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "R_B1",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "R_B0",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "IC_XOR",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC86 Quad XOR",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 != B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Y2",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A2 != B2",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Y3",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A3 != B3",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "IC_AND",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC08 Quad AND",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 && B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Y2",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A2 && B2",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Y3",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A3 && B3",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "IC_OR",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC32 Quad OR",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1", "A2", "B2", "Y2", "A3", "B3", "Y3", "A4", "B4", "Y4"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 || B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "LED_S0",
+            "type": "led",
+            "color": "green",
+            "package": "axial"
+          },
+          {
+            "id": "LED_S1",
+            "type": "led",
+            "color": "green",
+            "package": "axial"
+          },
+          {
+            "id": "LED_S2",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          },
+          {
+            "id": "R_S0",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R_S1",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R_S2",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "BAT1.pos",
+            "to": "SW_A1.a"
+          },
+          {
+            "from": "BAT1.pos",
+            "to": "SW_A0.a"
+          },
+          {
+            "from": "BAT1.pos",
+            "to": "SW_B1.a"
+          },
+          {
+            "from": "BAT1.pos",
+            "to": "SW_B0.a"
+          },
+          {
+            "from": "BAT1.pos",
+            "to": "IC_XOR.VCC"
+          },
+          {
+            "from": "BAT1.pos",
+            "to": "IC_AND.VCC"
+          },
+          {
+            "from": "BAT1.pos",
+            "to": "IC_OR.VCC"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_A1.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_A0.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_B1.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_B0.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "IC_XOR.GND"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "IC_AND.GND"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "IC_OR.GND"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_S0.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_S1.b"
+          },
+          {
+            "from": "BAT1.neg",
+            "to": "R_S2.b"
+          },
+          {
+            "from": "SW_A0.b",
+            "to": "R_A0.a"
+          },
+          {
+            "from": "SW_A0.b",
+            "to": "IC_XOR.A1"
+          },
+          {
+            "from": "SW_A0.b",
+            "to": "IC_AND.A1"
+          },
+          {
+            "from": "SW_B0.b",
+            "to": "R_B0.a"
+          },
+          {
+            "from": "SW_B0.b",
+            "to": "IC_XOR.B1"
+          },
+          {
+            "from": "SW_B0.b",
+            "to": "IC_AND.B1"
+          },
+          {
+            "from": "SW_A1.b",
+            "to": "R_A1.a"
+          },
+          {
+            "from": "SW_A1.b",
+            "to": "IC_XOR.A2"
+          },
+          {
+            "from": "SW_A1.b",
+            "to": "IC_AND.A2"
+          },
+          {
+            "from": "SW_B1.b",
+            "to": "R_B1.a"
+          },
+          {
+            "from": "SW_B1.b",
+            "to": "IC_XOR.B2"
+          },
+          {
+            "from": "SW_B1.b",
+            "to": "IC_AND.B2"
+          },
+          {
+            "from": "IC_XOR.Y1",
+            "to": "LED_S0.anode"
+          },
+          {
+            "from": "LED_S0.cathode",
+            "to": "R_S0.a"
+          },
+          {
+            "from": "IC_XOR.Y2",
+            "to": "IC_XOR.A3"
+          },
+          {
+            "from": "IC_XOR.Y2",
+            "to": "IC_AND.A3"
+          },
+          {
+            "from": "IC_AND.Y1",
+            "to": "IC_XOR.B3"
+          },
+          {
+            "from": "IC_AND.Y1",
+            "to": "IC_AND.B3"
+          },
+          {
+            "from": "IC_XOR.Y3",
+            "to": "LED_S1.anode"
+          },
+          {
+            "from": "LED_S1.cathode",
+            "to": "R_S1.a"
+          },
+          {
+            "from": "IC_AND.Y2",
+            "to": "IC_OR.A1"
+          },
+          {
+            "from": "IC_AND.Y3",
+            "to": "IC_OR.B1"
+          },
+          {
+            "from": "IC_OR.Y1",
+            "to": "LED_S2.anode"
+          },
+          {
+            "from": "LED_S2.cathode",
+            "to": "R_S2.a"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "0 + 0 = 0 (00 + 00 = 000)",
+            "set": {},
+            "on": [],
+            "off": ["LED_S0", "LED_S1", "LED_S2"]
+          },
+          {
+            "name": "0 + 1 = 1 (00 + 01 = 001)",
+            "set": {
+              "SW_B0": 1
+            },
+            "on": ["LED_S0"],
+            "off": ["LED_S1", "LED_S2"]
+          },
+          {
+            "name": "0 + 2 = 2 (00 + 10 = 010)",
+            "set": {
+              "SW_B1": 1
+            },
+            "on": ["LED_S1"],
+            "off": ["LED_S0", "LED_S2"]
+          },
+          {
+            "name": "0 + 3 = 3 (00 + 11 = 011)",
+            "set": {
+              "SW_B1": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S0", "LED_S1"],
+            "off": ["LED_S2"]
+          },
+          {
+            "name": "1 + 0 = 1 (01 + 00 = 001)",
+            "set": {
+              "SW_A0": 1
+            },
+            "on": ["LED_S0"],
+            "off": ["LED_S1", "LED_S2"]
+          },
+          {
+            "name": "1 + 1 = 2 (01 + 01 = 010)",
+            "set": {
+              "SW_A0": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S1"],
+            "off": ["LED_S0", "LED_S2"]
+          },
+          {
+            "name": "1 + 2 = 3 (01 + 10 = 011)",
+            "set": {
+              "SW_A0": 1,
+              "SW_B1": 1
+            },
+            "on": ["LED_S0", "LED_S1"],
+            "off": ["LED_S2"]
+          },
+          {
+            "name": "1 + 3 = 4 (01 + 11 = 100)",
+            "set": {
+              "SW_A0": 1,
+              "SW_B1": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S2"],
+            "off": ["LED_S0", "LED_S1"]
+          },
+          {
+            "name": "2 + 0 = 2 (10 + 00 = 010)",
+            "set": {
+              "SW_A1": 1
+            },
+            "on": ["LED_S1"],
+            "off": ["LED_S0", "LED_S2"]
+          },
+          {
+            "name": "2 + 1 = 3 (10 + 01 = 011)",
+            "set": {
+              "SW_A1": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S0", "LED_S1"],
+            "off": ["LED_S2"]
+          },
+          {
+            "name": "2 + 2 = 4 (10 + 10 = 100)",
+            "set": {
+              "SW_A1": 1,
+              "SW_B1": 1
+            },
+            "on": ["LED_S2"],
+            "off": ["LED_S0", "LED_S1"]
+          },
+          {
+            "name": "2 + 3 = 5 (10 + 11 = 101)",
+            "set": {
+              "SW_A1": 1,
+              "SW_B1": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S0", "LED_S2"],
+            "off": ["LED_S1"]
+          },
+          {
+            "name": "3 + 0 = 3 (11 + 00 = 011)",
+            "set": {
+              "SW_A1": 1,
+              "SW_A0": 1
+            },
+            "on": ["LED_S0", "LED_S1"],
+            "off": ["LED_S2"]
+          },
+          {
+            "name": "3 + 1 = 4 (11 + 01 = 100)",
+            "set": {
+              "SW_A1": 1,
+              "SW_A0": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S2"],
+            "off": ["LED_S0", "LED_S1"]
+          },
+          {
+            "name": "3 + 2 = 5 (11 + 10 = 101)",
+            "set": {
+              "SW_A1": 1,
+              "SW_A0": 1,
+              "SW_B1": 1
+            },
+            "on": ["LED_S0", "LED_S2"],
+            "off": ["LED_S1"]
+          },
+          {
+            "name": "3 + 3 = 6 (11 + 11 = 110)",
+            "set": {
+              "SW_A1": 1,
+              "SW_A0": 1,
+              "SW_B1": 1,
+              "SW_B0": 1
+            },
+            "on": ["LED_S1", "LED_S2"],
+            "off": ["LED_S0"]
+          }
+        ]
+      }
+    }
+  },
+  "two resistors in series with an led on a 5v supply": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Two Resistors in Series with an LED",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1,
+            "package": "module"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 150,
+            "package": "axial"
+          },
+          {
+            "id": "R2",
+            "type": "resistor",
+            "ohms": 150,
+            "package": "axial"
+          },
+          {
+            "id": "LED1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "R2.a"
+          },
+          {
+            "from": "R2.b",
+            "to": "LED1.anode"
+          },
+          {
+            "from": "LED1.cathode",
+            "to": "B1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "LED illuminates",
+            "set": {},
+            "on": ["LED1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "an led dimmer with a potentiometer": {
+    "domain": "electronics",
+    "draft": {
+      "name": "LED Dimmer with Potentiometer",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5,
+            "package": "axial"
+          },
+          {
+            "id": "R_LIMIT",
+            "type": "resistor",
+            "ohms": 470,
+            "package": "axial"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 1000,
+            "package": "axial"
+          },
+          {
+            "id": "RV1",
+            "type": "pot",
+            "ohms": 10000,
+            "package": "pot"
+          },
+          {
+            "id": "LED1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          },
+          {
+            "id": "Q1",
+            "type": "custom",
+            "package": "to92",
+            "custom": {
+              "label": "2N2222 NPN Transistor",
+              "pins": ["C", "B", "E"],
+              "paths": [
+                {
+                  "a": "B",
+                  "b": "E",
+                  "ohms": 1000
+                }
+              ],
+              "switches": [
+                {
+                  "a": "C",
+                  "b": "E",
+                  "ohms": 0.3,
+                  "when": "B",
+                  "ref": "E",
+                  "aboveVolts": 0.65
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 0.6,
+              "output": false,
+              "visual": [
+                {
+                  "shape": "cylinder",
+                  "size": [0.4, 0.4, 0.5],
+                  "at": [0, 0.25, 0],
+                  "color": "#1f2937"
+                }
+              ]
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "RV1.a"
+          },
+          {
+            "from": "RV1.b",
+            "to": "B1.neg"
+          },
+          {
+            "from": "RV1.wiper",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "Q1.B"
+          },
+          {
+            "from": "B1.pos",
+            "to": "R_LIMIT.a"
+          },
+          {
+            "from": "R_LIMIT.b",
+            "to": "LED1.anode"
+          },
+          {
+            "from": "LED1.cathode",
+            "to": "Q1.C"
+          },
+          {
+            "from": "Q1.E",
+            "to": "B1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Check LED bright at max wiper",
+            "set": {},
+            "on": ["LED1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a relay switched by a transistor from a button, with a flyback diode, turning on a 12v lamp": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Transistor-Switched Relay with 12V Lamp",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "Bat1",
+            "type": "battery",
+            "volts": 12,
+            "maxAmps": 3,
+            "package": "module"
+          },
+          {
+            "id": "Btn1",
+            "type": "button",
+            "package": "module"
+          },
+          {
+            "id": "R_pull",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "R_base",
+            "type": "resistor",
+            "ohms": 1000,
+            "package": "axial"
+          },
+          {
+            "id": "Q1",
+            "type": "custom",
+            "package": "to92",
+            "custom": {
+              "label": "2N2222 NPN",
+              "pins": ["C", "B", "E"],
+              "paths": [
+                {
+                  "a": "B",
+                  "b": "E",
+                  "ohms": 1000
+                }
+              ],
+              "switches": [
+                {
+                  "a": "C",
+                  "b": "E",
+                  "ohms": 0.3,
+                  "when": "B",
+                  "ref": "E",
+                  "aboveVolts": 0.65
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 0.6,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "Relay1",
+            "type": "custom",
+            "package": "relay",
+            "custom": {
+              "label": "12V Relay",
+              "pins": ["COIL1", "COIL2", "COM", "NO", "NC"],
+              "paths": [
+                {
+                  "a": "COIL1",
+                  "b": "COIL2",
+                  "ohms": 400
+                }
+              ],
+              "switches": [
+                {
+                  "a": "COM",
+                  "b": "NO",
+                  "ohms": 0.05,
+                  "when": "v.COIL1 - v.COIL2 > 8",
+                  "ref": "COIL2",
+                  "aboveVolts": 0
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 10,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "D1",
+            "type": "diode",
+            "volts": 0.7,
+            "package": "axial"
+          },
+          {
+            "id": "Lamp1",
+            "type": "custom",
+            "package": "bulb",
+            "custom": {
+              "label": "12V Lamp",
+              "pins": ["a", "b"],
+              "paths": [
+                {
+                  "a": "a",
+                  "b": "b",
+                  "ohms": 14.4
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 1,
+              "output": true,
+              "visual": [
+                {
+                  "shape": "sphere",
+                  "size": [0.8, 0.8, 0.8],
+                  "at": [0, 0.4, 0],
+                  "color": "#fbbf24"
+                }
+              ]
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "Bat1.pos",
+            "to": "Btn1.a"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "Relay1.COIL1"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "Relay1.COM"
+          },
+          {
+            "from": "Btn1.b",
+            "to": "R_base.a"
+          },
+          {
+            "from": "Btn1.b",
+            "to": "R_pull.a"
+          },
+          {
+            "from": "R_pull.b",
+            "to": "Bat1.neg"
+          },
+          {
+            "from": "R_base.b",
+            "to": "Q1.B"
+          },
+          {
+            "from": "Q1.E",
+            "to": "Bat1.neg"
+          },
+          {
+            "from": "Relay1.COIL2",
+            "to": "Q1.C"
+          },
+          {
+            "from": "D1.anode",
+            "to": "Q1.C"
+          },
+          {
+            "from": "D1.cathode",
+            "to": "Relay1.COIL1"
+          },
+          {
+            "from": "Relay1.NO",
+            "to": "Lamp1.a"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "Lamp1.b"
+          }
+        ],
+        "drive": [],
+        "layout": "bench",
+        "tests": [
+          {
+            "name": "Button Released",
+            "set": {
+              "Btn1": 0
+            },
+            "on": [],
+            "off": ["Lamp1"]
+          },
+          {
+            "name": "Button Pressed",
+            "set": {
+              "Btn1": 1
+            },
+            "on": ["Lamp1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a battery reverse polarity protection diode in front of an led circuit": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Battery Reverse Polarity Protection LED Circuit",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5,
+            "package": "axial"
+          },
+          {
+            "id": "D1",
+            "type": "diode",
+            "volts": 0.7,
+            "package": "axial"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 330,
+            "package": "axial"
+          },
+          {
+            "id": "LED1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "D1.anode"
+          },
+          {
+            "from": "D1.cathode",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "LED1.anode"
+          },
+          {
+            "from": "LED1.cathode",
+            "to": "B1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Normal operation",
+            "set": {},
+            "on": ["LED1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a traffic light sequence with red, yellow and green leds using a 555 and a 4017 counter, no microcontroller": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Traffic Light Sequence with 555 and 4017",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5,
+            "package": "axial"
+          },
+          {
+            "id": "U555",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "555 Timer",
+              "pins": ["GND", "TRIG", "OUT", "RST", "CV", "THR", "DIS", "VCC"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 1500
+                }
+              ],
+              "switches": [
+                {
+                  "a": "DIS",
+                  "b": "GND",
+                  "ohms": 10,
+                  "when": "!q",
+                  "ref": "GND",
+                  "aboveVolts": 2
+                }
+              ],
+              "drivers": [
+                {
+                  "pin": "OUT",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "q",
+                  "ref": "GND",
+                  "aboveVolts": 2,
+                  "ohms": 20,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "state": {
+                "ref": "GND",
+                "aboveVolts": 2,
+                "vars": {
+                  "q": 1
+                },
+                "rules": [
+                  {
+                    "when": "v.TRIG < v.VCC / 3",
+                    "set": "q",
+                    "to": 1
+                  },
+                  {
+                    "when": "v.THR > v.VCC * 2 / 3",
+                    "set": "q",
+                    "to": 0
+                  }
+                ]
+              },
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 16
+              },
+              "maxAmps": 0.2,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "U4017",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "CD4017 Decade Counter",
+              "pins": ["Q0", "Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7", "Q8", "Q9", "Q5_9", "CO", "EN", "CLK", "RST", "VCC", "GND"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Q0",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n == 0",
+                  "ref": "GND",
+                  "aboveVolts": 3,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n == 1",
+                  "ref": "GND",
+                  "aboveVolts": 3,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q2",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n == 2",
+                  "ref": "GND",
+                  "aboveVolts": 3,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q3",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n == 3",
+                  "ref": "GND",
+                  "aboveVolts": 3,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q4",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n == 4",
+                  "ref": "GND",
+                  "aboveVolts": 3,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Q5",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "n == 5",
+                  "ref": "GND",
+                  "aboveVolts": 3,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "state": {
+                "ref": "GND",
+                "aboveVolts": 3,
+                "vars": {
+                  "n": 0
+                },
+                "rules": [
+                  {
+                    "edge": "CLK",
+                    "set": "n",
+                    "to": "(n >= 3) ? 0 : (n + 1)"
+                  }
+                ]
+              },
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 3,
+                "maxVolts": 15
+              },
+              "maxAmps": 0.1,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "RA",
+            "type": "resistor",
+            "ohms": 1000,
+            "package": "axial"
+          },
+          {
+            "id": "RB",
+            "type": "resistor",
+            "ohms": 4700,
+            "package": "axial"
+          },
+          {
+            "id": "C1",
+            "type": "capacitor",
+            "farads": 0.0001,
+            "package": "radial"
+          },
+          {
+            "id": "D_RED1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          },
+          {
+            "id": "R_RED1",
+            "type": "resistor",
+            "ohms": 470,
+            "package": "axial"
+          },
+          {
+            "id": "D_GRN",
+            "type": "led",
+            "color": "green",
+            "package": "axial"
+          },
+          {
+            "id": "R_GRN",
+            "type": "resistor",
+            "ohms": 470,
+            "package": "axial"
+          },
+          {
+            "id": "D_YEL",
+            "type": "led",
+            "color": "yellow",
+            "package": "axial"
+          },
+          {
+            "id": "R_YEL",
+            "type": "resistor",
+            "ohms": 470,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "U555.VCC"
+          },
+          {
+            "from": "B1.pos",
+            "to": "U555.RST"
+          },
+          {
+            "from": "B1.pos",
+            "to": "RA.a"
+          },
+          {
+            "from": "B1.pos",
+            "to": "U4017.VCC"
+          },
+          {
+            "from": "B1.neg",
+            "to": "U555.GND"
+          },
+          {
+            "from": "B1.neg",
+            "to": "U4017.GND"
+          },
+          {
+            "from": "B1.neg",
+            "to": "C1.b"
+          },
+          {
+            "from": "RA.b",
+            "to": "U555.DIS"
+          },
+          {
+            "from": "RA.b",
+            "to": "RB.a"
+          },
+          {
+            "from": "RB.b",
+            "to": "U555.THR"
+          },
+          {
+            "from": "RB.b",
+            "to": "U555.TRIG"
+          },
+          {
+            "from": "RB.b",
+            "to": "C1.a"
+          },
+          {
+            "from": "U555.OUT",
+            "to": "U4017.CLK"
+          },
+          {
+            "from": "U4017.EN",
+            "to": "U4017.GND"
+          },
+          {
+            "from": "U4017.Q0",
+            "to": "R_RED1.a"
+          },
+          {
+            "from": "R_RED1.b",
+            "to": "D_RED1.anode"
+          },
+          {
+            "from": "D_RED1.cathode",
+            "to": "B1.neg"
+          },
+          {
+            "from": "U4017.Q1",
+            "to": "R_GRN.a"
+          },
+          {
+            "from": "R_GRN.b",
+            "to": "D_GRN.anode"
+          },
+          {
+            "from": "D_GRN.cathode",
+            "to": "B1.neg"
+          },
+          {
+            "from": "U4017.Q2",
+            "to": "R_YEL.a"
+          },
+          {
+            "from": "R_YEL.b",
+            "to": "D_YEL.anode"
+          },
+          {
+            "from": "D_YEL.cathode",
+            "to": "B1.neg"
+          },
+          {
+            "from": "U4017.Q3",
+            "to": "U4017.RST"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "State 0: Red Light Active",
+            "set": {},
+            "on": ["D_RED1"],
+            "off": ["D_GRN", "D_YEL"]
+          }
+        ]
+      }
+    }
+  },
+  "a push button that toggles an led on and off using a d flip-flop": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Toggle LED with Push Button and D Flip-Flop",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "bat1",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1
+          },
+          {
+            "id": "btn1",
+            "type": "button",
+            "package": "axial"
+          },
+          {
+            "id": "r_pull",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "r_led",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "led1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          },
+          {
+            "id": "ff",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC74 D-Type Flip-Flop",
+              "pins": ["VCC", "GND", "CLK", "D", "Q", "Qbar", "CLR", "PRE"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Q",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "q == 1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                },
+                {
+                  "pin": "Qbar",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "q == 0",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "state": {
+                "ref": "GND",
+                "aboveVolts": 2.5,
+                "vars": {
+                  "q": 0
+                },
+                "rules": [
+                  {
+                    "edge": "CLK",
+                    "set": "q",
+                    "to": "1 - q"
+                  }
+                ]
+              },
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.05,
+              "output": true,
+              "visual": []
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "bat1.pos",
+            "to": "ff.VCC"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "ff.GND"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "ff.PRE"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "ff.CLR"
+          },
+          {
+            "from": "bat1.pos",
+            "to": "btn1.a"
+          },
+          {
+            "from": "btn1.b",
+            "to": "ff.CLK"
+          },
+          {
+            "from": "btn1.b",
+            "to": "r_pull.a"
+          },
+          {
+            "from": "bat1.neg",
+            "to": "r_pull.b"
+          },
+          {
+            "from": "ff.Qbar",
+            "to": "ff.D"
+          },
+          {
+            "from": "ff.Q",
+            "to": "r_led.a"
+          },
+          {
+            "from": "r_led.b",
+            "to": "led1.anode"
+          },
+          {
+            "from": "led1.cathode",
+            "to": "bat1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Initial State LED Off",
+            "set": {
+              "btn1": 0
+            },
+            "on": [],
+            "off": ["led1"]
+          },
+          {
+            "name": "First Press LED On",
+            "set": {
+              "btn1": 1
+            },
+            "on": ["led1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a dc motor that an arduino drives forwards and backwards through an l298n, reversing every 3 seconds": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Arduino DC Motor Direction Control",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "ARD",
+            "type": "arduino",
+            "usb": true
+          },
+          {
+            "id": "BAT",
+            "type": "battery",
+            "volts": 12,
+            "maxAmps": 3
+          },
+          {
+            "id": "DRV",
+            "type": "motor_driver",
+            "package": "module"
+          },
+          {
+            "id": "MOT",
+            "type": "motor",
+            "ohms": 12,
+            "volts": 12,
+            "maxAmps": 1.5,
+            "package": "motor"
+          }
+        ],
+        "wires": [
+          {
+            "from": "BAT.pos",
+            "to": "DRV.VS"
+          },
+          {
+            "from": "BAT.neg",
+            "to": "DRV.GND"
+          },
+          {
+            "from": "BAT.neg",
+            "to": "ARD.GND"
+          },
+          {
+            "from": "ARD.5V",
+            "to": "DRV.VCC"
+          },
+          {
+            "from": "ARD.D9",
+            "to": "DRV.ENA"
+          },
+          {
+            "from": "ARD.D8",
+            "to": "DRV.IN1"
+          },
+          {
+            "from": "ARD.D7",
+            "to": "DRV.IN2"
+          },
+          {
+            "from": "DRV.OUT1",
+            "to": "MOT.a"
+          },
+          {
+            "from": "DRV.OUT2",
+            "to": "MOT.b"
+          }
+        ],
+        "drive": [
+          {
+            "pin": "ARD.D9",
+            "mode": "pwm",
+            "value": 1
+          },
+          {
+            "pin": "ARD.D8",
+            "mode": "high"
+          },
+          {
+            "pin": "ARD.D7",
+            "mode": "low"
+          }
+        ],
+        "program": [
+          {
+            "every": 3,
+            "then": [
+              {
+                "set": "dir",
+                "to": "dir * -1"
+              }
+            ]
+          },
+          {
+            "when": "dir == 1",
+            "then": [
+              {
+                "pin": "ARD.D8",
+                "mode": "high"
+              },
+              {
+                "pin": "ARD.D7",
+                "mode": "low"
+              }
+            ],
+            "else": [
+              {
+                "pin": "ARD.D8",
+                "mode": "low"
+              },
+              {
+                "pin": "ARD.D7",
+                "mode": "high"
+              }
+            ]
+          }
+        ],
+        "vars": {
+          "dir": 1
+        },
+        "world": [
+          {
+            "id": "speed",
+            "label": "Motor Speed",
+            "unit": "rpm",
+            "start": 0,
+            "min": -3000,
+            "max": 3000,
+            "effects": [
+              {
+                "from": "MOT",
+                "rate": 3000
+              }
+            ]
+          }
+        ],
+        "layout": "bench"
+      }
+    }
+  },
+  "a temperature alarm: a thermistor and an lm393 comparator sound a buzzer above 40c": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Temperature Alarm",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5
+          },
+          {
+            "id": "TH1",
+            "type": "thermistor",
+            "ohms": 10000,
+            "measures": "temperature"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 10000
+          },
+          {
+            "id": "R2",
+            "type": "resistor",
+            "ohms": 1000
+          },
+          {
+            "id": "R_BZ",
+            "type": "resistor",
+            "ohms": 100
+          },
+          {
+            "id": "POT1",
+            "type": "pot",
+            "ohms": 10000
+          },
+          {
+            "id": "IC1",
+            "type": "custom",
+            "maxAmps": 0.05,
+            "package": "dip",
+            "custom": {
+              "label": "LM393 Comparator",
+              "pins": ["OUT1", "INN1", "INP1", "GND", "INP2", "INN2", "OUT2", "VCC"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 10000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "OUT1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "v.INP1 > v.INN1",
+                  "ref": "GND",
+                  "aboveVolts": 0,
+                  "ohms": 50,
+                  "invert": true
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 36
+              },
+              "maxAmps": 0.05,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "BZ1",
+            "type": "buzzer"
+          },
+          {
+            "id": "Q1",
+            "type": "custom",
+            "maxAmps": 0.6,
+            "package": "to92",
+            "custom": {
+              "label": "2N2222 NPN",
+              "pins": ["C", "B", "E"],
+              "paths": [
+                {
+                  "a": "B",
+                  "b": "E",
+                  "ohms": 1000
+                }
+              ],
+              "switches": [
+                {
+                  "a": "C",
+                  "b": "E",
+                  "ohms": 0.3,
+                  "when": "B",
+                  "ref": "E",
+                  "aboveVolts": 0.65
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 0.6,
+              "output": false,
+              "visual": []
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "IC1.VCC"
+          },
+          {
+            "from": "B1.pos",
+            "to": "TH1.a"
+          },
+          {
+            "from": "B1.pos",
+            "to": "POT1.a"
+          },
+          {
+            "from": "B1.pos",
+            "to": "BZ1.pos"
+          },
+          {
+            "from": "B1.neg",
+            "to": "IC1.GND"
+          },
+          {
+            "from": "B1.neg",
+            "to": "R1.b"
+          },
+          {
+            "from": "B1.neg",
+            "to": "POT1.b"
+          },
+          {
+            "from": "B1.neg",
+            "to": "Q1.E"
+          },
+          {
+            "from": "TH1.b",
+            "to": "R1.a"
+          },
+          {
+            "from": "TH1.b",
+            "to": "IC1.INP1"
+          },
+          {
+            "from": "POT1.wiper",
+            "to": "IC1.INN1"
+          },
+          {
+            "from": "IC1.OUT1",
+            "to": "R2.a"
+          },
+          {
+            "from": "R2.b",
+            "to": "Q1.B"
+          },
+          {
+            "from": "BZ1.neg",
+            "to": "R_BZ.a"
+          },
+          {
+            "from": "R_BZ.b",
+            "to": "Q1.C"
+          }
+        ],
+        "drive": [],
+        "world": [
+          {
+            "id": "temperature",
+            "label": "Ambient Temperature",
+            "unit": "C",
+            "start": 25,
+            "min": 0,
+            "max": 80,
+            "drift": 0.1,
+            "toward": {
+              "value": 25,
+              "rate": 0.05
+            },
+            "effects": [],
+            "target": {
+              "min": 0,
+              "max": 40
+            }
+          }
+        ],
+        "layout": "breadboard",
+        "tests": []
+      }
+    }
+  },
+  "an arduino counting from 0 to 9 on a 7-segment display, one digit per second": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Arduino 7-Segment Counter",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "A1",
+            "type": "arduino",
+            "usb": true,
+            "package": "module"
+          },
+          {
+            "id": "D1",
+            "type": "seven_segment",
+            "color": "red",
+            "package": "display"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R2",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R3",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R4",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R5",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R6",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "R7",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "R1.a",
+            "to": "A1.D2"
+          },
+          {
+            "from": "R1.b",
+            "to": "D1.a"
+          },
+          {
+            "from": "R2.a",
+            "to": "A1.D3"
+          },
+          {
+            "from": "R2.b",
+            "to": "D1.b"
+          },
+          {
+            "from": "R3.a",
+            "to": "A1.D4"
+          },
+          {
+            "from": "R3.b",
+            "to": "D1.c"
+          },
+          {
+            "from": "R4.a",
+            "to": "A1.D5"
+          },
+          {
+            "from": "R4.b",
+            "to": "D1.d"
+          },
+          {
+            "from": "R5.a",
+            "to": "A1.D6"
+          },
+          {
+            "from": "R5.b",
+            "to": "D1.e"
+          },
+          {
+            "from": "R6.a",
+            "to": "A1.D7"
+          },
+          {
+            "from": "R6.b",
+            "to": "D1.f"
+          },
+          {
+            "from": "R7.a",
+            "to": "A1.D8"
+          },
+          {
+            "from": "R7.b",
+            "to": "D1.g"
+          },
+          {
+            "from": "D1.com",
+            "to": "A1.GND"
+          }
+        ],
+        "drive": [],
+        "program": [
+          {
+            "every": 1,
+            "then": [
+              {
+                "set": "digit",
+                "to": "(digit + 1) % 10"
+              }
+            ]
+          },
+          {
+            "then": [
+              {
+                "pin": "A1.D2",
+                "mode": "high",
+                "value": "digit == 0 || digit == 2 || digit == 3 || digit == 5 || digit == 6 || digit == 7 || digit == 8 || digit == 9 ? 1 : 0"
+              },
+              {
+                "pin": "A1.D3",
+                "mode": "high",
+                "value": "digit == 0 || digit == 1 || digit == 2 || digit == 3 || digit == 4 || digit == 7 || digit == 8 || digit == 9 ? 1 : 0"
+              },
+              {
+                "pin": "A1.D4",
+                "mode": "high",
+                "value": "digit == 0 || digit == 1 || digit == 3 || digit == 4 || digit == 5 || digit == 6 || digit == 7 || digit == 8 || digit == 9 ? 1 : 0"
+              },
+              {
+                "pin": "A1.D5",
+                "mode": "high",
+                "value": "digit == 0 || digit == 2 || digit == 3 || digit == 5 || digit == 6 || digit == 8 || digit == 9 ? 1 : 0"
+              },
+              {
+                "pin": "A1.D6",
+                "mode": "high",
+                "value": "digit == 0 || digit == 2 || digit == 6 || digit == 8 ? 1 : 0"
+              },
+              {
+                "pin": "A1.D7",
+                "mode": "high",
+                "value": "digit == 0 || digit == 4 || digit == 5 || digit == 6 || digit == 8 || digit == 9 ? 1 : 0"
+              },
+              {
+                "pin": "A1.D8",
+                "mode": "high",
+                "value": "digit == 2 || digit == 3 || digit == 4 || digit == 5 || digit == 6 || digit == 8 || digit == 9 ? 1 : 0"
+              }
+            ]
+          }
+        ],
+        "vars": {
+          "digit": 0
+        },
+        "layout": "breadboard"
+      }
+    }
+  },
+  "an esp32 reading a dht22 and showing temperature on an oled": {
+    "domain": "electronics",
+    "draft": {
+      "name": "ESP32 DHT22 OLED Thermometer",
+      "summary": "",
+      "unmodelled": ["Humidity display specifically (temperature only shown due to single string display format limitations or simulated text field)"],
+      "spec": {
+        "parts": [
+          {
+            "id": "ESP1",
+            "type": "custom",
+            "usb": true,
+            "package": "module",
+            "custom": {
+              "label": "ESP32 DevKit",
+              "pins": ["3V3", "GND", "D21", "D22", "VIN", "D4"],
+              "paths": [
+                {
+                  "a": "VIN",
+                  "b": "GND",
+                  "ohms": 100000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [
+                {
+                  "pos": "3V3",
+                  "neg": "GND",
+                  "volts": 3.3,
+                  "ohms": 0.1,
+                  "from": "VIN",
+                  "dropout": 0.3
+                }
+              ],
+              "gpio": ["D21", "D22", "D4"],
+              "gpioVolts": 3.3,
+              "supply": {
+                "pos": "VIN",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 15
+              },
+              "maxAmps": 1,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "DHT1",
+            "type": "custom",
+            "measures": "temp",
+            "package": "sensor",
+            "custom": {
+              "label": "DHT22 Sensor",
+              "pins": ["VCC", "DATA", "GND"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 10000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 3,
+                "maxVolts": 5.5
+              },
+              "maxAmps": 0.01,
+              "output": false,
+              "sensor": {
+                "quantity": "temp",
+                "unit": "C",
+                "min": -40,
+                "max": 80,
+                "value": 25,
+                "pin": "DATA"
+              },
+              "visual": []
+            }
+          },
+          {
+            "id": "OLED1",
+            "type": "custom",
+            "package": "display",
+            "custom": {
+              "label": "SSD1306 OLED",
+              "pins": ["GND", "VCC", "SCL", "SDA"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 500
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 3,
+                "maxVolts": 5
+              },
+              "maxAmps": 0.05,
+              "output": true,
+              "actuator": {
+                "quantity": "text",
+                "pin": "SDA",
+                "min": 0,
+                "max": 1
+              },
+              "visual": [
+                {
+                  "shape": "box",
+                  "size": [1.8, 1.2, 0.2],
+                  "at": [0, 0.6, 0],
+                  "color": "#000000"
+                }
+              ]
+            }
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "ESP1.3V3",
+            "to": "DHT1.VCC"
+          },
+          {
+            "from": "ESP1.GND",
+            "to": "DHT1.GND"
+          },
+          {
+            "from": "ESP1.3V3",
+            "to": "OLED1.VCC"
+          },
+          {
+            "from": "ESP1.GND",
+            "to": "OLED1.GND"
+          },
+          {
+            "from": "ESP1.D22",
+            "to": "OLED1.SCL"
+          },
+          {
+            "from": "ESP1.D21",
+            "to": "OLED1.SDA"
+          },
+          {
+            "from": "ESP1.D4",
+            "to": "DHT1.DATA"
+          },
+          {
+            "from": "ESP1.3V3",
+            "to": "R1.a"
+          },
+          {
+            "from": "DHT1.DATA",
+            "to": "R1.b"
+          }
+        ],
+        "drive": [],
+        "program": [
+          {
+            "every": 1,
+            "then": [
+              {
+                "set": "temp_val",
+                "to": "temp"
+              },
+              {
+                "show": "OLED1",
+                "text": "Temp: {temp_val} C"
+              }
+            ]
+          }
+        ],
+        "vars": {
+          "temp_val": 25
+        },
+        "world": [
+          {
+            "id": "temp",
+            "label": "Room Temperature",
+            "unit": "C",
+            "start": 25,
+            "min": -10,
+            "max": 50,
+            "drift": 0.05,
+            "toward": {
+              "value": 24,
+              "rate": 0.01
+            },
+            "effects": [],
+            "target": {
+              "min": 20,
+              "max": 30
+            }
+          }
+        ],
+        "layout": "bench"
+      }
+    }
+  },
+  "a doorbell: a button sounds a buzzer": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Simple Doorbell",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 9,
+            "maxAmps": 0.5,
+            "package": "axial"
+          },
+          {
+            "id": "BTN1",
+            "type": "button",
+            "package": "module"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "BZ1",
+            "type": "buzzer",
+            "maxAmps": 0.1,
+            "package": "speaker"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "BTN1.a"
+          },
+          {
+            "from": "BTN1.b",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "BZ1.pos"
+          },
+          {
+            "from": "BZ1.neg",
+            "to": "B1.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Button unpressed",
+            "set": {
+              "BTN1": 0
+            },
+            "on": [],
+            "off": ["BZ1"]
+          },
+          {
+            "name": "Button pressed",
+            "set": {
+              "BTN1": 1
+            },
+            "on": ["BZ1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "an or gate and an xor gate side by side, each with two switches and an led, on a breadboard": {
+    "domain": "electronics",
+    "draft": {
+      "name": "OR and XOR Gates",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "Bat1",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1
+          },
+          {
+            "id": "U_OR",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC32 OR",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 || B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.05,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "U_XOR",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC86 XOR",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 != B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.05,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "Sw_OR1",
+            "type": "switch",
+            "package": "module"
+          },
+          {
+            "id": "Sw_OR2",
+            "type": "switch",
+            "package": "module"
+          },
+          {
+            "id": "R_OR1",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "R_OR2",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "Led_OR",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          },
+          {
+            "id": "Res_OR",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "Sw_XOR1",
+            "type": "switch",
+            "package": "module"
+          },
+          {
+            "id": "Sw_XOR2",
+            "type": "switch",
+            "package": "module"
+          },
+          {
+            "id": "R_XOR1",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "R_XOR2",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "Led_XOR",
+            "type": "led",
+            "color": "green",
+            "package": "axial"
+          },
+          {
+            "id": "Res_XOR",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "Bat1.pos",
+            "to": "U_OR.VCC"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "U_XOR.VCC"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "Sw_OR1.a"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "Sw_OR2.a"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "Sw_XOR1.a"
+          },
+          {
+            "from": "Bat1.pos",
+            "to": "Sw_XOR2.a"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "U_OR.GND"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "U_XOR.GND"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "R_OR1.b"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "R_OR2.b"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "R_XOR1.b"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "R_XOR2.b"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "Led_OR.cathode"
+          },
+          {
+            "from": "Bat1.neg",
+            "to": "Led_XOR.cathode"
+          },
+          {
+            "from": "Sw_OR1.b",
+            "to": "U_OR.A1"
+          },
+          {
+            "from": "Sw_OR1.b",
+            "to": "R_OR1.a"
+          },
+          {
+            "from": "Sw_OR2.b",
+            "to": "U_OR.B1"
+          },
+          {
+            "from": "Sw_OR2.b",
+            "to": "R_OR2.a"
+          },
+          {
+            "from": "U_OR.Y1",
+            "to": "Res_OR.a"
+          },
+          {
+            "from": "Res_OR.b",
+            "to": "Led_OR.anode"
+          },
+          {
+            "from": "Sw_XOR1.b",
+            "to": "U_XOR.A1"
+          },
+          {
+            "from": "Sw_XOR1.b",
+            "to": "R_XOR1.a"
+          },
+          {
+            "from": "Sw_XOR2.b",
+            "to": "U_XOR.B1"
+          },
+          {
+            "from": "Sw_XOR2.b",
+            "to": "R_XOR2.a"
+          },
+          {
+            "from": "U_XOR.Y1",
+            "to": "Res_XOR.a"
+          },
+          {
+            "from": "Res_XOR.b",
+            "to": "Led_XOR.anode"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "0000",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 0
+            },
+            "on": [],
+            "off": ["Led_OR", "Led_XOR"]
+          },
+          {
+            "name": "0001",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_XOR"],
+            "off": ["Led_OR"]
+          },
+          {
+            "name": "0010",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_XOR"],
+            "off": ["Led_OR"]
+          },
+          {
+            "name": "0011",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 1
+            },
+            "on": [],
+            "off": ["Led_OR", "Led_XOR"]
+          },
+          {
+            "name": "0100",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_OR"],
+            "off": ["Led_XOR"]
+          },
+          {
+            "name": "0101",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_OR", "Led_XOR"],
+            "off": []
+          },
+          {
+            "name": "0110",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_OR", "Led_XOR"],
+            "off": []
+          },
+          {
+            "name": "0111",
+            "set": {
+              "Sw_OR1": 0,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_OR"],
+            "off": ["Led_XOR"]
+          },
+          {
+            "name": "1000",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_OR"],
+            "off": ["Led_XOR"]
+          },
+          {
+            "name": "1001",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_OR", "Led_XOR"],
+            "off": []
+          },
+          {
+            "name": "1010",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_OR", "Led_XOR"],
+            "off": []
+          },
+          {
+            "name": "1011",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 0,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_OR"],
+            "off": ["Led_XOR"]
+          },
+          {
+            "name": "1100",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_OR"],
+            "off": ["Led_XOR"]
+          },
+          {
+            "name": "1101",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 0,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_OR", "Led_XOR"],
+            "off": []
+          },
+          {
+            "name": "1110",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 0
+            },
+            "on": ["Led_OR", "Led_XOR"],
+            "off": []
+          },
+          {
+            "name": "1111",
+            "set": {
+              "Sw_OR1": 1,
+              "Sw_OR2": 1,
+              "Sw_XOR1": 1,
+              "Sw_XOR2": 1
+            },
+            "on": ["Led_OR"],
+            "off": ["Led_XOR"]
+          }
+        ]
+      }
+    }
+  },
+  "an arduino moving a servo to follow a potentiometer": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Arduino Servo Potentiometer Follower",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "A1",
+            "type": "arduino",
+            "usb": true,
+            "package": "module"
+          },
+          {
+            "id": "POT1",
+            "type": "pot",
+            "ohms": 10000,
+            "package": "pot"
+          },
+          {
+            "id": "SERVO1",
+            "type": "custom",
+            "package": "motor",
+            "custom": {
+              "label": "Servo Motor",
+              "pins": ["VCC", "SIG", "GND"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 200
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 4.5,
+                "maxVolts": 6
+              },
+              "maxAmps": 1,
+              "output": true,
+              "actuator": {
+                "quantity": "angle",
+                "pin": "SIG",
+                "min": 0,
+                "max": 180
+              },
+              "visual": [
+                {
+                  "shape": "box",
+                  "size": [1.6, 0.9, 0.8],
+                  "at": [0, 0.45, 0],
+                  "color": "#1f2937"
+                },
+                {
+                  "shape": "box",
+                  "size": [2.2, 0.08, 0.8],
+                  "at": [0, 0.65, 0],
+                  "color": "#111827"
+                },
+                {
+                  "shape": "cylinder",
+                  "size": [0.3, 0.3, 0.3],
+                  "at": [0.4, 1.05, 0],
+                  "color": "#e5e7eb"
+                },
+                {
+                  "shape": "box",
+                  "size": [1.1, 0.08, 0.22],
+                  "at": [0.4, 1.22, 0],
+                  "color": "#f8fafc",
+                  "moves": true
+                }
+              ]
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "A1.5V",
+            "to": "POT1.a"
+          },
+          {
+            "from": "A1.GND",
+            "to": "POT1.b"
+          },
+          {
+            "from": "A1.A0",
+            "to": "POT1.wiper"
+          },
+          {
+            "from": "A1.5V",
+            "to": "SERVO1.VCC"
+          },
+          {
+            "from": "A1.GND",
+            "to": "SERVO1.GND"
+          },
+          {
+            "from": "A1.D9",
+            "to": "SERVO1.SIG"
+          }
+        ],
+        "drive": [],
+        "program": [
+          {
+            "then": [
+              {
+                "set": "potVal",
+                "to": "A1.A0"
+              },
+              {
+                "set": "angle",
+                "to": "round(potVal * 180 / 1023)"
+              },
+              {
+                "pin": "A1.D9",
+                "mode": "angle",
+                "value": "angle"
+              }
+            ]
+          }
+        ],
+        "vars": {
+          "potVal": 0,
+          "angle": 0
+        },
+        "layout": "bench"
+      }
+    }
+  },
+  "a fan that switches on through a mosfet when an arduino reads the room above 28c": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Temperature-Controlled Fan",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "arduino",
+            "type": "arduino",
+            "usb": true,
+            "package": "module"
+          },
+          {
+            "id": "power_supply",
+            "type": "battery",
+            "volts": 12,
+            "maxAmps": 3,
+            "package": "axial"
+          },
+          {
+            "id": "thermistor",
+            "type": "thermistor",
+            "ohms": 10000,
+            "measures": "room_temp",
+            "package": "axial"
+          },
+          {
+            "id": "r_pullup",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "r_gate",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "r_pulldown",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "mosfet",
+            "type": "custom",
+            "package": "to220",
+            "custom": {
+              "label": "IRF520 N-Channel MOSFET",
+              "pins": ["D", "G", "S"],
+              "paths": [
+                {
+                  "a": "G",
+                  "b": "S",
+                  "ohms": 1000000
+                }
+              ],
+              "switches": [
+                {
+                  "a": "D",
+                  "b": "S",
+                  "ohms": 0.1,
+                  "when": "G",
+                  "ref": "S",
+                  "aboveVolts": 3
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 5,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "flyback",
+            "type": "diode",
+            "volts": 0.7,
+            "package": "axial"
+          },
+          {
+            "id": "fan",
+            "type": "motor",
+            "ohms": 24,
+            "volts": 12,
+            "maxAmps": 1,
+            "package": "motor"
+          }
+        ],
+        "wires": [
+          {
+            "from": "power_supply.pos",
+            "to": "fan.a"
+          },
+          {
+            "from": "power_supply.pos",
+            "to": "flyback.cathode"
+          },
+          {
+            "from": "fan.b",
+            "to": "mosfet.D"
+          },
+          {
+            "from": "flyback.anode",
+            "to": "mosfet.D"
+          },
+          {
+            "from": "mosfet.S",
+            "to": "power_supply.neg"
+          },
+          {
+            "from": "power_supply.neg",
+            "to": "arduino.GND"
+          },
+          {
+            "from": "arduino.D3",
+            "to": "r_gate.a"
+          },
+          {
+            "from": "r_gate.b",
+            "to": "mosfet.G"
+          },
+          {
+            "from": "mosfet.G",
+            "to": "r_pulldown.a"
+          },
+          {
+            "from": "r_pulldown.b",
+            "to": "arduino.GND"
+          },
+          {
+            "from": "arduino.5V",
+            "to": "r_pullup.a"
+          },
+          {
+            "from": "r_pullup.b",
+            "to": "thermistor.a"
+          },
+          {
+            "from": "thermistor.a",
+            "to": "arduino.A0"
+          },
+          {
+            "from": "thermistor.b",
+            "to": "arduino.GND"
+          }
+        ],
+        "drive": [],
+        "program": [
+          {
+            "when": "thermistor > 28",
+            "then": [
+              {
+                "pin": "arduino.D3",
+                "mode": "high"
+              }
+            ],
+            "else": [
+              {
+                "pin": "arduino.D3",
+                "mode": "low"
+              }
+            ]
+          }
+        ],
+        "world": [
+          {
+            "id": "room_temp",
+            "label": "Room Temperature",
+            "unit": "C",
+            "start": 25,
+            "min": 15,
+            "max": 40,
+            "drift": 0.02,
+            "toward": {
+              "value": 24,
+              "rate": 0.01
+            },
+            "effects": [
+              {
+                "from": "fan",
+                "rate": -0.15
+              }
+            ],
+            "target": {
+              "min": 20,
+              "max": 28
+            }
+          }
+        ],
+        "layout": "bench",
+        "tests": [
+          {
+            "name": "Fan off below 28C",
+            "set": {
+              "thermistor": 25
+            },
+            "on": [],
+            "off": ["fan"]
+          },
+          {
+            "name": "Fan on above 28C",
+            "set": {
+              "thermistor": 30
+            },
+            "on": ["fan"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a capacitor that keeps an led lit for a few seconds after the button is released": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Capacitor LED Keep-Alive",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "B1",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1
+          },
+          {
+            "id": "BTN1",
+            "type": "button",
+            "package": "module"
+          },
+          {
+            "id": "R1",
+            "type": "resistor",
+            "ohms": 100,
+            "package": "axial"
+          },
+          {
+            "id": "C1",
+            "type": "capacitor",
+            "farads": 0.022,
+            "package": "radial"
+          },
+          {
+            "id": "R2",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "LED1",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "B1.pos",
+            "to": "BTN1.a"
+          },
+          {
+            "from": "BTN1.b",
+            "to": "R1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "C1.a"
+          },
+          {
+            "from": "R1.b",
+            "to": "LED1.anode"
+          },
+          {
+            "from": "LED1.cathode",
+            "to": "R2.a"
+          },
+          {
+            "from": "R2.b",
+            "to": "B1.neg"
+          },
+          {
+            "from": "C1.b",
+            "to": "B1.neg"
+          },
+          {
+            "from": "B1.pos",
+            "to": "C1.a"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "Button Pressed",
+            "set": {
+              "BTN1": 1
+            },
+            "on": ["LED1"],
+            "off": []
+          },
+          {
+            "name": "Button Released",
+            "set": {
+              "BTN1": 0
+            },
+            "on": ["LED1"],
+            "off": []
+          }
+        ]
+      }
+    }
+  },
+  "a half adder from logic chips with two switches and two leds": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Half Adder",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "batt",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 3
+          },
+          {
+            "id": "swA",
+            "type": "switch",
+            "package": "module"
+          },
+          {
+            "id": "swB",
+            "type": "switch",
+            "package": "module"
+          },
+          {
+            "id": "resA",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "resB",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "xorGate",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC86 Quad XOR",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 != B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.05,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "andGate",
+            "type": "custom",
+            "package": "dip",
+            "custom": {
+              "label": "74HC08 Quad AND",
+              "pins": ["VCC", "GND", "A1", "B1", "Y1"],
+              "paths": [
+                {
+                  "a": "VCC",
+                  "b": "GND",
+                  "ohms": 5000
+                }
+              ],
+              "switches": [],
+              "drivers": [
+                {
+                  "pin": "Y1",
+                  "high": "VCC",
+                  "low": "GND",
+                  "when": "A1 && B1",
+                  "ref": "GND",
+                  "aboveVolts": 2.5,
+                  "ohms": 50,
+                  "invert": false
+                }
+              ],
+              "sources": [],
+              "gpio": [],
+              "supply": {
+                "pos": "VCC",
+                "neg": "GND",
+                "minVolts": 2,
+                "maxVolts": 6
+              },
+              "maxAmps": 0.05,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "resSum",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "resCarry",
+            "type": "resistor",
+            "ohms": 220,
+            "package": "axial"
+          },
+          {
+            "id": "ledSum",
+            "type": "led",
+            "color": "green",
+            "package": "axial"
+          },
+          {
+            "id": "ledCarry",
+            "type": "led",
+            "color": "red",
+            "package": "axial"
+          }
+        ],
+        "wires": [
+          {
+            "from": "batt.pos",
+            "to": "swA.a"
+          },
+          {
+            "from": "batt.pos",
+            "to": "swB.a"
+          },
+          {
+            "from": "batt.pos",
+            "to": "xorGate.VCC"
+          },
+          {
+            "from": "batt.pos",
+            "to": "andGate.VCC"
+          },
+          {
+            "from": "batt.neg",
+            "to": "xorGate.GND"
+          },
+          {
+            "from": "batt.neg",
+            "to": "andGate.GND"
+          },
+          {
+            "from": "batt.neg",
+            "to": "resA.b"
+          },
+          {
+            "from": "batt.neg",
+            "to": "resB.b"
+          },
+          {
+            "from": "swA.b",
+            "to": "resA.a"
+          },
+          {
+            "from": "resA.a",
+            "to": "xorGate.A1"
+          },
+          {
+            "from": "resA.a",
+            "to": "andGate.A1"
+          },
+          {
+            "from": "swB.b",
+            "to": "resB.a"
+          },
+          {
+            "from": "resB.a",
+            "to": "xorGate.B1"
+          },
+          {
+            "from": "resB.a",
+            "to": "andGate.B1"
+          },
+          {
+            "from": "xorGate.Y1",
+            "to": "resSum.a"
+          },
+          {
+            "from": "resSum.b",
+            "to": "ledSum.anode"
+          },
+          {
+            "from": "ledSum.cathode",
+            "to": "batt.neg"
+          },
+          {
+            "from": "andGate.Y1",
+            "to": "resCarry.a"
+          },
+          {
+            "from": "resCarry.b",
+            "to": "ledCarry.anode"
+          },
+          {
+            "from": "ledCarry.cathode",
+            "to": "batt.neg"
+          }
+        ],
+        "drive": [],
+        "layout": "breadboard",
+        "tests": [
+          {
+            "name": "0 + 0 = 00",
+            "set": {
+              "swA": 0,
+              "swB": 0
+            },
+            "on": [],
+            "off": ["ledSum", "ledCarry"]
+          },
+          {
+            "name": "0 + 1 = 01",
+            "set": {
+              "swA": 0,
+              "swB": 1
+            },
+            "on": ["ledSum"],
+            "off": ["ledCarry"]
+          },
+          {
+            "name": "1 + 0 = 01",
+            "set": {
+              "swA": 1,
+              "swB": 0
+            },
+            "on": ["ledSum"],
+            "off": ["ledCarry"]
+          },
+          {
+            "name": "1 + 1 = 10",
+            "set": {
+              "swA": 1,
+              "swB": 1
+            },
+            "on": ["ledCarry"],
+            "off": ["ledSum"]
+          }
+        ]
+      }
+    }
+  },
+  "a raspberry pi pico that turns on a lamp through a relay when an ldr reads dark": {
+    "domain": "electronics",
+    "draft": {
+      "name": "Pico Dark-Activated Lamp",
+      "summary": "",
+      "unmodelled": [],
+      "spec": {
+        "parts": [
+          {
+            "id": "pico",
+            "type": "custom",
+            "usb": true,
+            "package": "module",
+            "custom": {
+              "label": "Raspberry Pi Pico",
+              "pins": ["3V3", "GND", "GP15", "VSYS"],
+              "paths": [
+                {
+                  "a": "3V3",
+                  "b": "GND",
+                  "ohms": 1000
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [
+                {
+                  "pos": "3V3",
+                  "neg": "GND",
+                  "volts": 3.3,
+                  "ohms": 1,
+                  "from": "VSYS",
+                  "dropout": 0.1
+                }
+              ],
+              "gpio": ["GP15"],
+              "gpioVolts": 3.3,
+              "supply": {
+                "pos": "VSYS",
+                "neg": "GND",
+                "minVolts": 1.8,
+                "maxVolts": 5.5
+              },
+              "maxAmps": 0.5,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "usb_batt",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 2
+          },
+          {
+            "id": "ldr1",
+            "type": "ldr",
+            "measures": "ambient_light",
+            "package": "sensor"
+          },
+          {
+            "id": "r_pull",
+            "type": "resistor",
+            "ohms": 10000,
+            "package": "axial"
+          },
+          {
+            "id": "transistor",
+            "type": "custom",
+            "package": "to92",
+            "custom": {
+              "label": "2N2222 NPN",
+              "pins": ["C", "B", "E"],
+              "paths": [
+                {
+                  "a": "B",
+                  "b": "E",
+                  "ohms": 1000
+                }
+              ],
+              "switches": [
+                {
+                  "a": "C",
+                  "b": "E",
+                  "ohms": 0.3,
+                  "when": "B",
+                  "ref": "E",
+                  "aboveVolts": 0.65
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 0.6,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "r_base",
+            "type": "resistor",
+            "ohms": 1000,
+            "package": "axial"
+          },
+          {
+            "id": "relay",
+            "type": "custom",
+            "package": "relay",
+            "custom": {
+              "label": "5V Relay",
+              "pins": ["IN+", "IN-", "COM", "NO"],
+              "paths": [
+                {
+                  "a": "IN+",
+                  "b": "IN-",
+                  "ohms": 100
+                }
+              ],
+              "switches": [
+                {
+                  "a": "COM",
+                  "b": "NO",
+                  "ohms": 0.05,
+                  "when": "IN+",
+                  "ref": "IN-",
+                  "aboveVolts": 3.5
+                }
+              ],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 10,
+              "output": false,
+              "visual": []
+            }
+          },
+          {
+            "id": "relay_diode",
+            "type": "diode",
+            "volts": 0.7,
+            "package": "axial"
+          },
+          {
+            "id": "relay_power",
+            "type": "battery",
+            "volts": 5,
+            "maxAmps": 1
+          },
+          {
+            "id": "lamp_power",
+            "type": "battery",
+            "volts": 12,
+            "maxAmps": 2
+          },
+          {
+            "id": "lamp",
+            "type": "custom",
+            "package": "bulb",
+            "custom": {
+              "label": "12V Lamp",
+              "pins": ["a", "b"],
+              "paths": [
+                {
+                  "a": "a",
+                  "b": "b",
+                  "ohms": 14.4
+                }
+              ],
+              "switches": [],
+              "drivers": [],
+              "sources": [],
+              "gpio": [],
+              "maxAmps": 1,
+              "output": true,
+              "actuator": {
+                "quantity": "brightness",
+                "min": 0,
+                "max": 1
+              },
+              "visual": [
+                {
+                  "shape": "sphere",
+                  "size": [0.8, 0.8, 0.8],
+                  "at": [0, 0.4, 0],
+                  "color": "#fef08a"
+                }
+              ]
+            }
+          }
+        ],
+        "wires": [
+          {
+            "from": "usb_batt.pos",
+            "to": "pico.VSYS"
+          },
+          {
+            "from": "usb_batt.neg",
+            "to": "pico.GND"
+          },
+          {
+            "from": "pico.3V3",
+            "to": "ldr1.a"
+          },
+          {
+            "from": "ldr1.b",
+            "to": "r_pull.a"
+          },
+          {
+            "from": "r_pull.a",
+            "to": "pico.GP15"
+          },
+          {
+            "from": "r_pull.b",
+            "to": "pico.GND"
+          },
+          {
+            "from": "pico.GP15",
+            "to": "r_base.a"
+          },
+          {
+            "from": "r_base.b",
+            "to": "transistor.B"
+          },
+          {
+            "from": "transistor.E",
+            "to": "pico.GND"
+          },
+          {
+            "from": "relay_power.pos",
+            "to": "relay.IN+"
+          },
+          {
+            "from": "relay.IN-",
+            "to": "transistor.C"
+          },
+          {
+            "from": "relay_power.pos",
+            "to": "relay_diode.cathode"
+          },
+          {
+            "from": "transistor.C",
+            "to": "relay_diode.anode"
+          },
+          {
+            "from": "relay_power.neg",
+            "to": "pico.GND"
+          },
+          {
+            "from": "relay.COM",
+            "to": "lamp_power.pos"
+          },
+          {
+            "from": "relay.NO",
+            "to": "lamp.a"
+          },
+          {
+            "from": "lamp.b",
+            "to": "lamp_power.neg"
+          }
+        ],
+        "drive": [
+          {
+            "pin": "pico.GP15",
+            "mode": "low"
+          }
+        ],
+        "program": [
+          {
+            "when": "ambient_light < 30",
+            "then": [
+              {
+                "pin": "pico.GP15",
+                "mode": "high"
+              }
+            ],
+            "else": [
+              {
+                "pin": "pico.GP15",
+                "mode": "low"
+              }
+            ]
+          }
+        ],
+        "world": [
+          {
+            "id": "ambient_light",
+            "label": "Ambient Light",
+            "unit": "%",
+            "start": 20,
+            "min": 0,
+            "max": 100,
+            "toward": {
+              "value": 20,
+              "rate": 0.05
+            },
+            "effects": [],
+            "target": {
+              "min": 0,
+              "max": 30
+            }
+          }
+        ],
+        "layout": "bench",
+        "tests": [
+          {
+            "name": "Lamp turns on when dark",
+            "set": {
+              "ldr1": 10
+            },
+            "on": ["lamp"],
+            "off": []
+          },
+          {
+            "name": "Lamp turns off when bright",
+            "set": {
+              "ldr1": 80
+            },
+            "on": [],
+            "off": ["lamp"]
+          }
+        ]
+      }
+    }
+  }
+}

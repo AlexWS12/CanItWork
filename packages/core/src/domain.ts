@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod';
 import { z } from 'zod';
 
-export type DomainId = 'warehouse' | 'electronics' | 'software' | 'database' | 'power' | 'water' | 'supply' | 'hospital' | 'factory' | 'airport' | 'callcenter';
+export type DomainId = 'warehouse' | 'electronics' | 'software' | 'database' | 'power' | 'water' | 'supply' | 'hospital' | 'factory' | 'airport' | 'callcenter' | 'fleet';
 
 export interface Issue {
   severity: 'error' | 'warning';
@@ -70,6 +70,8 @@ export interface Run {
 export interface Hypothesis {
   claim: string;
   incident: Incident;
+  // Conditions applied from the start, before the incident, such as inputs set so the outputs under attack are active.
+  setup?: Incident[];
 }
 
 export interface RecoveryOption {
@@ -107,6 +109,8 @@ export interface Domain<Spec = any, Model = any> {
   council: Array<{ name: string; brief: string }>;
   compile(spec: Spec): Model;
   validate(model: Model): Issue[];
+  // One line saying what the simulator has proved about a valid design, such as every truth-table row passing. Shown as its own step.
+  proof?(model: Model): string | null;
   describe(model: Model): string;
   createRun(model: Model, seed: number): Run;
   compare?(base: Evaluation, after: Evaluation, incident: Incident): { hurt: boolean; evidence: string };

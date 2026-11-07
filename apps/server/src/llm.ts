@@ -1,5 +1,6 @@
 import type { KeyCheck, ProviderStatus, Usage } from '@tv/core';
 import type { z } from 'zod';
+import { record } from './spend';
 
 const GEMINI_DIRECT = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
@@ -40,11 +41,22 @@ interface Route {
   via: 'prune' | 'direct';
 }
 
+// When Prune's own upstream Gemini key is out of quota, every call through it fails before falling back, so Prune rests for a while instead.
+const PRUNE_REST_MS = 10 * 60 * 1000;
+let pruneRestUntil = 0;
+export const resetPruneRest = () => {
+  pruneRestUntil = 0;
+};
+
 function routes(): Route[] {
   const out: Route[] = [];
-  if (pruneKey()) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
-  const direct = env().GEMINI_API_KEY?.trim();
-  if (direct) out.push({ url: GEMINI_DIRECT, key: direct, via: 'direct' });
+  if (pruneKey() && Date.now() >= pruneRestUntil) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
+  // Several direct keys can be comma-separated; a quota error on one moves on to the next.
+  for (const key of (env().GEMINI_API_KEY ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean))
+    out.push({ url: GEMINI_DIRECT, key, via: 'direct' });
   return out;
 }
 
@@ -84,13 +96,33 @@ export async function routeChecks(): Promise<Partial<Record<Route['via'], KeyChe
 }
 
 export const architectModel = () => env().ARCHITECT_MODEL?.trim() || geminiModel();
+// Repairs are the hard cases (a miswired adder), so they can use a stronger model than first drafts; it falls back like the Architect's.
+export const repairModel = () => env().ARCHITECT_REPAIR_MODEL?.trim() || architectModel();
 
 function num(value: unknown): number | null {
   const n = typeof value === 'string' ? Number(value) : value;
   return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
 
+// Free-tier keys allow ~15 requests a minute per model. GEMINI_RPM spaces calls on each direct key so they stay under it.
+const nextSlot = new Map<string, number>();
+async function pace(route: Route) {
+  const rpm = Number(env().GEMINI_RPM);
+  if (route.via !== 'direct' || !(rpm > 0)) return;
+  const now = Date.now();
+  const at = Math.max(now, nextSlot.get(route.key) ?? 0);
+  nextSlot.set(route.key, at + 60_000 / rpm);
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+}
+
 async function complete(route: Route, model: string, messages: Array<{ role: string; content: string }>, feature: string): Promise<{ text: string; usage: Usage }> {
+  await pace(route);
+  const result = await send(route, model, messages, feature);
+  record(result.usage);
+  return result;
+}
+
+async function send(route: Route, model: string, messages: Array<{ role: string; content: string }>, feature: string): Promise<{ text: string; usage: Usage }> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     authorization: `Bearer ${route.key}`,
@@ -104,7 +136,7 @@ async function complete(route: Route, model: string, messages: Array<{ role: str
     method: 'POST',
     headers,
     body: JSON.stringify({ model, messages, temperature: 0.4, response_format: { type: 'json_object' } }),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(90_000),
   });
   const shield = res.headers.get('x-prune-shield-code');
   if (shield) throw new ShieldBlock(shield);
@@ -166,14 +198,27 @@ function extractJson(text: string): unknown {
 
 export { extractJson };
 
-export async function chatJson<S extends z.ZodTypeAny>(opts: {
+interface ChatOptions<S extends z.ZodTypeAny> {
   system: string;
   user: string;
   schema: S;
   feature: string;
   model?: string;
   onUsage: (usage: Usage) => void;
-}): Promise<z.infer<S>> {
+}
+
+// A stronger model can be asked for, such as the Architect's; when it is busy or failing, the default model answers instead of the build failing.
+export async function chatJson<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z.infer<S>> {
+  try {
+    return await chatOnce(opts);
+  } catch (error) {
+    if (error instanceof ShieldBlock || error instanceof NoCredentials || !opts.model || opts.model === geminiModel()) throw error;
+    console.warn(`[llm] ${opts.model} failed, falling back to ${geminiModel()}`);
+    return chatOnce({ ...opts, model: geminiModel() });
+  }
+}
+
+async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z.infer<S>> {
   const available = routes();
   if (!available.length) throw new NoCredentials('Gemini has no credentials');
   const model = opts.model ?? geminiModel();
@@ -205,7 +250,10 @@ export async function chatJson<S extends z.ZodTypeAny>(opts: {
       return opts.schema.parse(extractJson(repair.text));
     } catch (error) {
       if (error instanceof ShieldBlock) throw error;
-      console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
+      if (route.via === 'prune' && /HTTP 429/.test(String(error)) && /provider_upstream|exceeded your current quota/.test(String(error))) {
+        pruneRestUntil = Date.now() + PRUNE_REST_MS;
+        console.warn("[llm] Prune's upstream Gemini quota is exhausted; going direct for 10 minutes");
+      } else console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
       lastError = error;
     }
   }

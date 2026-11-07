@@ -24,13 +24,15 @@ import { choice, noul, type Questions } from '@typesafe-ai/sdk';
 import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
-import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
+import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
+import { forget, lookup, markStale, remember } from './design-cache';
+import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
 export type Emit = (event: StreamEvent) => void;
 type Step = ReturnType<typeof stepper>;
 
-const MAX_REPAIRS = 2;
+const MAX_REPAIRS = 3;
 const DOMAIN_IDS = domainList().map((d) => d.id) as [DomainId, ...DomainId[]];
 
 // Starting points for Jev's routing; tune them with `npm run eval:interpreter`.
@@ -97,9 +99,13 @@ function baselineOf(domain: Domain, model: unknown, ticks: number, events: Timed
 
 function testClaim(domain: Domain, model: unknown, base: Evaluation, claim: Hypothesis): Finding {
   const at = Math.floor(domain.horizon * 0.2);
-  const after = baselineOf(domain, model, domain.horizon, [{ at, incident: claim.incident }]);
-  const { hurt, evidence } = domain.compare?.(base, after, claim.incident) ?? defaultCompare(base, after);
-  return { claim: claim.claim, incident: claim.incident, verdict: hurt ? 'confirmed' : 'refuted', evidence: `${humanize(claim.incident)}: ${evidence}` };
+  // A claim with a setup is judged against the same setup without the incident, so only the incident's own effect counts.
+  const setup: TimedEvent[] = (claim.setup ?? []).map((incident) => ({ at: 0, incident }));
+  const before = setup.length ? baselineOf(domain, model, domain.horizon, setup) : base;
+  const after = baselineOf(domain, model, domain.horizon, [...setup, { at, incident: claim.incident }]);
+  const { hurt, evidence } = domain.compare?.(before, after, claim.incident) ?? defaultCompare(before, after);
+  const given = claim.setup?.length ? `With ${claim.setup.map((i) => `${i.target}${i.value !== undefined ? ` at ${i.value}` : ''}`).join(', ')}: ` : '';
+  return { claim: claim.claim, incident: claim.incident, verdict: hurt ? 'confirmed' : 'refuted', evidence: `${given}${humanize(claim.incident)}: ${evidence}` };
 }
 
 const describeCapabilities = () =>
@@ -220,7 +226,7 @@ function geminiInterpret(prompt: string, emit: Emit, step: Step, refuse: (reason
       onUsage: onUsage(emit),
       system: `You route requests for a platform that turns descriptions of systems into working simulations. It has these domains:
 ${describeCapabilities()}
-Pick the domain whose simulator can genuinely model what the user wants to explore. If the heart of the request fits a domain but parts of it don't, still pick that domain, because the next step records what was left out. Never force a request into a domain just because a word overlaps: when the thing the user wants to explore can't be modelled at all, use domain null rather than a misleading model.
+Pick the domain whose simulator can genuinely model what the user wants to explore. If the heart of the request fits a domain but parts of it don't, still pick that domain, because the next step records what was left out. People often describe a product by what it does rather than how it is built: an app, website, API or platform is a request to model its software architecture, a gadget or device is a request to model its circuit, and data to store is a request to model its schema, so route those to that domain. When no domain matches the words but one simulates the same dynamics, pick it and let the next step record what is abstracted: a satellite constellation relaying data is a fleet passing messages through a radio network, an ant colony foraging is a search-and-deliver swarm, and security lines, elevators, toll booths or an intersection are arrivals queuing to be served at stations. Refuse only when the dynamics themselves (physics, chemistry, biology, markets) are beyond every simulator. Never force a request into a domain just because a word overlaps: when the thing the user wants to explore can't be modelled at all, use domain null rather than a misleading model.
 Reply with JSON only: {"domain": one of ${DOMAIN_IDS.join(', ')} or null, "reason": "one sentence", "closest": a domain id or null}.
 When domain is null, "reason" says plainly what is missing and "closest" names the nearest domain, if any is useful.`,
       user: prompt,
@@ -251,7 +257,38 @@ What it can do: ${domain.capabilities}
 Reply with JSON only: {"name": a short title, "summary": one sentence, "unmodelled": [anything the user asked for that this cannot represent], "spec": Spec}
 Spec:
 ${domain.specDoc}
-Honour every number the user gives and pick sensible values for anything unstated. Be honest in "unmodelled": never pretend to represent something you left out.`;
+Honour every number the user gives, and choose every unstated value to fit those numbers: a 30-bed ER gets the arrivals a 30-bed ER sees, not a city hospital's, unless the user says it is overwhelmed. Be honest in "unmodelled": never pretend to represent something you left out.`;
+
+// Scores a candidate design the way the pipeline judges it: errors disqualify, open problems cost points, the baseline decides the rest.
+function scoreDraft(domain: Domain, draft: Draft) {
+  const model = domain.compile(draft.spec);
+  const issues = domain.validate(model);
+  if (issues.some((i) => i.severity === 'error')) return { score: 0, issues };
+  const open = issues.filter((i) => i.repair).length;
+  return { score: baselineOf(domain, model, domain.horizon, []).score - 20 * open, issues };
+}
+
+async function councilDesign(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft | null> {
+  if (!designCouncilOn()) return null;
+  try {
+    return await step('architect', 'swarms', 'Convening the design council', async (detail) => {
+      const { winner, candidates } = await runDesignCouncil<Draft>({
+        prompt,
+        domain,
+        system: architectPrompt(domain),
+        schema: draftSchema(domain) as unknown as z.ZodType<Draft>,
+        score: (draft) => scoreDraft(domain, draft),
+        onUsage: onUsage(emit),
+        emit,
+      });
+      detail(`${leaderboard(candidates)}. The simulator picked the ${winner.author}'s design`);
+      return winner.draft;
+    });
+  } catch (error) {
+    if (error instanceof ShieldBlock) throw error;
+    return null;
+  }
+}
 
 async function architect(prompt: string, domain: Domain, emit: Emit, step: Step): Promise<Draft | null> {
   if (!hasGemini()) {
@@ -299,7 +336,7 @@ async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, 
   if (!swarmsConfigured(redTeam)) return rules();
   const schema = z.object({
     hypotheses: z
-      .array(z.object({ claim: z.string(), incident: IncidentSchema }))
+      .array(z.object({ claim: z.string(), incident: IncidentSchema, setup: z.array(IncidentSchema).max(8).optional() }))
       .min(1)
       .max(3),
   });
@@ -317,7 +354,7 @@ async function hypotheses(domain: Domain, model: unknown, baseline: Evaluation, 
               system_prompt: `You are the Red Team. Another AI designed this ${domain.label.toLowerCase()} environment; your job is to find how it breaks. Be specific and sceptical.
 Each hypothesis is tested in a real simulator, so a vague or wrong claim will be publicly refuted.
 Only the incident is simulated, so state each claim as what happens when that incident occurs, such as "If R1 shorts, D1 burns out", never as a flaw the incident doesn't cause.
-Reply with JSON only: {"hypotheses":[{"claim":"one sentence naming the specific weakness","incident":Incident}]} with 1-3 items.
+Reply with JSON only: {"hypotheses":[{"claim":"one sentence naming the specific weakness","incident":Incident,"setup"?:[Incident]}]} with 1-3 items. "setup" holds conditions applied from the start, before the incident, such as setting inputs or readings so the outputs you attack are active; leave it out when the default state already shows the failure.
 Incident is one of:
 ${domain.incidentDoc}
 Use only ids that exist in the system.`,
@@ -339,12 +376,41 @@ Use only ids that exist in the system.`,
   );
 }
 
+// A cached design for this exact prompt that still parses and still passes every check, or null.
+// One that no longer does is marked stale, so this request and later ones go to the Architect instead of repairing it.
+export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } | null {
+  const hit = lookup(prompt);
+  if (!hit) return null;
+  const domain = DOMAINS[hit.domain];
+  const parsed = draftSchema(domain).safeParse(hit.draft);
+  let passes = false;
+  try {
+    passes = parsed.success && !domain.validate(domain.compile(parsed.data.spec)).some((i) => i.severity === 'error' || i.repair);
+  } catch {
+    passes = false;
+  }
+  if (!passes) {
+    markStale(prompt);
+    return null;
+  }
+  return { id: hit.domain, draft: parsed.data as Draft };
+}
+
+async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft } | null> {
+  const served = servedFromCache(prompt);
+  if (!served) return null;
+  const { draft } = served;
+  await step('architect', 'cache', 'Reusing a verified design', async (detail) => detail(`${draft.name}, which passed every check for this exact request before`));
+  return served;
+}
+
 export async function build(prompt: string, emit: Emit) {
   const step = stepper(emit);
-  const id = await interpret(prompt, emit, step);
+  const cached = await cachedDesign(prompt, step);
+  const id = cached?.id ?? (await interpret(prompt, emit, step));
   if (!id) return;
   const domain = DOMAINS[id];
-  const first = await architect(prompt, domain, emit, step);
+  const first = cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
   if (!first) return;
   let draft = first;
 
@@ -369,20 +435,17 @@ export async function build(prompt: string, emit: Emit) {
     const found = toRepair();
     draft = await orRules(
       () =>
-        step(
-          'architect',
-          'gemini',
-          'Fixing what the checks found',
-          async () =>
-            (await chatJson({
-              feature: 'architect-repair',
-              model: architectModel(),
-              schema: draftSchema(domain),
-              onUsage: onUsage(emit),
-              system: architectPrompt(domain),
-              user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Keep a flaw only if the user explicitly asked for it.`,
-            })) as Draft,
-        ),
+        step('architect', 'gemini', 'Fixing what the checks found', async (detail) => {
+          detail(`${found.length > 1 ? `${found.length} problems, first: ` : ''}${found[0].length > 160 ? `${found[0].slice(0, 157)}...` : found[0]}`);
+          return (await chatJson({
+            feature: 'architect-repair',
+            model: repairModel(),
+            schema: draftSchema(domain),
+            onUsage: onUsage(emit),
+            system: architectPrompt(domain),
+            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. Values the user did not state are yours to change: when a check finds overload, first bring unstated loads (arrival rates, demand, call volume, current draw) in line with the stated sizes. Keep a problem only if the user asked to see it, such as a system they said is overwhelmed, or if no unstated value can fix it. Fix everything else.`,
+          })) as Draft;
+        }),
       async () => previous,
     );
     issues = await step('validator', 'simulator', 'Rechecking the design', async (detail) => {
@@ -399,11 +462,15 @@ export async function build(prompt: string, emit: Emit) {
     });
   }
   if (errorsOf().length) {
+    if (cached) forget(prompt);
     emit({ type: 'refusal', refusal: { reason: `I couldn't build a valid design: ${errorsOf().slice(0, 3).join('; ')}.`, closest: id } });
     return;
   }
 
   const unresolved = issues.filter((i) => i.repair).map((i) => `Still failing the checks: ${i.message}`);
+  const proof = !unresolved.length && domain.proof ? domain.proof(domain.compile(draft.spec)) : null;
+  if (!unresolved.length && hasGemini() && draft !== cached?.draft) remember(prompt, { domain: id, draft });
+  if (proof) await step('validator', 'simulator', 'Proving it works', async (detail) => detail(proof));
   const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: [...unresolved, ...draft.unmodelled] };
   emit({ type: 'environment', environment });
   const model = domain.compile(draft.spec);

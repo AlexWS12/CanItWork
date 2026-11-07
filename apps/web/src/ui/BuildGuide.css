@@ -1,0 +1,67 @@
+.guide {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.guide h3 {
+  margin: var(--space-2) 0 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.guide-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.guide-actions button {
+  flex: 1;
+}
+
+.guide-bom,
+.guide-steps {
+  margin: 0;
+  padding-left: 1.3em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+
+.guide-bom {
+  list-style: none;
+  padding-left: 0;
+}
+
+.guide-bom b {
+  display: inline-block;
+  min-width: 2.4em;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-steps li::marker {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-warning {
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-danger);
+  border-radius: 6px;
+  color: var(--color-danger-soft);
+}
+
+.guide-empty {
+  margin: var(--space-3);
+  color: var(--color-muted);
+}

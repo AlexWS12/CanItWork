@@ -2,6 +2,7 @@ import { DOMAINS, type Usage } from '@tv/core';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { z } from 'zod';
 import { chatJson } from '../src/llm';
+import { resetPruneRest } from '../src/llm';
 import { resetCouncil } from '../src/swarms';
 
 const ENV = ['PRUNE_API_KEY', 'GEMINI_API_KEY', 'SWARMS_API_KEY', 'SWARMS_MODEL', 'REDTEAM_MODEL', 'SWARMS_KEEP_USD', 'TYPESAFE_API_KEY'];
@@ -38,6 +39,7 @@ export function isolateEnv() {
   beforeEach(() => {
     ENV.forEach((k) => delete process.env[k]);
     resetCouncil();
+    resetPruneRest();
   });
   afterEach(() => vi.unstubAllGlobals());
 }

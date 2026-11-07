@@ -90,7 +90,7 @@ function Timeline() {
       key: `next-${steps.length + i}`,
       status: 'pending' as const,
       agent: p.agent,
-      title: p.title(status),
+      title: p.title(status ?? null),
       simulator: Boolean(p.simulator),
     })),
   ];
