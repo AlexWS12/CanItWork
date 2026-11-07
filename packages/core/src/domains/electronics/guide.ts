@@ -113,8 +113,9 @@ function breadboardSteps(spec: CircuitSpec) {
     if (!chip) continue;
     const { near, far } = dipRows(part);
     const pinMap = [...near.map((pin) => `${hole(layout.spots.get(`${part.id}.${pin}`)!)} ${pin}`), ...far.map((pin) => `${hole(layout.spots.get(`${part.id}.${pin}`)!)} ${pin}`)];
+    const orient = part.type === 'seven_segment' ? `with its ${near[0]} pin in f${chip.col}` : `notch to the left, so pin 1 sits in f${chip.col}`;
     steps.push(
-      `Press ${label(part.id)} across the centre channel, notch to the left, so pin 1 sits in f${chip.col} and it spans columns ${chip.col}-${chip.col + chip.half - 1}. Pins: ${pinMap.join(', ')}.${
+      `Press ${label(part.id)} across the centre channel, ${orient} and it spans columns ${chip.col}-${chip.col + chip.half - 1}. Pins: ${pinMap.join(', ')}.${
         realPinout(part) ? '' : ` This design lists only ${pinsOf(part).length} of its pins, so check the datasheet pinout and move each wire to the real pin before powering it.`
       }`,
     );
@@ -133,7 +134,11 @@ function breadboardSteps(spec: CircuitSpec) {
   spec.wires.forEach((wire, i) => {
     const ends = layout.wireEnds[i];
     if (!ends) return;
-    const where = (end: Spot | string) => (typeof end === 'string' ? `${end} on ${label(end.split('.')[0])}` : hole(end));
+    const where = (end: Spot | string) => {
+      if (typeof end !== 'string') return hole(end);
+      const [id, pin] = end.split('.');
+      return `pin ${pin} of ${label(id)}`;
+    };
     steps.push(`Jumper W${i + 1}: ${where(ends[0])} to ${where(ends[1])} (${wire.from} to ${wire.to}).`);
   });
 
@@ -147,6 +152,7 @@ function breadboardSteps(spec: CircuitSpec) {
     }
   }
   if (supplyPart?.type === 'battery') steps.push(`Connect ${label(supplyPart.id)} last, once everything else is in place.`);
+  if (spec.program?.length) steps.push('Upload the sketch to the board, then power it.');
   return { steps, jumpers: layout.wireEnds.filter(Boolean).length };
 }
 
