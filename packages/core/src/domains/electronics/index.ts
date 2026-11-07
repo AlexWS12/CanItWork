@@ -357,6 +357,19 @@ function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
       found.push(`${outputId} is driven by ${chip.id}.${driver.pin} = "${driver.when}"${inputs ? ` with ${inputs}` : ''}`);
     }
   }
+  // A transistor or relay in the output's path: is it closed, and what is its control pin getting?
+  for (const sw of spec.parts) {
+    for (const c of sw.custom?.switches ?? []) {
+      if (sw.id === outputId || !(nets.has(find(`${sw.id}.${c.a}`)) || nets.has(find(`${sw.id}.${c.b}`)))) continue;
+      if (!pinsOf(sw).includes(c.when)) continue;
+      const got = Math.round(run.voltsBetween(`${sw.id}.${c.when}`, `${sw.id}.${c.ref}`) * 100) / 100;
+      const closed = got >= c.aboveVolts;
+      const feed = (members.get(find(`${sw.id}.${c.when}`)) ?? []).filter((k) => !k.startsWith(`${sw.id}.`)).slice(0, 3);
+      found.push(
+        `${sw.id}'s ${c.a}-${c.b} switch is ${closed ? 'closed' : 'open'}: ${c.when} is ${got} V above ${c.ref}${closed ? '' : `, needs ${c.aboveVolts} V`}${feed.length ? `, and ${c.when} joins ${feed.join(', ')}` : ''}`,
+      );
+    }
+  }
   if (found.length) return found.join('; ');
   // No chip drives it: say what each of its pins is wired to and at what voltage, so a passive or sketch-driven circuit can be traced too.
   const pins = pinsOf(part).map((pin) => {
@@ -366,6 +379,19 @@ function traceOutput(spec: CircuitSpec, run: CircuitRun, outputId: string) {
     return `${pin} (${volts} V) joins ${others.length ? others.slice(0, 4).join(', ') : 'nothing'}`;
   });
   return `${outputId}'s ${pins.join('; ')}`;
+}
+
+const LOGIC_HIGH = 2;
+
+// What a test entry names: a part that is running, a display segment that is lit, or any other pin that is high.
+function observed(spec: CircuitSpec, run: CircuitRun, id: string): boolean | null {
+  const part = spec.parts.find((p) => p.id === id);
+  if (part) return run.isRunning(part);
+  const [partId, pin] = id.split('.');
+  const owner = spec.parts.find((p) => p.id === partId);
+  if (!owner || !pin || !pinsOf(owner).includes(pin)) return null;
+  if (owner.type === 'seven_segment' && pin !== 'com') return run.litSegments(owner).includes(pin as never);
+  return run.read(id) >= LOGIC_HIGH;
 }
 
 // Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
@@ -381,14 +407,8 @@ export function runTests(spec: CircuitSpec) {
     for (const [target, value] of Object.entries(test.set)) run.inject({ type: 'set_reading', target, value });
     for (let t = 0; t < TEST_TICKS; t++) run.step();
     const bad: Array<[string, string]> = [
-      ...test.on.flatMap((id): Array<[string, string]> => {
-        const part = spec.parts.find((p) => p.id === id);
-        return part && !run.isRunning(part) ? [[id, `${id} should be on but is off`]] : [];
-      }),
-      ...test.off.flatMap((id): Array<[string, string]> => {
-        const part = spec.parts.find((p) => p.id === id);
-        return part && run.isRunning(part) ? [[id, `${id} should be off but is on`]] : [];
-      }),
+      ...test.on.flatMap((id): Array<[string, string]> => (observed(spec, run, id) === false ? [[id, `${id} should be on but is off`]] : [])),
+      ...test.off.flatMap((id): Array<[string, string]> => (observed(spec, run, id) === true ? [[id, `${id} should be off but is on`]] : [])),
     ];
     if (!bad.length) {
       passed++;
@@ -398,7 +418,7 @@ export function runTests(spec: CircuitSpec) {
       .map(([id, v]) => `${id}=${v}`)
       .join(', ');
     failures.push(`Test ${test.name ? `"${test.name}"` : i + 1} (${inputs || 'no inputs'}): ${bad.map(([, m]) => m).join(', ')}`);
-    if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0])}`);
+    if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0].split('.')[0])}`);
   }
   return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces };
 }
@@ -420,7 +440,8 @@ function checkTests(spec: CircuitSpec): Issue[] {
   const settable = new Set(spec.parts.filter((p) => sensorOf(p)).map((p) => p.id));
   for (const test of spec.tests ?? []) {
     for (const id of Object.keys(test.set)) if (!settable.has(id)) issues.push({ severity: 'error', message: `A test sets ${id}, which isn't a switch, button or sensor` });
-    for (const id of [...test.on, ...test.off]) if (!ids.has(id)) issues.push({ severity: 'error', message: `A test checks ${id}, which isn't a part` });
+    for (const id of [...test.on, ...test.off])
+      if (!ids.has(id) && !pinExists(spec, id)) issues.push({ severity: 'error', message: `A test checks ${id}, which isn't a part or a part's pin` });
   }
   if (issues.length) return issues;
   const wanted = 2 ** inputs.length;

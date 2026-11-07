@@ -268,6 +268,7 @@ const CASES: Case[] = [
     domain: 'electronics',
     prompt: 'An LED connected straight to a 9V battery with no resistor',
     checks: [noMcu, ['no resistor (as asked)', (s) => !parts(s).some((p) => p.type === 'resistor')]],
+    stressed: true,
   },
   // Software
   {

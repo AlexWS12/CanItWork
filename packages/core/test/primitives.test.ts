@@ -171,6 +171,16 @@ describe('7-segment display', () => {
     }
   });
 
+  it('lets behaviour tests name a segment pin, as in "X1.g is lit"', () => {
+    const tests = [
+      { name: '1', set: { SA: 1, SB: 0, SC: 0, SD: 0 }, on: ['X1.b', 'X1.c'], off: ['X1.a', 'X1.g'] },
+      { name: '8 wrong on purpose', set: { SA: 0, SB: 0, SC: 0, SD: 1 }, on: [], off: ['X1.g'] },
+    ];
+    const issue = electronics.validate({ ...spec, tests }).find((i) => /behaviour tests fail/.test(i.message));
+    expect(issue?.message).toMatch(/1 of 2 behaviour tests fail/);
+    expect(issue?.message).toMatch(/X1\.g should be off but is on/);
+  });
+
   it('validates, with every segment lighting in some case', () => {
     const issues = electronics.validate({ ...spec, tests: [{ name: '8', set: { SA: 0, SB: 0, SC: 0, SD: 1 }, on: ['X1'], off: [] }] });
     expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
