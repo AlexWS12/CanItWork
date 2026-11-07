@@ -99,7 +99,11 @@ const SHOWCASE = [
   'A warehouse with 6 robots and 3 aisles',
 ];
 
-export const showcase = () => SHOWCASE.filter((prompt) => lookup(prompt));
+export const showcase = () =>
+  SHOWCASE.flatMap((prompt) => {
+    const hit = lookup(prompt);
+    return hit ? [{ prompt, domain: hit.domain }] : [];
+  });
 
 export function resetStale() {
   stale.clear();

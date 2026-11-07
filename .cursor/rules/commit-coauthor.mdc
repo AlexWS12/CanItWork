@@ -1,0 +1,24 @@
+---
+description: Add Grok as a co-author on commits created by the agent
+alwaysApply: true
+---
+
+# Commit co-author
+
+When you create a git commit, add yourself as a co-author. Keep the human as the commit author. Do not change git config.
+
+End the commit message with a blank line and this trailer:
+
+```
+Co-authored-by: Grok <cursoragent@cursor.com>
+```
+
+Example:
+
+```
+Fix slide timing when the deck reloads.
+
+Co-authored-by: Grok <cursoragent@cursor.com>
+```
+
+Apply this only to commits you create. Leave existing commits unchanged unless the user asks to rewrite them.
