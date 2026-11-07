@@ -11,7 +11,7 @@ function Refusal() {
   if (!refusal) return null;
   const closest = refusal.closest ? DOMAINS[refusal.closest] : null;
   return (
-    <div className="refusal">
+    <div className="refusal" role="status">
       <b>Nothing was built</b>
       <p>{refusal.reason}</p>
       {closest && (
@@ -19,13 +19,6 @@ function Refusal() {
           The closest fit is {closest.label.toLowerCase()}: {closest.blurb.toLowerCase()}.
         </p>
       )}
-      <ul>
-        {domainList().map((d) => (
-          <li key={d.id}>
-            {d.label}: {d.blurb.toLowerCase()}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -41,61 +34,71 @@ export function Landing() {
   };
   return (
     <div className="landing">
-      <h1>tv</h1>
-      <p className="tagline">Describe a system. Run it. Break it. Fix it.</p>
-      <form
-        className="hero-input"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(text);
-        }}
-      >
-        <textarea
-          aria-label="Describe a system"
-          autoFocus
-          rows={2}
-          value={text}
-          placeholder="Describe a system in your own words"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit(text);
-            }
+      <div className="landing-main">
+        <h1>tv</h1>
+        <p className="tagline">Describe a system. Run it. Break it. Fix it.</p>
+        <form
+          className="hero-input"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit(text);
           }}
-        />
-        <button type="submit" disabled={building || !text.trim()}>
-          {building ? 'Building' : 'Build'}
-        </button>
-      </form>
-      {building ? (
-        <ol className="hero-steps">
-          {steps.map((s) => (
-            <li key={s.id} data-status={s.status}>
-              {s.title}
-            </li>
+        >
+          <textarea
+            aria-label="Describe a system"
+            autoFocus
+            rows={2}
+            value={text}
+            placeholder="Describe a system in your own words"
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit(text);
+              }
+            }}
+          />
+          <button type="submit" disabled={building || !text.trim()}>
+            {building ? 'Building…' : 'Build'}
+          </button>
+        </form>
+        {building ? (
+          <ol className="hero-steps" aria-live="polite">
+            {steps.map((s) => (
+              <li key={s.id} data-status={s.status}>
+                {s.title}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <>
+            <Refusal />
+            {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
+            <section className="prompts" aria-labelledby="prompts-title">
+              <h2 id="prompts-title">Or start from one of these</h2>
+              <ul>
+                {EXAMPLES.map((example) => (
+                  <li key={example}>
+                    <button onClick={() => submit(example)}>{example}</button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          </>
+        )}
+      </div>
+      <aside className="landing-domains" aria-labelledby="domains-title">
+        <h2 id="domains-title">What it can build</h2>
+        <dl>
+          {domainList().map((d) => (
+            <div key={d.id}>
+              <dt>{d.label}</dt>
+              <dd>{d.blurb}</dd>
+            </div>
           ))}
-        </ol>
-      ) : (
-        <>
-          <Refusal />
-          {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-          <div className="domain-chips">
-            {domainList().map((d) => (
-              <span key={d.id} className="domain-chip" title={d.blurb}>
-                {d.label}
-              </span>
-            ))}
-          </div>
-          <div className="examples">
-            {EXAMPLES.map((example) => (
-              <button key={example} onClick={() => submit(example)}>
-                {example}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+        </dl>
+        <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
+      </aside>
     </div>
   );
 }

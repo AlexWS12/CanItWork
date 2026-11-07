@@ -1,41 +1,53 @@
 .status {
   position: fixed;
-  top: 12px;
+  top: var(--gutter);
   left: 50%;
   transform: translateX(-50%);
+  max-width: calc(100% - var(--gutter) * 2);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   z-index: 5;
-  font-size: 12px;
+  font-size: var(--text-sm);
   white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .wordmark {
   letter-spacing: 0.22em;
   font-weight: 600;
-  margin-right: 10px;
+  margin-right: var(--space-2);
 }
 
 .offline {
-  color: var(--cargo);
-  font-family: var(--mono);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
 }
 
 .chip {
-  font-family: var(--mono);
-  padding: 2px 8px;
-  border-radius: 99px;
-  border: 1px solid var(--line);
-  color: var(--muted);
+  font-family: var(--font-mono);
+  padding: var(--space-half) var(--space-2);
+  border-radius: var(--radius-pill);
+  border: var(--rule);
+  color: var(--color-muted);
 }
 
 .chip[data-on='true'] {
-  color: var(--ok);
-  border-color: rgba(93, 255, 177, 0.4);
+  color: var(--color-teal);
+  border-color: var(--color-teal-line);
 }
 
 .chip[data-check='failing'] {
-  color: var(--danger);
-  border-color: rgba(255, 90, 104, 0.5);
+  color: var(--color-danger);
+  border-color: var(--color-danger-line);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

@@ -1,0 +1,94 @@
+/* Hallmark · tokens · genre: atmospheric · paper: dark · accent: amber (warm) + teal (state)
+ * The 3D scene mirrors --color-bg, --color-accent and --color-teal as hex in scene/Scene.tsx,
+ * because THREE.Color can't parse oklch().
+ */
+:root {
+  /* Surfaces */
+  --color-bg: oklch(13.9% 0.015 261);
+  --color-bg-scrim: oklch(13.9% 0.015 261 / 0.75);
+  --color-sunken: oklch(9% 0.012 261 / 0.6);
+  --color-surface: oklch(17.8% 0.022 264 / 0.78);
+  --color-surface-faint: oklch(17.8% 0.022 264 / 0.6);
+  --color-surface-opaque: oklch(16.4% 0.02 266 / 0.94);
+  --color-surface-solid: oklch(17.8% 0.022 264);
+
+  /* Neutral fills and rules, all one cool grey at different strengths */
+  --color-fill-subtle: oklch(73.7% 0.069 264 / 0.05);
+  --color-fill: oklch(73.7% 0.069 264 / 0.08);
+  --color-fill-hover: oklch(73.7% 0.069 264 / 0.16);
+  --color-line: oklch(73.7% 0.069 264 / 0.14);
+  --color-line-strong: oklch(73.7% 0.069 264 / 0.3);
+
+  /* Ink */
+  --color-text: oklch(94.5% 0.013 262);
+  --color-muted: oklch(68.4% 0.038 263);
+
+  /* Accent: amber marks attention (running, incidents, the primary action) */
+  --color-accent: oklch(82.1% 0.149 72);
+  --color-accent-hover: oklch(85.6% 0.124 75);
+  --color-accent-line: oklch(82.1% 0.149 72 / 0.45);
+  --color-on-accent: oklch(19% 0.027 74);
+
+  /* Teal marks a good state (done, winner, connected) and focus */
+  --color-teal: oklch(78.6% 0.131 184);
+  --color-teal-fill: oklch(78.6% 0.131 184 / 0.12);
+  --color-teal-line: oklch(78.6% 0.131 184 / 0.55);
+  --color-on-teal: oklch(22.1% 0.035 182);
+  --color-focus: var(--color-teal);
+
+  /* Danger */
+  --color-danger: oklch(69.1% 0.2 19);
+  --color-danger-soft: oklch(84% 0.089 13);
+  --color-danger-fill: oklch(69.1% 0.2 19 / 0.16);
+  --color-danger-fill-strong: oklch(69.1% 0.2 19 / 0.3);
+  --color-danger-line: oklch(69.1% 0.2 19 / 0.5);
+  --color-danger-strong: oklch(53.7% 0.201 22);
+
+  /* Simulated displays (LCD readouts in the electronics bench) */
+  --color-screen: oklch(26.6% 0.063 153);
+
+  /* Type */
+  --font-sans: 'Space Grotesk Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 19px;
+  --text-display: clamp(64px, 9vw, 112px);
+
+  /* Space, on a 4pt grid */
+  --space-half: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Shape */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-pill: 999px;
+  --rule: 1px solid var(--color-line);
+  --rule-strong: 1px solid var(--color-line-strong);
+
+  /* Layout */
+  --gutter: var(--space-3);
+  --panel-w: 292px;
+  --dock-h: 64px;
+  --top-h: 48px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.55, 0, 1, 0.45);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-short: 150ms;
+
+  color-scheme: dark;
+}

@@ -1,14 +1,14 @@
 .transport {
   position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
-  height: 62px;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: var(--gutter);
+  height: var(--dock-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 0 14px;
+  gap: var(--space-5);
+  padding: 0 var(--space-4);
 }
 
 .controls,
@@ -16,28 +16,28 @@
 .stats {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 
 .controls button[aria-pressed='true'] {
-  border-color: var(--cargo);
-  color: var(--cargo);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .play {
-  min-width: 66px;
+  min-width: 64px;
 }
 
 .tick {
-  font-family: var(--mono);
-  color: var(--muted);
-  font-size: 12px;
-  margin-left: 8px;
+  font-family: var(--font-mono);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin-left: var(--space-2);
   min-width: 64px;
 }
 
 .stats {
-  gap: 18px;
+  gap: var(--space-5);
   flex: 1;
   min-width: 0;
   justify-content: center;
@@ -49,52 +49,103 @@
 
 .stat b {
   display: block;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-weight: 500;
-  font-size: 19px;
+  font-size: var(--text-xl);
   line-height: 1.15;
 }
 
 .stat span {
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
 }
 
 .stat[data-tone='warn'] b {
-  color: var(--cargo);
+  color: var(--color-accent);
 }
 
 .stat[data-tone='danger'] b {
-  color: var(--danger);
+  color: var(--color-danger);
 }
 
-.breakers span {
-  color: var(--muted);
-  font-size: 12px;
-  margin-right: 2px;
+.breakers {
+  min-width: 0;
+}
+
+.breakers > span {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  margin-right: var(--space-half);
 }
 
 .breakers button {
   max-width: 132px;
-  font-size: 12.5px;
-  padding: 5px 8px;
-  white-space: nowrap;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
   overflow: hidden;
   text-overflow: ellipsis;
-  border-color: rgba(255, 90, 104, 0.35);
-  color: #ffb3ba;
+  border-color: var(--color-danger-line);
+  color: var(--color-danger-soft);
 }
 
 .breakers button:hover:not(:disabled) {
-  background: rgba(255, 90, 104, 0.16);
-  border-color: var(--danger);
+  background: var(--color-danger-fill);
+  border-color: var(--color-danger);
 }
 
 @media (max-width: 1100px) {
   .stats .spark {
     display: none;
   }
+
   .stats {
-    gap: 14px;
+    gap: var(--space-4);
+  }
+}
+
+/* Two rows: controls and stats on top, the break buttons scroll sideways below */
+@media (max-width: 900px) {
+  .transport {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: var(--space-2) var(--space-4);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .tick {
+    min-width: 0;
+  }
+
+  .stats {
+    justify-content: safe flex-end;
+    gap: var(--space-4);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .stat b {
+    font-size: var(--text-lg);
+  }
+
+  .breakers {
+    grid-column: 1 / -1;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .breakers button {
+    flex: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .controls button:not(.play) {
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .tick {
+    display: none;
   }
 }
