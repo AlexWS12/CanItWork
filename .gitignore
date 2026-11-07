@@ -8,3 +8,4 @@ dist
 apps/server/.spend/
 apps/web/public/dev-envs.json
 .claude/launch.json
+apps/server/.cache/

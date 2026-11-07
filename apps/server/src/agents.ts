@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini } from './llm';
+import { forget, lookup, remember } from './design-cache';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -371,12 +372,24 @@ Use only ids that exist in the system.`,
   );
 }
 
+// A design that passed every check for this exact prompt before. It is checked again below like any other draft.
+async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft } | null> {
+  const hit = lookup(prompt);
+  if (!hit) return null;
+  const parsed = draftSchema(DOMAINS[hit.domain]).safeParse(hit.draft);
+  if (!parsed.success) return null;
+  const draft = parsed.data as Draft;
+  await step('architect', 'cache', 'Reusing a verified design', async (detail) => detail(`${draft.name}, which passed every check for this exact request before`));
+  return { id: hit.domain, draft };
+}
+
 export async function build(prompt: string, emit: Emit) {
   const step = stepper(emit);
-  const id = await interpret(prompt, emit, step);
+  const cached = await cachedDesign(prompt, step);
+  const id = cached?.id ?? (await interpret(prompt, emit, step));
   if (!id) return;
   const domain = DOMAINS[id];
-  const first = (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
+  const first = cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
   if (!first) return;
   let draft = first;
 
@@ -428,12 +441,14 @@ export async function build(prompt: string, emit: Emit) {
     });
   }
   if (errorsOf().length) {
+    if (cached) forget(prompt);
     emit({ type: 'refusal', refusal: { reason: `I couldn't build a valid design: ${errorsOf().slice(0, 3).join('; ')}.`, closest: id } });
     return;
   }
 
   const unresolved = issues.filter((i) => i.repair).map((i) => `Still failing the checks: ${i.message}`);
   const proof = !unresolved.length && domain.proof ? domain.proof(domain.compile(draft.spec)) : null;
+  if (!unresolved.length && hasGemini() && draft !== cached?.draft) remember(prompt, { domain: id, draft });
   if (proof) await step('validator', 'simulator', 'Proving it works', async (detail) => detail(proof));
   const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: [...unresolved, ...draft.unmodelled] };
   emit({ type: 'environment', environment });

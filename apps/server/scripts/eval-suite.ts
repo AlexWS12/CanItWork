@@ -10,6 +10,8 @@ import { config } from 'dotenv';
 const here = path.dirname(fileURLToPath(import.meta.url));
 config({ path: path.resolve(here, '../../../.env') });
 process.env.SPEND_RUN ??= `eval-${new Date().toISOString().slice(0, 16)}`;
+// The eval measures the Architect, so it never reuses a cached design.
+process.env.DESIGN_CACHE = 'off';
 
 const { build } = await import('../src/agents');
 const { runTests } = await import('@tv/core');
