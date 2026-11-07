@@ -34,15 +34,17 @@ function stepper(emit: Emit) {
   let n = 0;
   return async function step<T>(agent: AgentId, engine: Engine, title: string, work: (setDetail: (d: string) => void) => Promise<T>): Promise<T> {
     const id = `${agent}-${++n}`;
+    const start = performance.now();
+    const ms = () => Math.round(performance.now() - start);
     emit({ type: 'step', id, agent, engine, title, status: 'running' });
     await new Promise((resolve) => setImmediate(resolve));
     let detail: string | undefined;
     try {
       const result = await work((d) => (detail = d));
-      emit({ type: 'step', id, agent, engine, title, status: 'done', detail });
+      emit({ type: 'step', id, agent, engine, title, status: 'done', detail, ms: ms() });
       return result;
     } catch (error) {
-      emit({ type: 'step', id, agent, engine, title, status: 'failed', detail: shortError(error) });
+      emit({ type: 'step', id, agent, engine, title, status: 'failed', detail: shortError(error), ms: ms() });
       throw error;
     }
   };

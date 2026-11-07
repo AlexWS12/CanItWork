@@ -39,6 +39,17 @@ describe('agent pipelines', () => {
     expect(events.some((e) => e.type === 'findings')).toBe(true);
   });
 
+  it('reports how long each finished step took', async () => {
+    const { events, emit } = collect();
+    await build('An autonomous warehouse with five robots and two conveyors', emit);
+    const steps = events.flatMap((e) => (e.type === 'step' ? [e] : []));
+    expect(steps.some((s) => s.status === 'running')).toBe(true);
+    for (const s of steps) {
+      if (s.status === 'running') expect(s.ms).toBeUndefined();
+      else expect(s.ms).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it('refuses honestly instead of forcing a request into a domain', async () => {
     const { events, emit } = collect();
     await build('Plan a three course dinner menu for my parents', emit);
