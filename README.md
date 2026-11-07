@@ -43,6 +43,7 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 |---|---|
 | `PRUNE_API_KEY` | Sends Gemini calls through Prune. Store your Gemini key in the Prune dashboard under Connect > Providers |
 | `GEMINI_API_KEY` | Direct Gemini access, used if Prune is unavailable |
+| `TYPESAFE_API_KEY` | Lets Jev pick the domain. Gemini is only asked when Jev is unsure |
 | `SWARMS_API_KEY` | Runs the Red Team and the recovery council |
 | `SWARMS_MODEL` | Model for the recovery council |
 | `REDTEAM_MODEL` | Model for the Red Team |
@@ -54,13 +55,13 @@ Swarms bills every run, including runs that fail. Leave `SWARMS_API_KEY` blank w
 
 ```
 prompt ─▶ Interpreter ─▶ Architect ─▶ Validator ─▶ Simulator ─▶ Red Team ─▶ Simulator tests each claim
-          Gemini         Gemini       domain rules             Swarms
+          Jev, Gemini    Gemini       domain rules             Swarms
 
 failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Analyst ─▶ Apply
            Swarms                                               Gemini
 ```
 
-- **Interpreter** picks the domain, or refuses and explains why.
+- **Interpreter** picks the domain, or refuses and explains why. Jev answers which domain fits and how likely each simulator is to model the request; code routes on those probabilities and hands unsure cases to Gemini.
 - **Architect** writes a structured design and lists anything it couldn't represent.
 - **Validator** checks the design with the domain's own rules. A rejected design goes back to the Architect once. If it still fails, tv refuses instead of showing something wrong.
 - **Red Team** states how the design should break, as failures the simulator can run. Each claim is shown as Confirmed or Refuted with the measurement.
@@ -75,7 +76,7 @@ A domain is a folder in `packages/core/src/domains` that implements the `Domain`
 | Path | Contents |
 |---|---|
 | `packages/core` | Domain contract, the four domains, hashing, stream protocol |
-| `apps/server` | Agent pipelines, Prune and Gemini gateway, Swarms client, keyless routing |
+| `apps/server` | Agent pipelines, Prune and Gemini gateway, Jev client, Swarms client, keyless routing |
 | `apps/web` | Shared shell and one scene per domain |
 
 ## Known limits
