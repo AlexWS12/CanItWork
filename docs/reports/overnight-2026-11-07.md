@@ -60,6 +60,32 @@ The agent trace says it outright:
 - **Rate limit:** `RATE_LIMIT_PER_HOUR` caps AI builds, chats and recoveries per visitor, so a public URL can't drain the Gemini or Swarms credits. Cached example prompts are free and never count. Over the limit, a visitor gets a friendly refusal pointing to the examples. I tested it on the real server.
 - **Dockerfile and [`deploy/README.md`](../../deploy/README.md):** Vultr instance, Docker, HTTPS through Caddy, and the env settings to make before sharing the URL. Docker isn't installed on this machine, so I haven't tried building the image itself.
 
+## Round 2 (fresh keys, Nov 7 evening)
+
+Measured on main + #16 + #17 (with the delay fix) + this branch, with the strict rubric, across all 11 domains:
+
+| Pass | Result |
+|---|---|
+| First pass, 57 cases | 49/57 (86%): circuits 10/12 and 18/23, everything else 21/22 |
+| After fixes, the 8 failures rerun | 7/8 |
+| The last failure plus the 6 hardest cases, run again for consistency | 7/7 |
+
+All 57 cases now pass, and the hardest ones passed twice in a row.
+
+Fixes from this round:
+- built-in NPN, PNP and MOSFET transistors with real junction behaviour (night lights);
+- datasheet pin names like `IN1+` in chip logic (LM393, op-amp buffers);
+- boards on USB powering loads from VBUS (Pico servo);
+- relays counting as on only when their contacts close (Pico lamp);
+- behaviour tests that can set world quantities (temperature alarm);
+- repairs on `gemini-3.5-flash` through `ARCHITECT_REPAIR_MODEL`, which solved the 2-bit adder and the 7-segment decoder;
+- the Interpreter routing product descriptions ("a web app for booking flights") to the domain that models how they are built;
+- the airport eval check now accepts the correct runway modelling.
+
+**Swarms design council, first live run:** for "a 4-bit binary counter clocked by a 555 timer", the Literalist and Engineer each scored 100, the Builder's reply was unreadable, and the simulator picked the Literalist's design. The Swarms Red Team's claim was confirmed. It cost $0.066 in Swarms credit and took 18 s; the balance went from $63.07 to $63.00.
+
+**Merge note:** combining the branches gives two small conflicts, `database/index.ts` (keep #16's keywords and this branch's suggestion text) and `apps/web/src/domains/index.tsx` (keep both imports). A second patch for #17, [`pr17-low-service-warning.patch`](../reviews/pr17-low-service-warning.patch), flags flow designs that miss demand despite enough supply.
+
 ## Self-review
 
 A high-effort code review of this branch found 10 issues, all fixed:
