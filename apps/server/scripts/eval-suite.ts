@@ -351,7 +351,28 @@ const CASES: Case[] = [
   // Flow-network domains (PR #17). Cases for a domain that isn't installed are skipped.
   { id: 'h-er', domain: 'hospital', prompt: 'An ER with 3 triage nurses, 30 beds and one CT scanner', checks: [exactly('triage', 3), atLeast('er', 30), exactly('imaging', 1)] },
   { id: 'h-full', domain: 'hospital', prompt: 'A hospital with an ICU that keeps filling up', checks: [kind('icu'), kind('triage')], stressed: true },
-  { id: 'a-gates', domain: 'airport', prompt: 'An airport with two runways and 20 gates', checks: [exactly('runway', 2), exactly('gates', 20)] },
+  // The flow graph runs one way, so a physical runway appears once for landings and again for take-offs: count the ones taking arrivals.
+  {
+    id: 'a-gates',
+    domain: 'airport',
+    prompt: 'An airport with two runways and 20 gates',
+    checks: [
+      [
+        '2 runways',
+        (s) => {
+          const runways = (s.nodes ?? []).filter((n: { kind: string }) => n.kind === 'runway');
+          const landing = runways.filter(
+            (r: { id: string }) =>
+              !(s.edges ?? []).some(
+                (e: { from: string; to: string }) => e.to === r.id && (s.nodes ?? []).find((n: { id: string; kind: string }) => n.id === e.from)?.kind === 'gates',
+              ),
+          );
+          return units('runway')(s) === 2 || landing.reduce((a: number, n: { count?: number }) => a + (n.count ?? 1), 0) === 2;
+        },
+      ],
+      exactly('gates', 20),
+    ],
+  },
   { id: 'c-agents', domain: 'callcenter', prompt: 'A customer support call center with an IVR menu and 25 agents', checks: [kind('ivr'), exactly('agents', 25)] },
   { id: 'f-car', domain: 'factory', prompt: 'A car factory with welding, painting and final assembly', checks: [kind('welding'), kind('paint'), kind('assembly')] },
   {
