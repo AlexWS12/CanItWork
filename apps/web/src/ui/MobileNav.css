@@ -1,0 +1,33 @@
+.mobile-nav {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .mobile-nav {
+    position: fixed;
+    top: calc(var(--gutter) + 36px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    gap: var(--space-half);
+    padding: var(--space-half);
+    background: var(--color-surface);
+    border: var(--rule);
+    border-radius: var(--radius-pill);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-nav button {
+    background: none;
+    border: 0;
+    border-radius: var(--radius-pill);
+    padding: var(--space-1) var(--space-4);
+    color: var(--color-muted);
+  }
+
+  .mobile-nav button[aria-pressed='true'] {
+    background: var(--color-fill-hover);
+    color: var(--color-text);
+  }
+}

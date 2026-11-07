@@ -1,5 +1,6 @@
 import type { Engine, Finding, StepEvent, Usage } from '@tv/core';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
 import './RightPanel.css';
 
@@ -39,7 +40,7 @@ function Trace() {
   const findings = useStore((s) => s.findings);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    end.current?.scrollIntoView({ behavior: scrollBehavior(), block: 'end' });
   }, [steps, findings]);
   return (
     <div className="trace">
@@ -128,21 +129,46 @@ function UsageLedger() {
   );
 }
 
+const TABS = ['agents', 'usage'] as const;
+
 export function RightPanel() {
   const tab = useStore((s) => s.tab);
   const usage = useStore((s) => s.usage.length);
   const set = useStore((s) => s.set);
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const onKey = (e: KeyboardEvent) => {
+    const i = TABS.indexOf(tab);
+    const next =
+      e.key === 'ArrowRight' ? (i + 1) % TABS.length : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    set({ tab: TABS[next] });
+    refs.current[TABS[next]]?.focus();
+  };
+  const label = { agents: 'Agents', usage: `Usage${usage ? ` (${usage})` : ''}` };
   return (
     <aside className="panel right">
-      <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'agents'} onClick={() => set({ tab: 'agents' })}>
-          Agents
-        </button>
-        <button role="tab" aria-selected={tab === 'usage'} onClick={() => set({ tab: 'usage' })}>
-          Usage{usage ? ` (${usage})` : ''}
-        </button>
+      <div className="tabs" role="tablist" aria-label="Run details" onKeyDown={onKey}>
+        {TABS.map((id) => (
+          <button
+            key={id}
+            ref={(el) => {
+              refs.current[id] = el;
+            }}
+            id={`tab-${id}`}
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`tabpanel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            onClick={() => set({ tab: id })}
+          >
+            {label[id]}
+          </button>
+        ))}
       </div>
-      {tab === 'agents' ? <Trace /> : <UsageLedger />}
+      <div className="tabpanel" id={`tabpanel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} tabIndex={0}>
+        {tab === 'agents' ? <Trace /> : <UsageLedger />}
+      </div>
     </aside>
   );
 }

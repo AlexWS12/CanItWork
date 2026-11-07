@@ -1,62 +1,80 @@
 .inspector {
   position: fixed;
-  right: 314px;
-  top: 52px;
+  right: calc(var(--panel-w) + var(--gutter) * 2);
+  top: var(--top-h);
   width: 220px;
-  padding: 12px 14px;
-  font-size: 13px;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-md);
 }
 
 .inspector header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-3);
 }
 
 .inspector h3 {
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 600;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .inspector header button {
-  padding: 0 8px;
-  font-size: 16px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-lg);
   line-height: 24px;
 }
 
 .inspector dl {
-  margin: 8px 0 10px;
+  margin: var(--space-2) 0 var(--space-3);
 }
 
 .inspector dl div {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  padding: 3px 0;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
 }
 
 .inspector dt {
-  color: var(--muted);
+  color: var(--color-muted);
 }
 
 .inspector dd {
   margin: 0;
-  font-family: var(--mono);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .action {
   width: 100%;
 }
 
-.action.danger {
-  background: rgba(255, 90, 104, 0.16);
-  border-color: rgba(255, 90, 104, 0.55);
-  color: #ffc9ce;
+.action + .action {
+  margin-top: var(--space-2);
 }
 
-.action.danger:hover {
-  background: rgba(255, 90, 104, 0.3) !important;
+.action.danger {
+  background: var(--color-danger-fill);
+  border-color: var(--color-danger-line);
+  color: var(--color-danger-soft);
+}
+
+.action.danger:hover:not(:disabled) {
+  background: var(--color-danger-fill-strong);
+  border-color: var(--color-danger);
+}
+
+@media (max-width: 900px) {
+  .inspector {
+    top: var(--top-h);
+    left: var(--gutter);
+    right: var(--gutter);
+    width: auto;
+    z-index: 3;
+  }
 }

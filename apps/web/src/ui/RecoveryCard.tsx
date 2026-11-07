@@ -10,7 +10,7 @@ export function RecoveryCard() {
   const open = useStore((s) => s.reportOpen);
   const set = useStore((s) => s.set);
   if (!report) {
-    return recovering ? <div className="recovery slim">Agents are working on a recovery plan</div> : null;
+    return recovering ? <div className="recovery slim">Agents are working on a recovery plan…</div> : null;
   }
   const applied = report.candidates.find((c) => c.id === appliedId);
   if (!open && applied) {
@@ -41,10 +41,11 @@ export function RecoveryCard() {
         <RecoveryChart report={report} />
         <div className="candidates">
           {report.candidates.map((c) => (
-            <div key={c.id} className="candidate" data-winner={c.id === report.winnerId} title={c.rationale}>
+            <div key={c.id} className="candidate" data-winner={c.id === report.winnerId}>
               <div className="candidate-text">
                 <b>{c.title}</b>
                 <small>{c.author}</small>
+                <p className="candidate-why">{c.rationale}</p>
               </div>
               <span className="score">{c.evaluation.score}</span>
               <button onClick={() => applyCandidate(c)} disabled={appliedId !== null}>
