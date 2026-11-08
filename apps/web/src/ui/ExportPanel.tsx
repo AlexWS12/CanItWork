@@ -60,7 +60,7 @@ export function ExportButton() {
           {file ? (
             <>
               <p className="share-title">Export as {file.format}</p>
-              <p className="share-note">Written from the design the simulator tested, with every fix you applied. Postgres 13 or newer.</p>
+              <p className="share-note">Written from the design the simulator tested, with every fix you applied. {file.runsOn}</p>
               <p className="export-summary">{file.summary}</p>
               <pre className="export-preview" aria-label={`${file.filename} preview`}>
                 {file.text}
