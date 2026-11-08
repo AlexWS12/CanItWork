@@ -1,4 +1,17 @@
-import { SYSTEM, checkPatches, type Breakable, type DomainId, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type Setting, type TimedEvent } from '../../domain';
+import {
+  SYSTEM,
+  checkPatches,
+  type Breakable,
+  type DomainId,
+  type Evaluation,
+  type Incident,
+  type Inspection,
+  type Metric,
+  type Point,
+  type Run,
+  type Setting,
+  type TimedEvent,
+} from '../../domain';
 import { createRng, type Rng } from '../../rng';
 import { NetPatchSchema, linkKey, netOrder, type KindDef, type NetEdge, type NetNode, type NetPatch, type NetSpec, type Role } from './schema';
 

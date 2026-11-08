@@ -1311,11 +1311,31 @@ export class CircuitRun implements Run {
   private partSettings(part: Part): Setting[] {
     if (part.type === 'resistor' && part.ohms) {
       const values = [...new Set([...RESISTOR_VALUES, part.ohms])].sort((a, b) => a - b);
-      return [{ kind: 'choice', label: 'Resistance', hint: 'Swap in another standard value.', value: part.ohms, options: values.map((v) => ({ label: ohmsLabel(v), value: v })), patch: { op: 'set_ohms', part: part.id }, key: 'ohms' }];
+      return [
+        {
+          kind: 'choice',
+          label: 'Resistance',
+          hint: 'Swap in another standard value.',
+          value: part.ohms,
+          options: values.map((v) => ({ label: ohmsLabel(v), value: v })),
+          patch: { op: 'set_ohms', part: part.id },
+          key: 'ohms',
+        },
+      ];
     }
     if (part.type === 'battery' && part.volts) {
       const values = [...new Set([...BATTERY_VOLTS, part.volts])].sort((a, b) => a - b);
-      return [{ kind: 'choice', label: 'Battery', hint: 'Swap in a pack of another voltage.', value: part.volts, options: values.map((v) => ({ label: `${v} V`, value: v })), patch: { op: 'set_volts', part: part.id }, key: 'volts' }];
+      return [
+        {
+          kind: 'choice',
+          label: 'Battery',
+          hint: 'Swap in a pack of another voltage.',
+          value: part.volts,
+          options: values.map((v) => ({ label: `${v} V`, value: v })),
+          patch: { op: 'set_volts', part: part.id },
+          key: 'volts',
+        },
+      ];
     }
     return [];
   }
