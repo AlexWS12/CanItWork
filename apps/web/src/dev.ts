@@ -1,85 +1,87 @@
 import type { Environment } from '@tv/core';
 import { advance } from '@react-three/fiber';
 import type { WebGLRenderer } from 'three';
-import { useStore } from './store';
 import { openShowcase } from './actions';
 import { runner } from './runner';
+import { useStore } from './store';
 
-// Development tools for judging the 3D views: open any kind of system without agents, and capture or measure the canvas.
-// `npm run capture` starts the receiver that saves captures into apps/web/.captures.
+// Development tools for judging the 3D views: open any kind of system without agents, run it, measure it and take a picture.
+// `npm run capture -w @tv/web` drives these from a headless browser and saves the results in apps/web/.captures.
 
 let gl: WebGLRenderer | null = null;
 export const registerRenderer = (renderer: WebGLRenderer) => void (gl = renderer);
 
-// Renders a frame now instead of waiting for one: a pane the browser isn't painting gets no animation frames at all.
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function renderer() {
+  for (let i = 0; !gl && i < 200; i++) await wait(50);
+  if (!gl) throw new Error('The scene never rendered');
+  return gl;
+}
+
+// Renders a frame now instead of waiting for one: a browser that isn't painting the page gives it no animation frames.
 let clock = performance.now();
-const nextFrame = async () => {
+const frame = () => {
   clock = Math.max(clock + 1000 / 60, performance.now());
   advance(clock);
 };
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Read straight after a render, before the browser composites, the drawing buffer still holds the finished image.
-async function capture(name: string) {
-  if (!gl) throw new Error('The scene has not rendered yet');
-  await nextFrame();
-  const png = gl.domElement.toDataURL('image/png');
-  const res = await fetch(`http://127.0.0.1:5199/?name=${encodeURIComponent(name)}`, { method: 'POST', body: png });
-  return res.json();
-}
-
-// Draw calls and triangles of a whole frame (every pass, not only the composer's last one), and the CPU time spent rendering it.
-// Frame rate is left out on purpose: a backgrounded browser throttles animation frames, so it would measure the window, not the scene.
-async function stats(frames = 3) {
-  const renderer = gl;
-  if (!renderer) throw new Error('The scene has not rendered yet');
-  const render = renderer.render.bind(renderer);
-  let cpu = 0;
-  renderer.render = (scene, camera) => {
-    const start = performance.now();
-    render(scene, camera);
-    cpu += performance.now() - start;
-  };
-  renderer.info.autoReset = false;
-  try {
-    await nextFrame();
-    renderer.info.reset();
-    cpu = 0;
-    for (let i = 0; i < frames; i++) await nextFrame();
-    const { calls, triangles } = renderer.info.render;
-    return { calls: Math.round(calls / frames), triangles: Math.round(triangles / frames), cpuMs: Math.round((cpu / frames) * 10) / 10 };
-  } finally {
-    renderer.render = render;
-    renderer.info.autoReset = true;
-  }
-}
-
-// Opens every kind of system in turn, lets it run, then captures and measures it.
-async function tour(domains: string[], { settle = 1500, run = 6, prefix = '' } = {}) {
-  const results: Record<string, unknown> = {};
-  for (const domain of domains) {
-    const environment = await openShowcase(domain);
-    if (!environment) {
-      results[domain] = 'no showcase design';
-      continue;
-    }
-    await wait(settle);
-    // Runs the simulation a fixed stretch first, so every capture shows the system mid-run whatever the frame rate.
-    // Rendering frames as it goes lets animations that ease toward the simulation (robots, cameras) catch up.
-    for (let t = 0; t < run; t += 0.1) {
-      runner.frame(0.1);
-      await nextFrame();
-    }
-    results[domain] = { ...(await stats()), file: (await capture(`${prefix}${domain}`)).file };
-  }
-  return results;
-}
 
 // Opens a hand-made environment, such as a showcase design with an odd part added, to see how the views cope.
 function openEnvironment(environment: Environment) {
   runner.replay(environment, 1, 0, []);
   const s = useStore.getState();
   s.set({ environment, environmentKey: s.environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
+  return environment;
 }
 
-export const devTools = { open: openShowcase, openEnvironment, capture, stats, tour };
+// Runs the simulation a fixed stretch, rendering as it goes so animations that ease toward the simulation keep up.
+function run(seconds: number) {
+  for (let t = 0; t < seconds; t += 0.1) {
+    runner.frame(0.1);
+    frame();
+  }
+}
+
+// Draw calls and triangles of whole frames (every pass, not only the composer's last one), and the CPU time spent rendering.
+// Frame rate is left out on purpose: it would measure the browser window, not the scene.
+async function stats(frames = 3) {
+  const r = await renderer();
+  const render = r.render.bind(r);
+  let cpu = 0;
+  r.render = (scene, camera) => {
+    const start = performance.now();
+    render(scene, camera);
+    cpu += performance.now() - start;
+  };
+  r.info.autoReset = false;
+  try {
+    frame();
+    r.info.reset();
+    cpu = 0;
+    for (let i = 0; i < frames; i++) frame();
+    const { calls, triangles } = r.info.render;
+    return { calls: Math.round(calls / frames), triangles: Math.round(triangles / frames), cpuMs: Math.round((cpu / frames) * 10) / 10 };
+  } finally {
+    r.render = render;
+    r.info.autoReset = true;
+  }
+}
+
+// Read straight after a render, before the browser composites, the drawing buffer still holds the finished image.
+async function snapshot() {
+  const r = await renderer();
+  frame();
+  return r.domElement.toDataURL('image/png');
+}
+
+// Opens a showcase design (or a hand-made environment), lets it run, then measures and pictures it.
+async function shoot(what: string | Environment, { settle = 1200, seconds = 6 } = {}) {
+  const environment = typeof what === 'string' ? await openShowcase(what) : openEnvironment(what);
+  if (!environment) throw new Error(`No showcase design for ${String(what)}`);
+  await renderer();
+  await wait(settle);
+  run(seconds);
+  return { name: environment.name, ...(await stats()), png: await snapshot() };
+}
+
+export const devTools = { open: openShowcase, openEnvironment, run, stats, snapshot, shoot };

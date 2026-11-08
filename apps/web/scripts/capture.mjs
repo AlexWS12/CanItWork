@@ -1,25 +1,43 @@
-// Saves canvas captures sent by the dev tools (window.__tv.capture / tour) as PNGs in apps/web/.captures.
-// Local only: it listens on 127.0.0.1 and answers only the dev server's pages.
-import { createServer } from 'node:http';
+// Pictures every kind of system in a headless browser, with draw calls and triangles, so 3D changes can be compared.
+// Usage: npm run capture -w @tv/web -- <label> [domain ...] [--ui] [--url=http://localhost:5175]
+//   Saves apps/web/.captures/<label>/<domain>.png (the 3D canvas), <domain>-ui.png with --ui (the whole page), and stats.json.
+// The dev server must be running; captures use its window.__tv tools, so nothing is designed and nothing is spent.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
 
-const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.captures');
+const ALL = ['electronics', 'software', 'database', 'warehouse', 'fleet', 'queues', 'hospital', 'power', 'water', 'supply', 'factory', 'airport', 'callcenter'];
+const args = process.argv.slice(2);
+const flag = (name) => args.find((a) => a.startsWith(`--${name}`));
+const [label = 'latest', ...picked] = args.filter((a) => !a.startsWith('--'));
+const domains = picked.length ? picked : ALL;
+const url = flag('url')?.split('=')[1] ?? 'http://localhost:5175';
+const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.captures', label);
 mkdirSync(out, { recursive: true });
 
-createServer((req, res) => {
-  const origin = req.headers.origin ?? '';
-  if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
-  if (req.method === 'OPTIONS') return res.end();
-  if (req.method !== 'POST') return res.writeHead(405).end();
-  const name = (new URL(req.url ?? '/', 'http://x').searchParams.get('name') ?? 'capture').replace(/[^a-z0-9_-]/gi, '') || 'capture';
-  let body = '';
-  req.on('data', (chunk) => (body += chunk));
-  req.on('end', () => {
-    const file = path.join(out, `${name}.png`);
-    writeFileSync(file, Buffer.from(body.replace(/^data:image\/\w+;base64,/, ''), 'base64'));
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ file }));
-  });
-}).listen(5199, '127.0.0.1', () => console.log(`Saving captures to ${out}`));
+// Software WebGL, so captures work without a GPU or a visible window
+const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+page.on('pageerror', (error) => console.error('page error:', error.message));
+await page.goto(url);
+await page.waitForFunction(() => 'shoot' in (window.__tv ?? {}), null, { timeout: 30000 });
+
+const stats = {};
+for (const domain of domains) {
+  try {
+    const shot = await page.evaluate((d) => window.__tv.shoot(d), domain);
+    writeFileSync(path.join(out, `${domain}.png`), Buffer.from(shot.png.split(',')[1], 'base64'));
+    if (flag('ui')) await page.screenshot({ path: path.join(out, `${domain}-ui.png`) });
+    stats[domain] = { name: shot.name, calls: shot.calls, triangles: shot.triangles, cpuMs: shot.cpuMs };
+    console.log(
+      `${domain.padEnd(12)} ${String(shot.calls).padStart(5)} calls ${String(Math.round(shot.triangles / 1000)).padStart(5)}k tris ${String(shot.cpuMs).padStart(6)} ms cpu  ${shot.name}`,
+    );
+  } catch (error) {
+    stats[domain] = { error: String(error) };
+    console.error(`${domain}: ${error}`);
+  }
+}
+writeFileSync(path.join(out, 'stats.json'), JSON.stringify(stats, null, 2));
+await browser.close();
+console.log(`Saved to ${out}`);
