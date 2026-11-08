@@ -138,6 +138,20 @@ describe('agent pipelines', () => {
       expect(environmentOf(events)?.domain).toBe('warehouse');
     });
 
+    it('asks Gemini rather than refusing when Jev picks a domain but doubts it fits', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const bodies: string[] = [];
+      const gemini = recordGemini(bodies, 'database');
+      // A ledger schema read as transactions: Jev picked databases but scored its fit under the refusal line.
+      const ledger = () => jevDomainReply('database', { database: 0.7, none: 0.3 }, { database: 0.25, software: 0.1 });
+      mockFetch((url, init) => (isJev(url) ? ledger() : gemini(url, init)));
+      const { events, emit } = collect();
+      await build('A double-entry accounting ledger with accounts, journal entries and entry lines', emit);
+      expect(routing(bodies)).toHaveLength(1);
+      expect(environmentOf(events)?.domain).toBe('database');
+    });
+
     it('goes with the best-fitting domain when Jev is split and there is no Gemini', async () => {
       process.env.TYPESAFE_API_KEY = 't';
       // Live answers for "A smart home with sensors, a hub and a phone app": the Choice leaned software, the fits leaned electronics.
@@ -292,16 +306,24 @@ describe('agent pipelines', () => {
 
   it('refuses a design that still fails the checks after repairs', async () => {
     process.env.GEMINI_API_KEY = 'g';
-    const bad = { tables: [{ name: 'a', rows: 1, columns: [{ name: 'id', type: 'int', references: { table: 'ghost', column: 'id' } }], indexes: [] }], workload: [] };
+    // Nothing sends traffic: no mend invents a client, so this stays broken however often it is repaired.
+    const bad = {
+      traffic: 10,
+      nodes: [
+        { id: 'api', kind: 'service' },
+        { id: 'db', kind: 'database' },
+      ],
+      edges: [{ from: 'api', to: 'db' }],
+    };
     mockFetch((_, init) =>
       String(init.body).includes('You route requests')
-        ? json(openAiReply(JSON.stringify({ domain: 'database', reason: 'r' })))
+        ? json(openAiReply(JSON.stringify({ domain: 'software', reason: 'r' })))
         : json(openAiReply(JSON.stringify({ name: 'n', summary: 's', spec: bad }))),
     );
     const { events, emit } = collect();
-    await build('a schema', emit);
+    await build('a backend', emit);
     expect(environmentOf(events)).toBeNull();
-    expect(refusalOf(events)?.reason).toContain("doesn't exist");
+    expect(refusalOf(events)?.reason).toContain('add a client');
   });
 
   it('runs the Architect on Gemini and the Red Team on Swarms, and scores claims with the simulator', async () => {

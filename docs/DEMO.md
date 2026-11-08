@@ -59,6 +59,16 @@ A two-to-three minute walkthrough that shows the whole idea:
 - "A room thermostat: an ESP32 reads a DS18B20 temperature sensor and switches a 12V heater through a relay to hold the room between 20 and 23 C on a cold day".
 - A non-electronics example from the landing page, such as the payment system or the university database.
 
+**6. Show who can make the agents spend (Auth0, 30 s).** Needs `REQUIRE_SIGN_IN=1` and Auth0 configured.
+
+- Signed out, type a new prompt. It's refused with a Sign in button, and nothing was spent.
+- Click an example. It still builds, because verified designs cost nothing.
+- Sign in and send the prompt again. The agents run.
+
+> "Our agents cost money every time they think. Auth0 decides who gets to make them think."
+
+[AUTH0.md](AUTH0.md) has the longer version, including sharing a run only with a verified email.
+
 ## If something goes wrong
 
 - **Build refused:** say "it refuses rather than show something wrong", then use the planter example or blank the keys.

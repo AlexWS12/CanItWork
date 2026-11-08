@@ -104,6 +104,8 @@ export interface Explanation {
 export interface Refusal {
   reason: string;
   closest: DomainId | null;
+  /** Set when the request was turned away only because nobody is signed in. */
+  signIn?: true;
 }
 
 export type ChatAction =
@@ -118,7 +120,7 @@ export type StreamEvent =
   | { type: 'explanation'; explanation: Explanation }
   | { type: 'usage'; usage: Usage }
   | { type: 'reply'; text: string; action: ChatAction }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; signIn?: true }
   | { type: 'done' };
 
 export type KeyCheck = 'ok' | 'failing' | 'unchecked';

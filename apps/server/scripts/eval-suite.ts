@@ -55,6 +55,19 @@ const selfTested = (n: number): Check => [
 ];
 const nodes = (s: Spec): Array<{ kind: string; label: string }> => s.nodes ?? [];
 const tables = (s: Spec): Array<{ name: string; rows: number }> => s.tables ?? [];
+// Software: a component the request named, matched on its id or label.
+const comp = (what: string, re: RegExp): Check => [what, (s) => nodes(s).some((n) => re.test(`${(n as { id?: string }).id ?? ''} ${n.label ?? ''}`))];
+const ofKind = (k: string, n = 1): Check => [`${n}+ ${k}`, (s) => nodes(s).filter((x) => x.kind === k).length >= n];
+const rps = (n: number): Check => [`${n} rps`, (s) => s.traffic === n];
+const zoned = (n: number): Check => [`${n}+ zones`, (s) => new Set(nodes(s).flatMap((x) => (x as { zones?: string[] }).zones ?? [])).size >= n];
+// Database: a table the request named, and optionally a column on it.
+const table = (what: string, re: RegExp): Check => [what, (s) => tables(s).some((t) => re.test(t.name))];
+const column = (what: string, tableRe: RegExp, colRe: RegExp): Check => [
+  what,
+  (s) => (s.tables ?? []).some((t: { name: string; columns: Array<{ name: string }> }) => tableRe.test(t.name) && t.columns.some((c) => colRe.test(c.name))),
+];
+const rowsOf = (what: string, re: RegExp, n: number): Check => [what, (s) => tables(s).some((t) => re.test(t.name) && t.rows >= n * 0.8 && t.rows <= n * 1.25)];
+const workload = (n = 1): Check => [`${n}+ queries`, (s) => (s.workload ?? []).length >= n];
 // Fleets: how many units have a behaviour.
 const roleCount = (s: Spec, behavior: string) =>
   (s.roles ?? []).filter((r: { behavior: string }) => r.behavior === behavior).reduce((a: number, r: { count: number }) => a + r.count, 0);
@@ -623,6 +636,534 @@ const CASES: Case[] = [
       ['heavy', (s) => s.demand === 'heavy'],
       ['2 chargers', (s) => s.chargers === 2],
     ],
+  },
+  // Software stress set: varied industries, sizes and named technologies. Run with `sw-`.
+  {
+    id: 'sw-ride',
+    domain: 'software',
+    prompt: 'A ride-hailing backend with a matching service, a location service fed by Kafka, Postgres and a Redis cache',
+    checks: [comp('matching', /match/i), comp('location', /locat|gps|geo/i), ofKind('queue'), ofKind('cache'), ofKind('database')],
+  },
+  {
+    id: 'sw-food',
+    domain: 'software',
+    prompt: 'A food delivery app: mobile clients, API gateway, orders, restaurants and couriers services, and a payment provider',
+    checks: [comp('orders', /order/i), comp('restaurants', /restaur/i), comp('couriers', /courier|driver|deliver/i), ofKind('external')],
+  },
+  {
+    id: 'sw-rps',
+    domain: 'software',
+    prompt: 'A URL shortener handling 20000 requests per second with a cache in front of the database',
+    checks: [rps(20000), ofKind('cache'), ofKind('database')],
+  },
+  {
+    id: 'sw-social',
+    domain: 'software',
+    prompt: 'A social media feed with a fan-out service, a timeline cache, a posts database and a notifications queue',
+    checks: [comp('fan-out', /fan|feed|timeline/i), ofKind('cache'), ofKind('queue'), comp('notifications', /notif/i)],
+  },
+  {
+    id: 'sw-search',
+    domain: 'software',
+    prompt: 'A product search service backed by Elasticsearch with an indexing pipeline from the catalog database',
+    checks: [comp('elasticsearch', /elastic|search/i), comp('indexer', /index/i), ofKind('database')],
+  },
+  {
+    id: 'sw-iot',
+    domain: 'software',
+    prompt: 'An IoT platform ingesting telemetry from 50000 sensors through MQTT into a time-series database',
+    checks: [comp('mqtt', /mqtt|broker|ingest/i), comp('time-series db', /time.?series|tsdb|influx|timescale/i)],
+  },
+  {
+    id: 'sw-bank',
+    domain: 'software',
+    prompt: 'A core banking system with an accounts service, a ledger database, fraud detection and a card network',
+    checks: [comp('accounts', /account/i), comp('ledger', /ledger/i), comp('fraud', /fraud/i), ofKind('external')],
+  },
+  {
+    id: 'sw-game',
+    domain: 'software',
+    prompt: 'A multiplayer game backend with matchmaking, game servers, a leaderboard on Redis and a player profile database',
+    checks: [comp('matchmaking', /match/i), comp('game server', /game/i), comp('leaderboard', /leader|redis/i), ofKind('database')],
+  },
+  {
+    id: 'sw-zones',
+    domain: 'software',
+    prompt: 'A checkout service running across three availability zones with a replicated database',
+    checks: [zoned(3), comp('checkout', /checkout/i), ofKind('database')],
+  },
+  { id: 'sw-regions', domain: 'software', prompt: 'A global API deployed in two regions, us-east and eu-west, behind a load balancer', checks: [zoned(2), ofKind('gateway')] },
+  {
+    id: 'sw-email',
+    domain: 'software',
+    prompt: 'A newsletter platform that sends a million emails a day through SendGrid using a job queue and workers',
+    checks: [ofKind('queue'), comp('sendgrid', /sendgrid|email|mail/i), comp('worker', /work|send/i)],
+  },
+  {
+    id: 'sw-video',
+    domain: 'software',
+    prompt: 'A video upload site that transcodes videos with a worker pool and serves them from S3 through a CDN',
+    checks: [comp('transcoder', /transcod|encod/i), comp('s3', /s3|storage|blob|object/i), comp('cdn', /cdn/i)],
+  },
+  {
+    id: 'sw-auth',
+    domain: 'software',
+    prompt: 'A single sign-on service with an identity provider, a session store in Redis and a users database',
+    checks: [comp('identity', /ident|idp|sso|auth/i), comp('sessions', /session|redis/i), ofKind('database')],
+  },
+  {
+    id: 'sw-ticket',
+    domain: 'software',
+    prompt: 'A concert ticketing site that gets 10 times its normal traffic when sales open, with a waiting room queue',
+    checks: [ofKind('queue'), comp('tickets', /ticket|inventory|seat/i)],
+  },
+  {
+    id: 'sw-chatbot',
+    domain: 'software',
+    prompt: 'A customer support chatbot that calls an LLM API, a vector database and a ticketing system',
+    checks: [comp('llm', /llm|openai|model|gpt|gemini|claude/i), comp('vector db', /vector|embed/i), comp('ticketing', /ticket|zendesk|helpdesk/i)],
+  },
+  {
+    id: 'sw-analytics',
+    domain: 'software',
+    prompt: 'A clickstream analytics pipeline: collectors, Kafka, a stream processor and a data warehouse',
+    checks: [
+      comp('collector', /collect|ingest|track/i),
+      ofKind('queue'),
+      comp('stream processor', /stream|flink|spark|process/i),
+      comp('warehouse', /warehouse|snowflake|bigquery|redshift/i),
+    ],
+  },
+  {
+    id: 'sw-health',
+    domain: 'software',
+    prompt: 'A telehealth app with video calls, appointment booking, an EHR integration and HIPAA audit logging',
+    checks: [comp('video', /video|call|webrtc/i), comp('appointments', /appoint|book|schedul/i), comp('ehr', /ehr|record|epic/i), comp('audit', /audit|log/i)],
+  },
+  {
+    id: 'sw-stocks',
+    domain: 'software',
+    prompt: 'A stock trading platform with an order matching engine, a market data feed and a risk service',
+    checks: [comp('matching engine', /match|order/i), comp('market data', /market|feed|quote/i), comp('risk', /risk/i)],
+  },
+  {
+    id: 'sw-replicas',
+    domain: 'software',
+    prompt: 'A REST API with 4 replicas behind a load balancer and a Postgres primary with 2 read replicas',
+    checks: [['api 4 replicas', (s) => nodes(s).some((n) => n.kind === 'service' && (n as { replicas?: number }).replicas === 4)], ofKind('gateway'), ofKind('database')],
+  },
+  {
+    id: 'sw-legacy',
+    domain: 'software',
+    prompt: 'A monolith that talks to a legacy mainframe over a slow SOAP API',
+    checks: [comp('monolith', /monolith|app|server/i), comp('mainframe', /mainframe|legacy|soap/i)],
+  },
+  {
+    id: 'sw-overload',
+    domain: 'software',
+    prompt: 'A small API with one server and a database that is overloaded at 1000 requests per second',
+    checks: [rps(1000)],
+    stressed: true,
+  },
+  {
+    id: 'sw-hotel',
+    domain: 'software',
+    prompt: 'A hotel booking engine that queries availability from three partner APIs and caches the results',
+    checks: [ofKind('external', 2), ofKind('cache'), comp('availability', /avail|search|book/i)],
+  },
+  {
+    id: 'sw-maps',
+    domain: 'software',
+    prompt: 'A map tile server with a tile cache, a rendering service and a geospatial database',
+    checks: [comp('tiles', /tile/i), ofKind('cache'), comp('renderer', /render/i), comp('geo db', /geo|postgis|spatial|database/i)],
+  },
+  {
+    id: 'sw-music',
+    domain: 'software',
+    prompt: 'A music streaming service with a catalog API, a playback service, a recommendations engine and a CDN',
+    checks: [comp('catalog', /catalog/i), comp('playback', /play|stream/i), comp('recommend', /recommend/i), comp('cdn', /cdn/i)],
+  },
+  {
+    id: 'sw-shop-micro',
+    domain: 'software',
+    prompt: 'An online store split into cart, inventory, pricing, checkout and shipping microservices',
+    checks: [comp('cart', /cart/i), comp('inventory', /invent|stock/i), comp('pricing', /pric/i), comp('checkout', /checkout/i), comp('shipping', /ship/i)],
+  },
+  {
+    id: 'sw-webhooks',
+    domain: 'software',
+    prompt: 'A webhook delivery system that retries failed deliveries to customer endpoints with a dead letter queue',
+    checks: [ofKind('queue'), comp('dead letter', /dead|dlq|retry/i), ofKind('external')],
+  },
+  {
+    id: 'sw-ci',
+    domain: 'software',
+    prompt: 'A CI system: GitHub webhooks into a build scheduler, a queue of jobs and a pool of build runners',
+    checks: [comp('scheduler', /schedul|coordinat|dispatch/i), ofKind('queue'), comp('runners', /runner|agent|worker|build/i)],
+  },
+  {
+    id: 'sw-crypto',
+    domain: 'software',
+    prompt: 'A crypto exchange wallet service that talks to a blockchain node and a hot wallet signer',
+    checks: [comp('wallet', /wallet/i), comp('blockchain node', /blockchain|node|chain|ethereum|bitcoin/i), comp('signer', /sign/i)],
+  },
+  {
+    id: 'sw-news',
+    domain: 'software',
+    prompt: 'A news website with a headless CMS, server-side rendering and an edge cache serving 5000 requests per second',
+    checks: [rps(5000), comp('cms', /cms|content/i), ofKind('cache')],
+  },
+  {
+    id: 'sw-logistics',
+    domain: 'software',
+    prompt: 'A parcel tracking system where scanners publish events to a queue consumed by a tracking service and a notification service',
+    checks: [ofKind('queue'), comp('tracking', /track/i), comp('notifications', /notif/i)],
+  },
+  {
+    id: 'sw-k8s-hpa',
+    domain: 'software',
+    prompt: 'A Kubernetes deployment of a Node.js API with 6 pods, an ingress controller and MongoDB',
+    checks: [
+      comp('ingress', /ingress|gateway|load/i),
+      comp('mongo', /mongo|database/i),
+      ['6 pods', (s) => nodes(s).some((n) => n.kind === 'service' && (n as { replicas?: number }).replicas === 6)],
+    ],
+  },
+  {
+    id: 'sw-serverless',
+    domain: 'software',
+    prompt: 'A serverless image API: API Gateway, Lambda functions, S3 and DynamoDB',
+    checks: [ofKind('gateway'), comp('lambda', /lambda|function/i), comp('s3', /s3|storage|bucket/i), comp('dynamo', /dynamo/i)],
+  },
+  {
+    id: 'sw-airline',
+    domain: 'software',
+    prompt: 'An airline check-in system that calls a reservation system, a seat map service and a boarding pass generator',
+    checks: [comp('reservation', /reserv|pnr|booking/i), comp('seat map', /seat/i), comp('boarding pass', /board|pass/i)],
+  },
+  {
+    id: 'sw-ads',
+    domain: 'software',
+    prompt: 'A real-time ad bidding service that must answer within 100 ms using a feature store and a budget service',
+    checks: [comp('bidder', /bid|auction/i), comp('feature store', /feature/i), comp('budget', /budget|pacing/i)],
+  },
+  {
+    id: 'sw-school',
+    domain: 'software',
+    prompt: 'A school learning platform with a gradebook service, file uploads to object storage and a video conferencing integration',
+    checks: [comp('gradebook', /grade/i), comp('storage', /storage|s3|upload|file/i), comp('video', /video|zoom|meet|conferenc/i)],
+  },
+  {
+    id: 'sw-sms',
+    domain: 'software',
+    prompt: 'A two-factor login flow that sends codes through Twilio and stores attempts in Redis',
+    checks: [comp('twilio', /twilio|sms/i), comp('redis', /redis|cache|attempt/i)],
+  },
+  {
+    id: 'sw-retail-pos',
+    domain: 'software',
+    prompt: 'Point of sale terminals in 200 stores syncing sales to a central inventory service through a message queue',
+    checks: [comp('pos', /pos|terminal|store|till|register/i), ofKind('queue'), comp('inventory', /invent/i)],
+  },
+  {
+    id: 'sw-gql',
+    domain: 'software',
+    prompt: 'A GraphQL gateway federating a users service, a products service and a reviews service',
+    checks: [ofKind('gateway'), comp('users', /user/i), comp('products', /product/i), comp('reviews', /review/i)],
+  },
+  {
+    id: 'sw-energy',
+    domain: 'software',
+    prompt: 'A smart meter platform: meters report every 15 minutes to an ingestion API, a billing batch job and a customer dashboard',
+    checks: [comp('ingestion', /ingest/i), comp('billing', /bill/i), comp('dashboard', /dashboard|portal|web/i)],
+  },
+  {
+    id: 'sw-dating',
+    domain: 'software',
+    prompt: 'A dating app with profiles, a swipe service writing to Cassandra, a match queue and push notifications through Firebase',
+    checks: [comp('profiles', /profile/i), comp('cassandra', /cassandra/i), ofKind('queue'), comp('firebase', /firebase|push|fcm/i)],
+  },
+  // Database stress set: varied schemas, sizes and workloads. Run with `db-`.
+  {
+    id: 'db-hospital',
+    domain: 'database',
+    prompt: 'A hospital database with patients, doctors, appointments and prescriptions',
+    checks: [
+      table('patients', /patient/i),
+      table('doctors', /doctor|physician|provider/i),
+      table('appointments', /appoint/i),
+      table('prescriptions', /prescri|medicat/i),
+      workload(),
+    ],
+  },
+  {
+    id: 'db-library',
+    domain: 'database',
+    prompt: 'A library system with books, authors, members and loans, where a book can have several authors',
+    checks: [
+      table('books', /book/i),
+      table('authors', /author/i),
+      table('members', /member|patron/i),
+      table('loans', /loan|borrow|checkout/i),
+      table('book_authors link', /book_?author|author_?book|written/i),
+    ],
+  },
+  {
+    id: 'db-rows',
+    domain: 'database',
+    prompt: 'An events table with 200 million rows queried by user and by date',
+    checks: [rowsOf('events 200M', /event/i, 200_000_000), column('user column', /event/i, /user/i), workload()],
+  },
+  {
+    id: 'db-saas',
+    domain: 'database',
+    prompt: 'A multi-tenant SaaS schema with organizations, users, projects and tasks where every query is scoped to the organization',
+    checks: [table('organizations', /org|tenant|account/i), table('projects', /project/i), table('tasks', /task/i), column('tasks has org', /task/i, /org|tenant|account/i)],
+  },
+  {
+    id: 'db-shard',
+    domain: 'database',
+    prompt: 'A messages table sharded by conversation across 16 partitions',
+    checks: [['16 partitions', (s) => (s.tables ?? []).some((t: { partitions?: number }) => t.partitions === 16)], column('conversation key', /message/i, /conversation/i)],
+  },
+  {
+    id: 'db-gym',
+    domain: 'database',
+    prompt: 'A gym membership database with members, plans, check-ins and classes',
+    checks: [table('members', /member/i), table('plans', /plan|tier|subscription/i), table('check-ins', /check/i), table('classes', /class|session/i)],
+  },
+  {
+    id: 'db-real-estate',
+    domain: 'database',
+    prompt: 'A real estate listings database with properties, agents, viewings and offers, searched by city and price',
+    checks: [
+      table('properties', /propert|listing|home/i),
+      table('agents', /agent|realtor/i),
+      table('offers', /offer|bid/i),
+      column('city', /propert|listing|home|address|location/i, /city/i),
+    ],
+  },
+  {
+    id: 'db-ledger',
+    domain: 'database',
+    prompt: 'A double-entry accounting ledger with accounts, journal entries and entry lines',
+    checks: [table('accounts', /account/i), table('journal entries', /journal|entr|transaction/i), table('lines', /line|posting|split/i)],
+  },
+  {
+    id: 'db-replicas',
+    domain: 'database',
+    prompt: 'A read-heavy blog database with posts, comments and tags, served by 3 read replicas',
+    checks: [table('posts', /post|article/i), table('comments', /comment/i), table('tags', /tag/i), ['3 replicas', (s) => s.replicas === 3]],
+  },
+  {
+    id: 'db-inventory',
+    domain: 'database',
+    prompt: 'A warehouse inventory schema with products, warehouses, stock levels per warehouse and stock movements',
+    checks: [
+      table('products', /product|item|sku/i),
+      table('warehouses', /warehouse|location|site/i),
+      table('stock levels', /stock|inventor|level/i),
+      table('movements', /movement|transfer|transaction/i),
+    ],
+  },
+  {
+    id: 'db-slow-join',
+    domain: 'database',
+    prompt: 'A slow report that joins 10 million invoices to customers by customer id without an index',
+    checks: [rowsOf('invoices 10M', /invoice/i, 10_000_000), table('customers', /customer|client/i), workload()],
+    stressed: true,
+  },
+  {
+    id: 'db-airline',
+    domain: 'database',
+    prompt: 'An airline reservations schema with flights, passengers, bookings and seats',
+    checks: [table('flights', /flight/i), table('passengers', /passenger/i), table('bookings', /booking|reserv/i), table('seats', /seat/i)],
+  },
+  {
+    id: 'db-social',
+    domain: 'database',
+    prompt: 'A social network schema with users, follows, posts and likes for 50 million users',
+    checks: [rowsOf('users 50M', /user/i, 50_000_000), table('follows', /follow|friend|connection/i), table('posts', /post/i), table('likes', /like|reaction/i)],
+  },
+  {
+    id: 'db-iot',
+    domain: 'database',
+    prompt: 'A sensor readings table receiving 5000 inserts per second, partitioned by device',
+    checks: [
+      ['5000 inserts/s', (s) => (s.workload ?? []).some((q: { kind: string; perSecond: number }) => q.kind === 'write' && q.perSecond === 5000)],
+      ['partitioned by device', (s) => (s.tables ?? []).some((t: { partitionBy?: string }) => /device|sensor/i.test(t.partitionBy ?? ''))],
+    ],
+  },
+  {
+    id: 'db-restaurant',
+    domain: 'database',
+    prompt: 'A restaurant ordering database with menus, menu items, tables, orders and order items',
+    checks: [table('menu items', /item|dish/i), table('orders', /order/i), table('tables', /table/i)],
+  },
+  {
+    id: 'db-hr',
+    domain: 'database',
+    prompt: 'An HR database with employees, departments, salaries history and managers who are also employees',
+    checks: [
+      table('employees', /employee|staff/i),
+      table('departments', /department/i),
+      table('salaries', /salar|compensation|pay/i),
+      column('manager self-reference', /employee|staff/i, /manager|reports_to|supervisor/i),
+    ],
+  },
+  {
+    id: 'db-ecom-big',
+    domain: 'database',
+    prompt: 'An online store database with 2 million customers, 80 million orders and a dashboard query for daily revenue',
+    checks: [rowsOf('customers 2M', /customer/i, 2_000_000), rowsOf('orders 80M', /^orders?$/i, 80_000_000), workload()],
+  },
+  {
+    id: 'db-vet',
+    domain: 'database',
+    prompt: 'A veterinary clinic database with owners, pets, visits and vaccinations',
+    checks: [table('owners', /owner|client/i), table('pets', /pet|animal|patient/i), table('visits', /visit|appoint/i), table('vaccinations', /vaccin/i)],
+  },
+  {
+    id: 'db-ticketing',
+    domain: 'database',
+    prompt: 'An event ticketing schema with venues, events, seats and tickets where a seat can only be sold once per event',
+    checks: [
+      table('venues', /venue/i),
+      table('events', /event/i),
+      table('tickets', /ticket/i),
+      [
+        'unique seat per event',
+        (s) =>
+          (s.tables ?? []).some(
+            (t: { name: string; indexes: string[][]; columns: Array<{ unique?: boolean }> }) =>
+              /ticket/i.test(t.name) && (t.indexes.some((ix) => ix.length >= 2) || t.columns.some((c) => c.unique)),
+          ),
+      ],
+    ],
+  },
+  {
+    id: 'db-school',
+    domain: 'database',
+    prompt: 'A high school database with students, teachers, classes, grades and attendance',
+    checks: [table('students', /student/i), table('teachers', /teacher/i), table('grades', /grade|mark|score/i), table('attendance', /attend/i)],
+  },
+  {
+    id: 'db-crm',
+    domain: 'database',
+    prompt: 'A CRM with companies, contacts, deals and activities, with sales reps listing their open deals',
+    checks: [
+      table('companies', /compan|account|organi/i),
+      table('contacts', /contact|person/i),
+      table('deals', /deal|opportunit/i),
+      table('activities', /activit|interaction|note/i),
+    ],
+  },
+  {
+    id: 'db-logs',
+    domain: 'database',
+    prompt: 'An audit log table with 1 billion rows that is only ever appended to and searched by actor and time',
+    checks: [rowsOf('audit 1B', /audit|log/i, 1_000_000_000), column('actor', /audit|log/i, /actor|user/i)],
+  },
+  {
+    id: 'db-recipe',
+    domain: 'database',
+    prompt: 'A recipe site with recipes, ingredients, recipe ingredients with quantities and user ratings',
+    checks: [
+      table('recipes', /recipe/i),
+      table('ingredients', /ingredient/i),
+      column('quantity', /recipe_?ingredient|ingredient/i, /quant|amount/i),
+      table('ratings', /rating|review/i),
+    ],
+  },
+  {
+    id: 'db-fleet',
+    domain: 'database',
+    prompt: 'A vehicle fleet database with vehicles, drivers, trips and GPS points at 1 point per second per vehicle',
+    checks: [table('vehicles', /vehicle|truck|car/i), table('drivers', /driver/i), table('trips', /trip|journey/i), table('gps points', /gps|point|location|position/i)],
+  },
+  {
+    id: 'db-insurance',
+    domain: 'database',
+    prompt: 'An insurance database with policyholders, policies, claims and claim payments',
+    checks: [table('policyholders', /holder|customer|insured|client/i), table('policies', /polic/i), table('claims', /claim/i), table('payments', /payment|payout/i)],
+  },
+  {
+    id: 'db-forum',
+    domain: 'database',
+    prompt: 'A forum with boards, threads, posts and users, where the front page lists the latest threads per board',
+    checks: [table('boards', /board|forum|categor/i), table('threads', /thread|topic/i), table('posts', /post|repl/i), workload()],
+  },
+  {
+    id: 'db-uuid',
+    domain: 'database',
+    prompt: 'A users and sessions schema using UUID primary keys',
+    checks: [
+      table('users', /user/i),
+      table('sessions', /session/i),
+      ['uuid keys', (s) => (s.tables ?? []).some((t: { columns: Array<{ type: string; primary?: boolean }> }) => t.columns.some((c) => c.primary && c.type === 'uuid'))],
+    ],
+  },
+  {
+    id: 'db-movie',
+    domain: 'database',
+    prompt: 'A movie streaming catalog with titles, episodes, genres, actors and watch history for 10 million subscribers',
+    checks: [table('titles', /title|movie|show/i), table('episodes', /episode/i), table('genres', /genre/i), table('watch history', /watch|view|history|play/i)],
+  },
+  {
+    id: 'db-parking',
+    domain: 'database',
+    prompt: 'A parking garage system with levels, spots, vehicles, entries and exits and payments',
+    checks: [table('spots', /spot|space|bay/i), table('vehicles', /vehicle|car/i), table('payments', /payment/i)],
+  },
+  {
+    id: 'db-delete',
+    domain: 'database',
+    prompt: 'A schema with customers and orders where deleting a customer deletes their orders',
+    checks: [
+      [
+        'cascade delete',
+        (s) =>
+          (s.tables ?? []).some(
+            (t: { name: string; columns: Array<{ references?: { onDelete?: string } }> }) => /order/i.test(t.name) && t.columns.some((c) => c.references?.onDelete === 'cascade'),
+          ),
+      ],
+    ],
+  },
+  {
+    id: 'db-marketplace',
+    domain: 'database',
+    prompt: 'A two-sided marketplace with buyers, sellers, listings, orders, payouts and disputes',
+    checks: [table('sellers', /seller|vendor|merchant/i), table('listings', /listing|product|item/i), table('payouts', /payout/i), table('disputes', /dispute/i)],
+  },
+  {
+    id: 'db-chat',
+    domain: 'database',
+    prompt: 'A chat app database with users, channels, channel members and 300 million messages',
+    checks: [table('channels', /channel|room|conversation/i), table('members', /member|participant/i), rowsOf('messages 300M', /message/i, 300_000_000)],
+  },
+  {
+    id: 'db-survey',
+    domain: 'database',
+    prompt: 'A survey tool with surveys, questions, answer options, responses and answers',
+    checks: [table('surveys', /survey/i), table('questions', /question/i), table('responses', /response|submission/i), table('answers', /answer/i)],
+  },
+  {
+    id: 'db-booking',
+    domain: 'database',
+    prompt: 'A hair salon booking database with stylists, services, customers and appointments at 200 bookings an hour',
+    checks: [table('stylists', /stylist|staff|employee/i), table('services', /service/i), table('appointments', /appoint|booking/i)],
+  },
+  {
+    id: 'db-time-series',
+    domain: 'database',
+    prompt: 'A stock price history table with ticks for 5000 symbols, queried for a symbol over a date range',
+    checks: [table('prices', /price|tick|quote|bar/i), column('symbol', /price|tick|quote|bar/i, /symbol|ticker|instrument/i), workload()],
+  },
+  {
+    id: 'db-gdpr',
+    domain: 'database',
+    prompt: 'A customer database where personal data is kept in a separate table from orders so it can be erased on request',
+    checks: [table('customers', /customer|user/i), table('personal data', /personal|pii|profile|contact|detail/i), table('orders', /order/i)],
   },
 ];
 

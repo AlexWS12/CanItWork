@@ -14,6 +14,17 @@ export async function signInKeepingRun() {
   await signIn();
 }
 
+/** Offered where the server turned a build away until someone signs in. Hidden when there is nothing to sign in to. */
+export function SignInButton() {
+  const { enabled, account } = useAuth();
+  if (!enabled || account) return null;
+  return (
+    <button className="sign-in-inline" onClick={() => void signInKeepingRun()}>
+      Sign in
+    </button>
+  );
+}
+
 const initials = (name?: string, email?: string) =>
   (name ?? email ?? '?')
     .split(/[\s@.]+/)
