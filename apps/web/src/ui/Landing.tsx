@@ -9,7 +9,16 @@ const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)]
 
 type Verified = { prompt: string; domain: DomainId };
 
-const GROUPS = ['Hardware', 'Software', 'Operations', 'Multi-agent'] as const;
+const GROUPS = ['Hardware', 'Software', 'Operations', 'Robots and drones'] as const;
+
+// The agents behind every build, in every domain. Agents propose; the simulator decides.
+const TEAM = [
+  { name: 'Interpreter', engine: 'Jev + Gemini', does: 'works out which simulator fits what you described, or says none does' },
+  { name: 'Architect', engine: 'Gemini', does: 'designs the system; with the Design Council on, three Swarms architects compete and the simulator picks the winner' },
+  { name: 'Validator', engine: 'Simulator', does: 'runs the design and sends it back with what failed until it passes' },
+  { name: 'Red Team', engine: 'Swarms', does: 'predicts how the design breaks; the simulator confirms or refutes every claim' },
+  { name: 'Recovery Council', engine: 'Swarms', does: 'proposes fixes after a failure; the simulator ranks them by what they actually do' },
+];
 const groupOf = (id: DomainId) => (id === 'electronics' ? 0 : id === 'software' || id === 'database' ? 1 : id === 'fleet' ? 3 : 2);
 const grouped = () => {
   const groups: Array<ReturnType<typeof domainList>> = GROUPS.map(() => []);
@@ -97,6 +106,19 @@ export function Landing() {
       <header className="landing-head">
         <h1>CanItWork</h1>
         <p className="tagline">Describe a system. Run it. Break it. Fix it.</p>
+        <div className="agent-team">
+          <p>A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
+          <ol aria-label="The agents behind every build">
+            {TEAM.map((agent) => (
+              <li key={agent.name} title={`${agent.name} (${agent.engine}) ${agent.does}`}>
+                <span className="agent-pill" data-engine={agent.engine === 'Swarms' ? 'swarms' : undefined}>
+                  <b>{agent.name}</b>
+                  <small>{agent.engine}</small>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </header>
       <div className="landing-main">
         <form

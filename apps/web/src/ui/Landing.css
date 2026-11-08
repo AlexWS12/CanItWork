@@ -22,6 +22,69 @@
   gap: var(--space-4);
 }
 
+/* The agent pipeline behind every build, read left to right */
+.agent-team {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.agent-team p {
+  color: var(--color-muted);
+  font-size: var(--text-md);
+  max-width: 62ch;
+}
+
+.agent-team ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.agent-team li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.agent-team li:not(:last-child)::after {
+  content: '→';
+  color: var(--color-accent);
+}
+
+.agent-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--rule);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.agent-pill b {
+  font-weight: 500;
+  font-size: var(--text-sm);
+}
+
+.agent-pill small {
+  font-size: var(--text-xs, var(--text-sm));
+  color: var(--color-muted);
+}
+
+.agent-pill[data-engine='swarms'] {
+  border-color: var(--color-teal-line);
+}
+
+.agent-pill[data-engine='swarms'] small {
+  color: var(--color-teal);
+}
+
 .landing-main {
   display: flex;
   flex-direction: column;

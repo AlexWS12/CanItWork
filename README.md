@@ -2,7 +2,14 @@
 
 Describe a system in plain English and get an interactive model of it. Run it, break it, and compare fixes by what they actually do.
 
-CanItWork is a general environment builder. It works out what kind of system you described, designs it, checks it, and runs it in a simulator built for that kind of system: hardware, software, operations and infrastructure, or a fleet of autonomous agents. If it can't model something, it says so.
+CanItWork is a team of AI agents that builds a live simulation of any system you describe, and the same team runs every build in every domain:
+- an Interpreter works out what kind of system it is;
+- an Architect designs it, or with the Design Council on, three Swarms architects compete for it;
+- a Validator runs the design in a simulator built for that kind of system and sends it back until it passes;
+- a Red Team on Swarms predicts how it breaks;
+- a Recovery Council on Swarms proposes fixes after a failure.
+
+The simulator settles every argument. It covers hardware, software, operations and infrastructure, and fleets of robots and drones. If it can't model something, it says so.
 
 Built at SharkByte 2026.
 
@@ -39,7 +46,7 @@ Thirteen domains, each with its own simulator and 3D view.
 
 Queues and the seven flow-network domains share one flow engine: sources, stages and sinks with capacities, buffers and link delays.
 
-**Multi-agent**
+**Robots and drones**
 
 | Domain | Simulator | View |
 |---|---|---|
