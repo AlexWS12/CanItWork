@@ -13,6 +13,8 @@ const flag = (name) => args.find((a) => a.startsWith(`--${name}`));
 const [label = 'latest', ...picked] = args.filter((a) => !a.startsWith('--'));
 const domains = picked.length ? picked : ALL;
 const url = flag('url')?.split('=')[1] ?? 'http://localhost:5175';
+// --settle=ms: how long each view gets to load (pack models) before it runs and is pictured
+const settle = Number(flag('settle')?.split('=')[1] ?? 2500);
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.captures', label);
 mkdirSync(out, { recursive: true });
 
@@ -24,9 +26,21 @@ await page.goto(url);
 await page.waitForFunction(() => 'shoot' in (window.__tv ?? {}), null, { timeout: 30000 });
 
 const stats = {};
+// --gallery: every pack model side by side, then stop
+if (flag('gallery')) {
+  await page.goto(`${url}/#gallery`);
+  await page.waitForFunction(() => 'snapshot' in (window.__tv ?? {}), null, { timeout: 30000 });
+  await page.waitForTimeout(9000);
+  const png = await page.evaluate(() => window.__tv.snapshot());
+  writeFileSync(path.join(out, 'gallery.png'), Buffer.from(png.split(',')[1], 'base64'));
+  await page.screenshot({ path: path.join(out, 'gallery-ui.png') });
+  await browser.close();
+  console.log(`Saved the gallery to ${out}`);
+  process.exit(0);
+}
 for (const domain of domains) {
   try {
-    const shot = await page.evaluate((d) => window.__tv.shoot(d), domain);
+    const shot = await page.evaluate(([d, ms]) => window.__tv.shoot(d, { settle: ms }), [domain, settle]);
     writeFileSync(path.join(out, `${domain}.png`), Buffer.from(shot.png.split(',')[1], 'base64'));
     if (flag('ui')) await page.screenshot({ path: path.join(out, `${domain}-ui.png`) });
     // --bounds: the meshes that set the camera's framing, largest first; with --tris, the heaviest meshes instead

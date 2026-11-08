@@ -7,6 +7,7 @@ import { LOOK } from '../../scene/look';
 import { Unknown } from '../../scene/Unknown';
 import { useStore } from '../../store';
 import { ClaimPin, Floor, Movable, Tag, pick, useArranged } from '../shared';
+import { PACKED } from './packed';
 import { PROPS } from './props';
 import { NET_STYLES, styleOf, type Carrier } from './styles';
 
@@ -200,7 +201,8 @@ export function Network() {
         const at = positions.get(node.id);
         if (!at) return null;
         const look = styleOf(run.config.id, node.kind);
-        const Model = look.prop === 'unknown' ? null : PROPS[look.prop];
+        // The pack-built model where there is one, else the code-built one
+        const Model = look.prop === 'unknown' ? null : (PACKED[look.prop] ?? PROPS[look.prop]);
         return (
           <Movable key={node.id} id={node.id} position={at}>
             <group scale={MODEL_SCALE}>{Model ? <Model id={node.id} tint={look.color} /> : <Unknown size={[1.8, 1.4, 1.6]} quiet />}</group>

@@ -9,6 +9,7 @@ import { reducedMotion } from '../motion';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import { BlueprintLook, EmptyStage } from './Blueprint';
+import { Gallery } from './Gallery';
 import { Stage, framingOffset } from './Stage';
 
 // Hands the renderer to the development tools that capture and measure the canvas.
@@ -60,6 +61,7 @@ export function Scene() {
       <group ref={content}>
         {View && <View key={`${key}:${rebuilds}`} />}
         <EmptyStage />
+        {import.meta.env.DEV && location.hash === '#gallery' && <Gallery />}
       </group>
       <BlueprintLook />
       <OrbitControls makeDefault enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} />

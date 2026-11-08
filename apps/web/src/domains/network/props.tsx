@@ -21,7 +21,7 @@ export interface PropProps {
 }
 
 /** How hard the node is working, 0 when idle or down, about 1 at capacity. */
-const loadOf = (id: string) => {
+export const loadOf = (id: string) => {
   const state = net()?.states?.get(id);
   return !state || state.down ? 0 : Math.min(1.5, state.utilization);
 };

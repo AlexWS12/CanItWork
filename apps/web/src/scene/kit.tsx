@@ -3,6 +3,7 @@ import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { reducedMotion } from '../motion';
 import { runner } from '../runner';
+import { CHARACTERS, Model } from './Model';
 
 // Building blocks for the models the views draw: shared materials and small, recognisable pieces (people, vehicles, roofs, windows).
 // Everything stands on y = 0 and is sized in metres-ish scene units, so pieces combine without fiddling.
@@ -118,8 +119,23 @@ export function Windows({ w, rows = 1, cols, at, gap = 0.34 }: { w: number; rows
 const SKIN = ['#e0b896', '#c58c66', '#8d5a3b', '#f1cfb0'];
 const CLOTHES = ['#3b6fb6', '#b6493b', '#4b8f5f', '#c8a24a', '#6b5fb0', '#d0d3d9', '#2f3a4a'];
 
-/** A small standing person; vary `seed` for different clothes and skin. */
+/** A standing person, one of the pack's characters idling (vary `seed` for a different one); the code figure stands in while it loads. */
 export function Person({ at = [0, 0, 0], seed = 0, coat, scale = 1, headset = false }: { at?: V3; seed?: number; coat?: string; scale?: number; headset?: boolean }) {
+  const index = Math.abs(Math.round(seed * 7)) % CHARACTERS.length;
+  return (
+    <group position={at}>
+      <Model id={CHARACTERS[index]} height={0.85 * scale} rotation={seed * 1.7} play="idle" fallback={<Figure seed={seed} coat={coat} scale={scale} headset={headset} />} />
+      {headset && (
+        <mesh position={[0, 0.8 * scale, 0]} rotation={[0, 0, Math.PI / 2]} material={FINISH.rubber()}>
+          <torusGeometry args={[0.13 * scale, 0.02, 6, 16, Math.PI]} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+function Figure({ seed = 0, coat, scale = 1, headset = false }: { seed?: number; coat?: string; scale?: number; headset?: boolean }) {
+  const at: V3 = [0, 0, 0];
   return (
     <group position={at} scale={scale}>
       <mesh position={[0, 0.34, 0]} material={mat(coat ?? CLOTHES[seed % CLOTHES.length], { rough: 0.8 })} castShadow>
