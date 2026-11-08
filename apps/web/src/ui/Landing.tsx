@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
 import { Building } from './Building';
+import { MicButton } from './Dictation';
 import './Landing.css';
 
 const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
@@ -144,9 +145,12 @@ export function Landing() {
               }
             }}
           />
-          <button type="submit" disabled={!text.trim()}>
-            Build
-          </button>
+          <div className="hero-actions">
+            <MicButton text={text} onText={setText} />
+            <button type="submit" disabled={!text.trim()}>
+              Build
+            </button>
+          </div>
         </form>
         <Refusal />
         {last?.role === 'app' && <p className="landing-note">{last.text}</p>}

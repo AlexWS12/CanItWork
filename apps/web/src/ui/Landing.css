@@ -140,6 +140,16 @@
   color: var(--color-muted);
 }
 
+.hero-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-self: flex-end;
+}
+
+.hero-input {
+  flex-wrap: wrap;
+}
+
 .hero-input button {
   align-self: flex-end;
   background: var(--color-accent);
@@ -314,7 +324,11 @@
     flex-direction: column;
   }
 
-  .hero-input button {
+  .hero-actions {
     align-self: stretch;
+  }
+
+  .hero-actions button[type='submit'] {
+    flex: 1;
   }
 }
