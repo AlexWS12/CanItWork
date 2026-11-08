@@ -365,6 +365,26 @@ describe('agent pipelines', () => {
     expect(report?.type === 'recovery' && report.report.candidates[0].author).toBe('CapacityLead');
   });
 
+  it('a malformed Red Team reply falls back to rules for that build only, and leaves Swarms on', async () => {
+    process.env.SWARMS_API_KEY = 'key';
+    const roles: string[] = [];
+    const proposal = { title: 'Spare', rationale: 'r', patches: [{ op: 'add_robot' }] };
+    mockFetch((_, init) => {
+      const agent = JSON.parse(init.body as string).agents[0].agent_name;
+      roles.push(agent);
+      return agent === 'RedTeam'
+        ? json({ output: [{ role: 'RedTeam', content: '{"hypotheses":"none"}' }], usage: { total_cost: 0.01 } })
+        : json({ output: [{ role: 'CapacityLead', content: JSON.stringify(proposal) }], usage: { total_cost: 0.03 } });
+    });
+    await build('a warehouse', collect().emit);
+    await build('a warehouse', collect().emit);
+    const recovered = collect();
+    await recover(failure, recovered.emit);
+    expect(roles.filter((r) => r === 'RedTeam')).toHaveLength(2);
+    const report = recovered.events.find((e) => e.type === 'recovery');
+    expect(report?.type === 'recovery' && report.report.candidates[0].author).toBe('CapacityLead');
+  });
+
   it('stops spending at the budget floor and carries on with local rules', async () => {
     process.env.SWARMS_API_KEY = 'key';
     const calls = mockFetch(() => json({ output: [] }), 5);
