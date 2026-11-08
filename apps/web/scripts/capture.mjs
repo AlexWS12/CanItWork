@@ -29,6 +29,10 @@ for (const domain of domains) {
     const shot = await page.evaluate((d) => window.__tv.shoot(d), domain);
     writeFileSync(path.join(out, `${domain}.png`), Buffer.from(shot.png.split(',')[1], 'base64'));
     if (flag('ui')) await page.screenshot({ path: path.join(out, `${domain}-ui.png`) });
+    // --bounds: the meshes that set the camera's framing, largest first
+    if (flag('bounds'))
+      for (const r of await page.evaluate(() => window.__tv.boundsReport(6)))
+        console.log(`   ${String(r.size).padStart(7)}  ${r.geometry} in ${r.parent}${r.count === undefined ? '' : ` ×${r.count}`}`);
     stats[domain] = { name: shot.name, calls: shot.calls, triangles: shot.triangles, cpuMs: shot.cpuMs };
     console.log(
       `${domain.padEnd(12)} ${String(shot.calls).padStart(5)} calls ${String(Math.round(shot.triangles / 1000)).padStart(5)}k tris ${String(shot.cpuMs).padStart(6)} ms cpu  ${shot.name}`,

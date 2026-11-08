@@ -1,114 +1,115 @@
 import type { DomainId } from '@tv/core';
-
-export type Shape = 'unknown' | 'stack' | 'panel' | 'turbine' | 'pylon' | 'tank' | 'houses' | 'plant' | 'box' | 'crowd' | 'beds' | 'strip' | 'desk' | 'dock' | 'tower' | 'ship';
+import type { PropId } from './props';
 
 export interface KindStyle {
-  shape: Shape;
+  /** The model drawn for this kind, or a placeholder when it has none. */
+  prop: PropId | 'unknown';
+  /** Accent colour for the model's trim. */
   color: string;
 }
 
+/** What travels along a domain's links: energy and water as glowing beads, goods as boxes, people as people. */
+export type Carrier = 'bead' | 'box' | 'person';
+
 export interface NetStyle {
-  /** Packet colour for flow along the links. */
+  /** Colour of what flows along the links. */
   flow: string;
+  carrier: Carrier;
   kinds: Record<string, KindStyle>;
 }
 
 // A kind with no look of its own is drawn as a placeholder, so it never passes for a real machine
-const fallback: KindStyle = { shape: 'unknown', color: '#5b6b8c' };
+const fallback: KindStyle = { prop: 'unknown', color: '#5b6b8c' };
 
 export const NET_STYLES: Partial<Record<DomainId, NetStyle>> = {
   power: {
     flow: '#ffd166',
+    carrier: 'bead',
     kinds: {
-      coal: { shape: 'stack', color: '#5a5f6b' },
-      gas: { shape: 'stack', color: '#4a6fa5' },
-      nuclear: { shape: 'tower', color: '#8fa3bf' },
-      solar: { shape: 'panel', color: '#2a4d8f' },
-      wind: { shape: 'turbine', color: '#d8e1ee' },
-      substation: { shape: 'pylon', color: '#8b98ad' },
-      feeder: { shape: 'pylon', color: '#6c7a92' },
-      city: { shape: 'houses', color: '#c9a66b' },
-      industry: { shape: 'plant', color: '#9b6b4f' },
+      coal: { prop: 'coal', color: '#b9473a' },
+      gas: { prop: 'gas', color: '#4a6fa5' },
+      nuclear: { prop: 'nuclear', color: '#8fa3bf' },
+      solar: { prop: 'solar', color: '#2a4d8f' },
+      wind: { prop: 'wind', color: '#d8e1ee' },
+      substation: { prop: 'substation', color: '#5c6676' },
+      feeder: { prop: 'feeder', color: '#6c7a92' },
+      city: { prop: 'city', color: '#8a4f3c' },
+      industry: { prop: 'industry', color: '#6f7a88' },
     },
   },
   water: {
     flow: '#4cc3ff',
+    carrier: 'bead',
     kinds: {
-      reservoir: { shape: 'tank', color: '#1f6f9f' },
-      well: { shape: 'tower', color: '#3f7f9f' },
-      treatment: { shape: 'plant', color: '#3b6e8f' },
-      pump: { shape: 'box', color: '#4b5d7a' },
-      tank: { shape: 'tower', color: '#7fa7c9' },
-      district: { shape: 'houses', color: '#c9a66b' },
-      industry: { shape: 'plant', color: '#9b6b4f' },
+      reservoir: { prop: 'reservoir', color: '#1f6f9f' },
+      well: { prop: 'well', color: '#3f7f9f' },
+      treatment: { prop: 'treatment', color: '#3b6e8f' },
+      pump: { prop: 'pump', color: '#2f6f9f' },
+      tank: { prop: 'waterTower', color: '#3f86c9' },
+      district: { prop: 'houses', color: '#8a4f3c' },
+      industry: { prop: 'industry', color: '#6f7a88' },
     },
   },
   supply: {
     flow: '#ffb347',
+    carrier: 'box',
     kinds: {
-      supplier: { shape: 'plant', color: '#7a6a9b' },
-      factory: { shape: 'plant', color: '#5f6f9b' },
-      port: { shape: 'ship', color: '#3d6b8f' },
-      dc: { shape: 'dock', color: '#6b7f9b' },
-      store: { shape: 'houses', color: '#c98b6b' },
+      supplier: { prop: 'industry', color: '#7a6a9b' },
+      factory: { prop: 'industry', color: '#5f6f9b' },
+      port: { prop: 'port', color: '#e0a22f' },
+      dc: { prop: 'distribution', color: '#6b7f9b' },
+      store: { prop: 'store', color: '#c9573b' },
     },
   },
   hospital: {
     flow: '#ff7a8a',
+    carrier: 'person',
     kinds: {
-      ambulance: { shape: 'box', color: '#e8eef6' },
-      walkin: { shape: 'crowd', color: '#9fb3d4' },
-      triage: { shape: 'desk', color: '#5f8fbf' },
-      er: { shape: 'beds', color: '#bf5f6f' },
-      imaging: { shape: 'tank', color: '#8f9fbf' },
-      ward: { shape: 'beds', color: '#6f8fbf' },
-      icu: { shape: 'beds', color: '#bf8f5f' },
-      discharge: { shape: 'crowd', color: '#7fbf8f' },
+      ambulance: { prop: 'ambulance', color: '#d43c3c' },
+      walkin: { prop: 'entrance', color: '#4f86c6' },
+      triage: { prop: 'triage', color: '#5f8fbf' },
+      er: { prop: 'beds', color: '#bf5f6f' },
+      imaging: { prop: 'scanner', color: '#4f86c6' },
+      ward: { prop: 'beds', color: '#6f8fbf' },
+      icu: { prop: 'icu', color: '#bf8f5f' },
+      discharge: { prop: 'exit', color: '#3f9f5f' },
     },
   },
   factory: {
     flow: '#a3e635',
+    carrier: 'box',
     kinds: {
-      material: { shape: 'dock', color: '#7c5a3a' },
-      machine: { shape: 'box', color: '#5f7f9f' },
-      welding: { shape: 'box', color: '#bf7f3f' },
-      paint: { shape: 'plant', color: '#7f5fbf' },
-      assembly: { shape: 'desk', color: '#5f9f8f' },
-      inspection: { shape: 'desk', color: '#9fbf5f' },
-      packing: { shape: 'box', color: '#9f8f6f' },
-      shipping: { shape: 'dock', color: '#6f7f9f' },
+      material: { prop: 'pallets', color: '#7c5a3a' },
+      machine: { prop: 'machine', color: '#3f6fa8' },
+      welding: { prop: 'welding', color: '#e0a22f' },
+      paint: { prop: 'paint', color: '#a8443a' },
+      assembly: { prop: 'assembly', color: '#3f6fa8' },
+      inspection: { prop: 'inspection', color: '#5f9f8f' },
+      packing: { prop: 'packing', color: '#9f8f6f' },
+      shipping: { prop: 'shipping', color: '#6f7f9f' },
     },
   },
   airport: {
     flow: '#e8eef6',
+    carrier: 'person',
     kinds: {
-      arrivals: { shape: 'crowd', color: '#9fb3d4' },
-      approach: { shape: 'tower', color: '#8fa3bf' },
-      runway: { shape: 'strip', color: '#3a4152' },
-      taxiway: { shape: 'strip', color: '#4a5266' },
-      gates: { shape: 'dock', color: '#6b7f9b' },
-      departure: { shape: 'crowd', color: '#7fbf8f' },
-    },
-  },
-  queues: {
-    flow: '#fbbf24',
-    kinds: {
-      arrivals: { shape: 'crowd', color: '#9fb3d4' },
-      check: { shape: 'desk', color: '#6f8fbf' },
-      station: { shape: 'desk', color: '#5f8fbf' },
-      lane: { shape: 'strip', color: '#3a4152' },
-      elevator: { shape: 'tower', color: '#8fa3bf' },
-      exit: { shape: 'crowd', color: '#7fbf8f' },
+      arrivals: { prop: 'entrance', color: '#4f86c6' },
+      approach: { prop: 'controlTower', color: '#8fa3bf' },
+      runway: { prop: 'runway', color: '#e2b43c' },
+      taxiway: { prop: 'taxiway', color: '#e2b43c' },
+      gates: { prop: 'gates', color: '#4f86c6' },
+      departure: { prop: 'exit', color: '#3f9f5f' },
     },
   },
   callcenter: {
     flow: '#5eead4',
+    carrier: 'bead',
     kinds: {
-      callers: { shape: 'crowd', color: '#9fb3d4' },
-      ivr: { shape: 'tower', color: '#6f7f9f' },
-      agents: { shape: 'desk', color: '#5f8fbf' },
-      specialists: { shape: 'desk', color: '#9f6fbf' },
-      resolved: { shape: 'crowd', color: '#7fbf8f' },
+      callers: { prop: 'entrance', color: '#4f86c6' },
+      ivr: { prop: 'serverRack', color: '#4f86c6' },
+      agents: { prop: 'desks', color: '#4f86c6' },
+      specialists: { prop: 'desks', color: '#8f5fbf' },
+      resolved: { prop: 'exit', color: '#3f9f5f' },
     },
   },
 };

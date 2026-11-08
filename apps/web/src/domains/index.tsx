@@ -18,13 +18,15 @@ interface View {
 const tilted: [number, number, number] = [-0.1, 0.78, 0.78];
 
 /** Every flow-network domain shares one scene. */
-const network: View = { Scene: Network, direction: tilted };
+// Flow networks are long and shallow, so a lower angle shows the models' sides and fills the screen
+const low: [number, number, number] = [-0.12, 0.6, 0.85];
+const network: View = { Scene: Network, direction: low };
 
 export const VIEWS: Record<DomainId, View> = {
   warehouse: { Scene: Warehouse, direction: tilted },
   // A circuit is read from above, like a bench
   electronics: { Scene: Bench, direction: [0, 0.84, 0.54] },
-  software: { Scene: Topology, direction: tilted },
+  software: { Scene: Topology, direction: low },
   fleet: { Scene: Fleet, direction: tilted },
   // Table cards lie flat, so they are read almost straight down
   database: { Scene: Schema, direction: [0, 0.94, 0.34] },

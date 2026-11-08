@@ -11,9 +11,9 @@ import { useStore } from '../store';
 import { Stage, framingOffset } from './Stage';
 
 // Hands the renderer to the development tools that capture and measure the canvas.
-function DevRenderer() {
+function DevRenderer({ content }: { content: React.RefObject<THREE.Group> }) {
   const gl = useThree((s) => s.gl);
-  useEffect(() => registerRenderer(gl), [gl]);
+  useEffect(() => registerRenderer(gl, content.current), [gl, content]);
   return null;
 }
 
@@ -54,7 +54,7 @@ export function Scene() {
     >
       <Stage content={content} />
       <Clock />
-      {import.meta.env.DEV && <DevRenderer />}
+      {import.meta.env.DEV && <DevRenderer content={content} />}
       <ViewShift />
       <group ref={content}>{View && <View key={`${key}:${rebuilds}`} />}</group>
       <OrbitControls makeDefault enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} />

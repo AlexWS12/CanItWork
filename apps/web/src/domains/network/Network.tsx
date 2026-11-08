@@ -3,19 +3,31 @@ import { linkKey, netOrder, type NetRun, type NetSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
-import { select, useStore } from '../../store';
-import { Floor, Movable, Tag, pick, useArranged } from '../shared';
-import { NET_STYLES, styleOf, type Shape } from './styles';
 import { LOOK } from '../../scene/look';
 import { Unknown } from '../../scene/Unknown';
+import { useStore } from '../../store';
+import { ClaimPin, Floor, Movable, Tag, pick, useArranged } from '../shared';
+import { PROPS } from './props';
+import { NET_STYLES, styleOf, type Carrier } from './styles';
 
-const net = () => runner.run as NetRun | null;
+// The current run if it is a flow network; while the view switches kinds of system, the runner may already hold another
+const net = () => {
+  const run = runner.run as NetRun | null;
+  return run && 'links' in run && 'states' in run ? run : null;
+};
 const LAYER_GAP = 8;
 const ROW_GAP = 5.5;
 const dummy = new THREE.Object3D();
 const color = new THREE.Color();
 
-/** Columns by depth from the sources, so flow reads left to right. */
+const MAX_COLUMNS = 6;
+/** How much larger than their footprint the models draw: the column gap leaves room, and bigger models read from further away. */
+const MODEL_SCALE = 1.3;
+
+/**
+ * Columns by depth from the sources, so flow reads left to right. A long chain wraps into rows that snake back and forth,
+ * so an eight-stage airport stays a screenful instead of one thin line.
+ */
 export function networkLayout(spec: NetSpec) {
   const depth = new Map<string, number>();
   for (const id of netOrder(spec)) {
@@ -24,230 +36,43 @@ export function networkLayout(spec: NetSpec) {
   }
   const layers = new Map<number, string[]>();
   for (const [id, d] of depth) layers.set(d, [...(layers.get(d) ?? []), id]);
-  const maxDepth = Math.max(0, ...layers.keys());
+  const count = Math.max(0, ...layers.keys()) + 1;
+  const rows = Math.ceil(count / MAX_COLUMNS);
+  const perRow = Math.ceil(count / rows);
+  // Each band of columns is as tall as its busiest column
+  const heights = Array.from({ length: rows }, (_, r) => Math.max(1, ...[...layers].filter(([d]) => Math.floor(d / perRow) === r).map(([, ids]) => ids.length)) * ROW_GAP);
+  const total = heights.reduce((a, b) => a + b, 0) + (rows - 1) * ROW_GAP;
   const positions = new Map<string, THREE.Vector3>();
   for (const [d, ids] of layers) {
-    ids.forEach((id, i) => positions.set(id, new THREE.Vector3((d - maxDepth / 2) * LAYER_GAP, 0, (i - (ids.length - 1) / 2) * ROW_GAP)));
+    const row = Math.floor(d / perRow);
+    const step = d % perRow;
+    const column = row % 2 ? perRow - 1 - step : step;
+    const top = -total / 2 + heights.slice(0, row).reduce((a, b) => a + b, 0) + row * ROW_GAP + heights[row] / 2;
+    ids.forEach((id, i) => positions.set(id, new THREE.Vector3((column - (perRow - 1) / 2) * LAYER_GAP, 0, top + (i - (ids.length - 1) / 2) * ROW_GAP)));
   }
   return positions;
 }
 
-export function networkExtent(spec: NetSpec) {
-  const positions = [...networkLayout(spec).values()];
-  const xs = positions.map((p) => p.x);
-  const zs = positions.map((p) => p.z);
-  return { width: Math.max(...xs) - Math.min(...xs) + LAYER_GAP, depth: Math.max(...zs) - Math.min(...zs) + ROW_GAP };
-}
+const health = (down: boolean, utilization: number) => (down ? '#ff3b4e' : utilization > 1 ? '#ff7a45' : utilization > 0.85 ? '#ffb347' : '#3fc48f');
 
-const health = (down: boolean, utilization: number) => (down ? '#ff3b4e' : utilization > 1 ? '#ff7a45' : utilization > 0.85 ? '#ffb347' : '#2fd4c2');
+// A soft disc that fades to nothing at its rim: health shows as light on the floor, not as a hard ring
+const glowTexture = (() => {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d')!;
+  const gradient = ctx.createRadialGradient(64, 64, 8, 64, 64, 64);
+  gradient.addColorStop(0, 'rgba(255,255,255,0.9)');
+  gradient.addColorStop(0.55, 'rgba(255,255,255,0.35)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+})();
 
-function Body({ shape, tint }: { shape: Shape; tint: string }) {
-  const metal = <meshStandardMaterial color={tint} metalness={0.55} roughness={0.4} />;
-  switch (shape) {
-    case 'stack':
-      return (
-        <group>
-          <mesh position={[0, 0.7, 0]} castShadow>
-            <boxGeometry args={[2.2, 1.4, 1.6]} />
-            {metal}
-          </mesh>
-          <mesh position={[0.6, 2, 0]} castShadow>
-            <cylinderGeometry args={[0.22, 0.3, 2.4, 16]} />
-            {metal}
-          </mesh>
-        </group>
-      );
-    case 'tower':
-      return (
-        <mesh position={[0, 1.4, 0]} castShadow>
-          <cylinderGeometry args={[0.7, 1.05, 2.8, 24]} />
-          {metal}
-        </mesh>
-      );
-    case 'panel':
-      return (
-        <group>
-          {[-0.8, 0.8].map((x) => (
-            <mesh key={x} position={[x, 0.6, 0]} rotation={[-0.6, 0, 0]} castShadow>
-              <boxGeometry args={[1.4, 0.08, 1.6]} />
-              <meshStandardMaterial color={tint} metalness={0.8} roughness={0.2} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'turbine':
-      return (
-        <group>
-          <mesh position={[0, 1.6, 0]} castShadow>
-            <cylinderGeometry args={[0.08, 0.14, 3.2, 10]} />
-            {metal}
-          </mesh>
-          {[0, 1, 2].map((i) => (
-            <mesh key={i} position={[0, 3.2, 0.12]} rotation={[0, 0, (i * Math.PI * 2) / 3]}>
-              <boxGeometry args={[0.12, 1.5, 0.04]} />
-              {metal}
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'pylon':
-      return (
-        <group>
-          {[-0.6, 0.6].map((x) => (
-            <mesh key={x} position={[x, 1.2, 0]} castShadow>
-              <boxGeometry args={[0.14, 2.4, 0.14]} />
-              {metal}
-            </mesh>
-          ))}
-          <mesh position={[0, 2.3, 0]} castShadow>
-            <boxGeometry args={[2, 0.14, 0.14]} />
-            {metal}
-          </mesh>
-          <mesh position={[0, 0.35, 0]} castShadow>
-            <boxGeometry args={[1.6, 0.7, 1.2]} />
-            <meshStandardMaterial color="#2b3750" metalness={0.6} roughness={0.4} />
-          </mesh>
-        </group>
-      );
-    case 'tank':
-      return (
-        <mesh position={[0, 0.6, 0]} castShadow>
-          <cylinderGeometry args={[1.2, 1.2, 1.2, 32]} />
-          {metal}
-        </mesh>
-      );
-    case 'houses':
-      return (
-        <group>
-          {[
-            [-0.7, -0.5, 0.8],
-            [0.6, -0.4, 1.1],
-            [-0.2, 0.6, 0.9],
-            [0.8, 0.7, 0.7],
-          ].map(([x, z, h], i) => (
-            <mesh key={i} position={[x, h / 2, z]} castShadow>
-              <boxGeometry args={[0.7, h, 0.7]} />
-              <meshStandardMaterial color={tint} roughness={0.7} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'plant':
-      return (
-        <group>
-          <mesh position={[0, 0.65, 0]} castShadow>
-            <boxGeometry args={[2.2, 1.3, 1.6]} />
-            {metal}
-          </mesh>
-          <mesh position={[-0.6, 1.55, 0]} rotation={[0, 0, Math.PI / 4]}>
-            <boxGeometry args={[0.6, 0.6, 1.6]} />
-            {metal}
-          </mesh>
-        </group>
-      );
-    case 'crowd':
-      return (
-        <group>
-          {[
-            [-0.6, -0.4],
-            [0.5, -0.5],
-            [0, 0.45],
-            [-0.75, 0.55],
-            [0.8, 0.4],
-          ].map(([x, z], i) => (
-            <mesh key={i} position={[x, 0.4, z]} castShadow>
-              <capsuleGeometry args={[0.2, 0.35, 6, 12]} />
-              <meshStandardMaterial color={tint} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'beds':
-      return (
-        <group>
-          {[-0.75, 0, 0.75].map((x) => (
-            <mesh key={x} position={[x, 0.3, 0]} castShadow>
-              <boxGeometry args={[0.55, 0.3, 1.5]} />
-              <meshStandardMaterial color={tint} roughness={0.6} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'strip':
-      return (
-        <group>
-          <mesh position={[0, 0.06, 0]} receiveShadow>
-            <boxGeometry args={[3.4, 0.1, 1]} />
-            <meshStandardMaterial color={tint} roughness={0.9} />
-          </mesh>
-          <mesh position={[0, 0.12, 0]}>
-            <boxGeometry args={[2.8, 0.02, 0.06]} />
-            <meshBasicMaterial color="#e8eef6" toneMapped={false} />
-          </mesh>
-        </group>
-      );
-    case 'desk':
-      return (
-        <group>
-          {[-0.6, 0.6].map((x) => (
-            <group key={x} position={[x, 0, 0]}>
-              <mesh position={[0, 0.45, 0]} castShadow>
-                <boxGeometry args={[0.9, 0.08, 0.7]} />
-                {metal}
-              </mesh>
-              <mesh position={[0, 0.75, -0.2]}>
-                <boxGeometry args={[0.5, 0.35, 0.04]} />
-                <meshStandardMaterial color="#1b2436" emissive={tint} emissiveIntensity={0.4} />
-              </mesh>
-            </group>
-          ))}
-        </group>
-      );
-    case 'dock':
-      return (
-        <group>
-          <mesh position={[0, 0.5, 0]} castShadow>
-            <boxGeometry args={[2.2, 1, 1.6]} />
-            {metal}
-          </mesh>
-          {[-0.6, 0, 0.6].map((x) => (
-            <mesh key={x} position={[x, 0.4, 0.81]}>
-              <boxGeometry args={[0.45, 0.6, 0.02]} />
-              <meshStandardMaterial color="#1b2436" />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'ship':
-      return (
-        <group>
-          <mesh position={[0, 0.3, 0]} castShadow>
-            <boxGeometry args={[2.6, 0.5, 1]} />
-            {metal}
-          </mesh>
-          {[-0.7, -0.2, 0.3].map((x, i) => (
-            <mesh key={x} position={[x, 0.75, 0]} castShadow>
-              <boxGeometry args={[0.45, 0.4, 0.8]} />
-              <meshStandardMaterial color={['#c9734b', '#4b8fc9', '#c9b24b'][i]} />
-            </mesh>
-          ))}
-        </group>
-      );
-    case 'unknown':
-      return <Unknown size={[1.8, 1.4, 1.6]} quiet />;
-    default:
-      return (
-        <mesh position={[0, 0.6, 0]} castShadow>
-          <boxGeometry args={[1.6, 1.2, 1.4]} />
-          {metal}
-        </mesh>
-      );
-  }
-}
-
-/** Health ring under each node, and a bar for work waiting there. */
+/** Health as a glow under each node, an outline when selected, and a bar for work waiting there. */
 function Status({ id }: { id: string }) {
-  const ring = useRef<THREE.MeshBasicMaterial>(null!);
+  const glow = useRef<THREE.MeshBasicMaterial>(null!);
   const bar = useRef<THREE.Mesh>(null!);
   const outline = useRef<THREE.Mesh>(null!);
   useFrame(({ clock }) => {
@@ -256,46 +81,56 @@ function Status({ id }: { id: string }) {
     const node = run?.node(id);
     if (!run || !state || !node) return;
     const down = state.down;
-    ring.current.color.set(health(down, state.utilization)).multiplyScalar(down ? 1.4 + Math.sin(clock.elapsedTime * 6) * 0.5 : 1.6);
+    glow.current.color.set(health(down, state.utilization));
+    glow.current.opacity = down ? 0.55 + Math.sin(clock.elapsedTime * 6) * 0.3 : 0.4;
     const room = run.bufferOf(node) + (run.capacityOf(node) === Infinity ? 0 : run.capacityOf(node));
     const level = room > 0 ? Math.min(1, (state.queue + run.heldAt(id)) / room) : 0;
     bar.current.visible = level > 0.02;
     bar.current.scale.x = Math.max(0.02, level);
-    bar.current.position.x = -1.1 + 1.1 * level;
+    bar.current.position.x = -1.2 + 1.2 * level;
     outline.current.visible = useStore.getState().selected === id;
   });
   return (
     <group>
-      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.75, 1.95, 44]} />
-        <meshBasicMaterial ref={ring} toneMapped={false} />
+      <mesh position={[0, 0.015, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[5, 5]} />
+        <meshBasicMaterial ref={glow} map={glowTexture} transparent depthWrite={false} toneMapped={false} />
       </mesh>
-      <mesh ref={outline} position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
-        <ringGeometry args={[2.05, 2.2, 44]} />
-        <meshBasicMaterial color="#22d3ee" toneMapped={false} />
+      <mesh ref={outline} position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} visible={false}>
+        <ringGeometry args={[2.15, 2.25, 56]} />
+        <meshBasicMaterial color={LOOK.accent} toneMapped={false} />
       </mesh>
-      <mesh ref={bar} position={[-1.1, 0.05, 2.25]}>
-        <boxGeometry args={[2.2, 0.06, 0.22]} />
-        <meshBasicMaterial color="#ffb347" toneMapped={false} />
+      <mesh ref={bar} position={[-1.2, 0.05, 2.1]}>
+        <boxGeometry args={[2.4, 0.05, 0.16]} />
+        <meshBasicMaterial color={LOOK.accent} toneMapped={false} />
       </mesh>
     </group>
   );
 }
 
-function Links({ spec, positions, flowTint }: { spec: NetSpec; positions: Map<string, THREE.Vector3>; flowTint: string }) {
+// What travels along the links, scaled to read at the size of the models
+function CarrierGeometry({ carrier }: { carrier: Carrier }) {
+  if (carrier === 'box') return <boxGeometry args={[0.3, 0.22, 0.3]} />;
+  if (carrier === 'person') return <capsuleGeometry args={[0.09, 0.26, 3, 8]} />;
+  return <sphereGeometry args={[0.12, 10, 8]} />;
+}
+
+function Links({ spec, positions, flowTint, carrier }: { spec: NetSpec; positions: Map<string, THREE.Vector3>; flowTint: string; carrier: Carrier }) {
   const packets = useRef<THREE.InstancedMesh>(null!);
   const tubes = useRef<Array<THREE.MeshStandardMaterial | null>>([]);
   const phase = useRef(0);
   const MAX = 480;
+  const lift = carrier === 'person' ? 0.22 : carrier === 'box' ? 0.15 : 0.5;
   const curves = useMemo(
     () =>
       spec.edges.map((e) => {
-        const a = (positions.get(e.from) ?? new THREE.Vector3()).clone().setY(0.5);
-        const b = (positions.get(e.to) ?? new THREE.Vector3()).clone().setY(0.5);
-        const curve = new THREE.CubicBezierCurve3(a, new THREE.Vector3((a.x + b.x) / 2, 0.5, a.z), new THREE.Vector3((a.x + b.x) / 2, 0.5, b.z), b);
-        return { curve, key: linkKey(e), geometry: new THREE.TubeGeometry(curve, 30, 0.05, 6) };
+        const a = (positions.get(e.from) ?? new THREE.Vector3()).clone().setY(lift);
+        const b = (positions.get(e.to) ?? new THREE.Vector3()).clone().setY(lift);
+        const curve = new THREE.CubicBezierCurve3(a, new THREE.Vector3((a.x + b.x) / 2, lift, a.z), new THREE.Vector3((a.x + b.x) / 2, lift, b.z), b);
+        const flat = carrier !== 'bead';
+        return { curve, key: linkKey(e), geometry: new THREE.TubeGeometry(curve.clone(), 30, flat ? 0.22 : 0.05, flat ? 2 : 6) };
       }),
-    [spec, positions],
+    [spec, positions, lift, carrier],
   );
 
   useFrame((_, dt) => {
@@ -308,16 +143,18 @@ function Links({ spec, positions, flowTint }: { spec: NetSpec; positions: Map<st
     curves.forEach(({ curve, key }, i) => {
       const link = run.links.get(key);
       const tube = tubes.current[i];
-      if (tube) tube.color.set(link?.down ? '#ff3b4e' : '#64789c');
+      if (tube) tube.color.set(link?.down ? '#ff3b4e' : '#4a515c');
       const flow = link?.flow ?? 0;
       if (!link || link.down || flow <= peak * 0.01) return;
       const count = Math.max(1, Math.round((flow / peak) * 10));
       for (let k = 0; k < count && n < MAX; k++) {
-        dummy.position.copy(curve.getPoint((phase.current + k / count) % 1));
-        dummy.scale.setScalar(0.12);
+        const t = (phase.current + k / count) % 1;
+        curve.getPoint(t, dummy.position);
+        if (carrier === 'person') dummy.position.y = 0.22;
+        dummy.lookAt(curve.getPoint(Math.min(1, t + 0.01)));
         dummy.updateMatrix();
         packets.current.setMatrixAt(n, dummy.matrix);
-        packets.current.setColorAt(n, color.set(flowTint).multiplyScalar(1.6));
+        packets.current.setColorAt(n, color.set(flowTint).multiplyScalar(carrier === 'bead' ? 1.6 : 1));
         n++;
       }
     });
@@ -329,13 +166,13 @@ function Links({ spec, positions, flowTint }: { spec: NetSpec; positions: Map<st
   return (
     <group>
       {curves.map(({ geometry, key }, i) => (
-        <mesh key={key} geometry={geometry} onClick={pick(key)}>
-          <meshStandardMaterial ref={(m) => void (tubes.current[i] = m)} color="#64789c" />
+        <mesh key={key} geometry={geometry} onClick={pick(key)} receiveShadow>
+          <meshStandardMaterial ref={(m) => void (tubes.current[i] = m)} color="#4a515c" roughness={0.9} />
         </mesh>
       ))}
-      <instancedMesh ref={packets} args={[undefined, undefined, MAX]} frustumCulled={false}>
-        <sphereGeometry args={[1, 10, 10]} />
-        <meshBasicMaterial toneMapped={false} />
+      <instancedMesh ref={packets} args={[undefined, undefined, MAX]} frustumCulled={false} castShadow={carrier !== 'bead'}>
+        <CarrierGeometry carrier={carrier} />
+        {carrier === 'bead' ? <meshBasicMaterial toneMapped={false} /> : <meshStandardMaterial roughness={0.6} />}
       </instancedMesh>
     </group>
   );
@@ -351,24 +188,25 @@ export function Network() {
   const positions = useArranged(useMemo(() => (spec ? networkLayout(spec) : new Map<string, THREE.Vector3>()), [spec]));
   if (!spec || !run) return null;
   const style = NET_STYLES[run.config.id];
-  const width = Math.max(70, positions.size * 4);
+  // The floor reaches a little past the outermost nodes, wrapped rows included
+  const xs = [...positions.values()].map((p) => p.x);
+  const zs = [...positions.values()].map((p) => p.z);
+  const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)];
   return (
     <group>
-      <Floor width={width} depth={48} section={LAYER_GAP} />
-      <Links spec={spec} positions={positions} flowTint={style?.flow ?? '#5eead4'} />
+      <Floor position={[(x0 + x1) / 2, 0, (z0 + z1) / 2]} width={Math.max(44, x1 - x0 + 26)} depth={Math.max(32, z1 - z0 + 22)} section={LAYER_GAP} />
+      <Links spec={spec} positions={positions} flowTint={style?.flow ?? '#5eead4'} carrier={style?.carrier ?? 'bead'} />
       {spec.nodes.map((node) => {
         const at = positions.get(node.id);
         if (!at) return null;
         const look = styleOf(run.config.id, node.kind);
+        const Model = look.prop === 'unknown' ? null : PROPS[look.prop];
         return (
           <Movable key={node.id} id={node.id} position={at}>
-            <Body shape={look.shape} tint={look.color} />
+            <group scale={MODEL_SCALE}>{Model ? <Model id={node.id} tint={look.color} /> : <Unknown size={[1.8, 1.4, 1.6]} quiet />}</group>
             <Status id={node.id} />
-            <Tag
-              text={look.shape === 'unknown' ? `${node.label ?? node.id} · placeholder` : (node.label ?? node.id)}
-              tint={look.shape === 'unknown' ? LOOK.accent : '#9fd8ff'}
-              y={3.4}
-            />
+            <Tag text={Model ? (node.label ?? node.id) : `${node.label ?? node.id} · placeholder`} tint={Model ? '#c9d2dc' : LOOK.accent} y={3.9} />
+            <ClaimPin id={node.id} />
           </Movable>
         );
       })}

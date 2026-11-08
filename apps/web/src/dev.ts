@@ -1,5 +1,6 @@
 import { DOMAINS, type Environment } from '@tv/core';
 import { advance } from '@react-three/fiber';
+import * as THREE from 'three';
 import type { WebGLRenderer } from 'three';
 import { openShowcase } from './actions';
 import { runner } from './runner';
@@ -9,7 +10,35 @@ import { useStore } from './store';
 // `npm run capture -w @tv/web` drives these from a headless browser and saves the results in apps/web/.captures.
 
 let gl: WebGLRenderer | null = null;
-export const registerRenderer = (renderer: WebGLRenderer) => void (gl = renderer);
+let content: THREE.Object3D | null = null;
+export const registerRenderer = (renderer: WebGLRenderer, root: THREE.Object3D | null) => {
+  gl = renderer;
+  content = root;
+};
+
+// The meshes that make up the framed bounds, largest first, to find what pushes the camera back.
+function boundsReport(top = 8) {
+  if (!content) return [];
+  const box = new THREE.Box3();
+  const rows: Array<{ size: number; type: string; geometry: string; parent: string; count?: number }> = [];
+  content.updateWorldMatrix(true, true);
+  content.traverseVisible((o) => {
+    const mesh = o as THREE.Mesh;
+    if (o.userData.floor || !mesh.isMesh) return;
+    const instanced = (mesh as THREE.InstancedMesh).isInstancedMesh ? (mesh as THREE.InstancedMesh) : null;
+    if (instanced) instanced.computeBoundingBox();
+    else if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    box.copy(instanced ? instanced.boundingBox! : mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
+    rows.push({
+      size: Math.round(box.getSize(new THREE.Vector3()).length() * 10) / 10,
+      type: mesh.type,
+      geometry: mesh.geometry.type,
+      parent: mesh.parent?.type ?? '',
+      count: instanced?.count,
+    });
+  });
+  return rows.sort((a, b) => b.size - a.size).slice(0, top);
+}
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -88,4 +117,4 @@ async function shoot(what: string | Environment, { settle = 1200, seconds = 6 } 
   return { name: environment.name, ...(await stats()), png: await snapshot() };
 }
 
-export const devTools = { open: openShowcase, openEnvironment, run, stats, snapshot, shoot };
+export const devTools = { open: openShowcase, openEnvironment, run, stats, snapshot, shoot, boundsReport };
