@@ -1,4 +1,17 @@
-import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { money, usd } from '../../cost';
+import {
+  SYSTEM,
+  checkPatches,
+  type Breakable,
+  type Evaluation,
+  type Incident,
+  type Inspection,
+  type Metric,
+  type MonthlyCost,
+  type Point,
+  type Run,
+  type TimedEvent,
+} from '../../domain';
 import { createRng, type Rng } from '../../rng';
 import { FleetPatchSchema, type FleetSpec, type Role } from './schema';
 
@@ -59,6 +72,11 @@ function crosses(ax: number, ay: number, bx: number, by: number, r: { x: number;
   }
   return true;
 }
+
+// A month of one unit by what it does, on lease with batteries and upkeep (a ground rover a third more), and a charging pad.
+const UNIT_USD: Record<Role['behavior'], number> = { search: 900, deliver: 1_200, relay: 700, patrol: 900, escort: 1_100, idle: 500 };
+const GROUND_SHARE = 1.3;
+const CHARGER_USD = 200;
 
 export class FleetRun implements Run {
   readonly log: TimedEvent[] = [];
@@ -541,6 +559,19 @@ export class FleetRun implements Run {
     };
   }
 
+  /** The month's cost of the fleet: every unit on the books (one lost this month still is), and the base's chargers. */
+  cost(): MonthlyCost {
+    const lines: MonthlyCost['lines'] = [];
+    for (const role of this.spec.roles) {
+      const units = this.units.filter((u) => u.role.id === role.id).length;
+      if (!units) continue;
+      lines.push({ label: `${units} ${role.label ?? role.id}`, usd: usd(units * UNIT_USD[role.behavior] * (role.ground ? GROUND_SHARE : 1)) });
+    }
+    lines.push({ label: `${this.spec.base.chargers} charger${this.spec.base.chargers === 1 ? '' : 's'}`, usd: this.spec.base.chargers * CHARGER_USD });
+    lines.sort((a, b) => b.usd - a.usd);
+    return { usd: usd(lines.reduce((sum, l) => sum + l.usd, 0)), lines };
+  }
+
   evaluation(): Evaluation {
     const c = this.counts();
     const metrics: Metric[] = [];
@@ -548,6 +579,7 @@ export class FleetRun implements Run {
     if (c.total && this.has('search')) metrics.push({ label: 'targets reported', value: `${c.found}/${c.total}` });
     if (c.needed && this.has('deliver')) metrics.push({ label: 'deliveries', value: `${c.served}/${c.needed}` });
     metrics.push({ label: 'units lost', value: c.lost }, { label: 'time in contact', value: `${Math.round(c.connected * 100)}%` });
+    metrics.push({ label: 'monthly cost', value: money(this.cost().usd) });
     // Progress averaged over the run, so finishing sooner scores higher and a delay shows even when the mission ends up complete.
     const score = this.tick ? this.progressSum / this.tick : this.progress();
     metrics.unshift({ label: 'mission done', value: `${Math.round(this.progress() * 100)}%` });
@@ -564,6 +596,8 @@ export class FleetRun implements Run {
     const inContact = airborne.length ? airborne.filter((u) => this.connected.has(u.id)).length / airborne.length : 1;
     out.push({ label: 'in contact', value: `${Math.round(inContact * 100)}%`, tone: inContact < 0.6 ? 'danger' : inContact < 0.9 ? 'warn' : undefined });
     out.push({ label: 'units lost', value: c.lost, tone: c.lost ? 'danger' : undefined });
+    const cost = this.cost();
+    out.push({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.map((l) => ({ label: l.label, value: money(l.usd) })) });
     return out;
   }
 
@@ -580,10 +614,45 @@ export class FleetRun implements Run {
     return out;
   }
 
+  check(patches: unknown[]) {
+    return checkPatches(FleetPatchSchema, patches, (p) => {
+      if ((p.op === 'add_units' || p.op === 'set_role') && !this.role(p.role)) return `There is no ${p.role} role here.`;
+      if (p.op === 'add_role' && this.role(p.role.id)) return `There is already a ${p.role.id} role.`;
+      if (p.op === 'add_chargers' && this.spec.base.chargers + p.count > 40) return 'The base has room for 40 chargers at most.';
+      if (p.op === 'restore' && !this.unit(p.unit)) return `There is no unit called ${p.unit}.`;
+      return null;
+    });
+  }
+
   inspect(target: string): Inspection | null {
+    if (target === SYSTEM) {
+      return {
+        title: 'Mission settings',
+        rows: [
+          ['Units', this.units.length],
+          ['Chargers', this.spec.base.chargers],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'number',
+            label: 'Battery kept for the trip home',
+            hint: 'Units turn back once their battery drops to this. Higher is safer but leaves less time on the job.',
+            value: Math.round(this.spec.reserve),
+            min: 5,
+            max: 60,
+            step: 5,
+            unit: '%',
+            patch: { op: 'set_reserve' },
+            key: 'percent',
+          },
+        ],
+      };
+    }
     if (target === 'base') {
       return {
         title: 'Base',
+        edits: this.spec.base.chargers < 40 ? [{ label: 'Add a charger', patches: [{ op: 'add_chargers', count: 1 }] }] : [],
         rows: [
           ['Chargers working', `${this.spec.base.chargers - this.chargersDown} of ${this.spec.base.chargers}`],
           ['Charging now', this.units.filter((u) => u.status === 'charging').length],
@@ -607,6 +676,38 @@ export class FleetRun implements Run {
       u.status === 'lost'
         ? [{ label: 'Bring it back', incident: { type: 'repair', target: u.id }, destructive: false }]
         : [{ label: `Lose ${u.id}`, incident: { type: 'lose_unit', target: u.id }, destructive: true }];
-    return { title: u.id, rows, actions };
+    const role = u.role;
+    const name = role.label ?? role.id;
+    return {
+      title: u.id,
+      rows,
+      actions,
+      settings: [
+        {
+          kind: 'number',
+          label: `Speed of every ${name}`,
+          value: Math.round(role.speed),
+          min: 1,
+          max: 60,
+          step: 1,
+          unit: ' m/s',
+          patch: { op: 'set_role', role: role.id },
+          key: 'speed',
+        },
+        {
+          kind: 'number',
+          label: `Endurance of every ${name}`,
+          hint: 'Minutes on a full battery.',
+          value: Math.round(role.endurance),
+          min: 1,
+          max: 240,
+          step: 1,
+          unit: ' min',
+          patch: { op: 'set_role', role: role.id },
+          key: 'endurance',
+        },
+      ],
+      edits: [{ label: `Add another ${name}`, patches: [{ op: 'add_units', role: role.id, count: 1 }] }],
+    };
   }
 }

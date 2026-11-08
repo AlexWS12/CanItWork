@@ -1,4 +1,4 @@
-import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
+import type { Domain, Evaluation, Hypothesis, Incident, Issue, RecoveryOption, TimedEvent } from '../../domain';
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
 import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
@@ -404,7 +404,8 @@ function observed(spec: CircuitSpec, run: CircuitRun, id: string): boolean | nul
 }
 
 // Runs each of the design's own behaviour tests and reports every output that does the wrong thing.
-export function runTests(spec: CircuitSpec) {
+// "prelude" replays a run's faults and fixes first, so a failure is judged at every input setting, not only the one the run sat at.
+export function runTests(spec: CircuitSpec, prelude: TimedEvent[] = []) {
   const failures: string[] = [];
   const traces: string[] = [];
   // Outputs seen on in any test row, so the coverage check doesn't call an LED dead that a test lit.
@@ -415,6 +416,10 @@ export function runTests(spec: CircuitSpec) {
   for (const [i, test] of (spec.tests ?? []).entries()) {
     if (clocked && !Object.keys(test.set).length) continue;
     const run = new CircuitRun(spec, 1, true);
+    for (const event of prelude) {
+      if ('patches' in event) run.apply(event.patches);
+      else if (event.incident.type !== 'set_reading') run.inject(event.incident);
+    }
     for (const [target, value] of Object.entries(test.set)) run.inject({ type: 'set_reading', target, value });
     for (let t = 0; t < TEST_TICKS; t++) run.step();
     for (const id of test.on) if (observed(spec, run, id) === true) lit.add(id);
@@ -433,6 +438,24 @@ export function runTests(spec: CircuitSpec) {
     if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0].split('.')[0])}`);
   }
   return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces, lit };
+}
+
+/**
+ * A run sits at one input setting, usually every switch off, where a loose wire or a dead switch may change nothing.
+ * Once a run has faults in it, its behaviour tests are rerun with the same faults and fixes, and the score can't beat the share
+ * that still pass, so the Red Team confirms a fault that only shows with an input on, and a recovery that cures it ranks first.
+ */
+function judgedByTests(spec: CircuitSpec, log: TimedEvent[], evaluation: Evaluation): Evaluation {
+  const prelude = log.filter((e) => 'patches' in e || e.incident.type !== 'set_reading');
+  if (!spec.tests?.length || !prelude.some((e) => 'incident' in e)) return evaluation;
+  const { passed, total } = runTests(spec, prelude);
+  if (!total) return evaluation;
+  const share = Math.round((passed / total) * 1000) / 10;
+  return {
+    ...evaluation,
+    score: Math.min(evaluation.score, share),
+    metrics: [...evaluation.metrics, { label: 'behaviour tests passing', value: `${passed}/${total}`, tone: passed < total ? 'danger' : undefined }],
+  };
 }
 
 const hasLogic = (spec: CircuitSpec) =>
@@ -772,19 +795,39 @@ function hypotheses(spec: CircuitSpec): Hypothesis[] {
   return out.slice(0, 3);
 }
 
+// Parts a burn or short takes down with it, such as the LED a shorted resistor was protecting, found by running the fault briefly.
+function collateral(spec: CircuitSpec, incident: Incident): string[] {
+  try {
+    const run = new CircuitRun(spec, 1, true);
+    for (let t = 0; t < 10; t++) run.step();
+    run.inject(incident);
+    for (let t = 0; t < 60; t++) run.step();
+    // A burned board pin is keyed "A1.5V"; replacing the board is what fixes it.
+    return [...new Set([...run.burned].map((key) => key.split('.')[0]))].filter((id) => id !== incident.target && spec.parts.some((p) => p.id === id));
+  } catch {
+    return [];
+  }
+}
+
 function recoveries(spec: CircuitSpec, incident: Incident | undefined): RecoveryOption[] {
   const target = incident?.target ?? '';
-  const replace = { author: 'Bench rules', title: `Replace ${target}`, rationale: 'Swap in a working part.', patches: [{ op: 'replace_part', part: target }] };
+  const burnt = incident && (incident.type === 'burn_part' || incident.type === 'short_part') ? collateral(spec, incident) : [];
+  const parts = [target, ...burnt];
+  const named = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : target;
+  const swaps = parts.map((part) => ({ op: 'replace_part', part }));
+  const replace = {
+    author: 'Bench rules',
+    title: `Replace ${named}`,
+    rationale: burnt.length ? `Swap in working parts, including ${burnt.join(', ')}, which the fault burned out.` : 'Swap in a working part.',
+    patches: swaps,
+  };
   const wire = wireTouching(spec, target);
   const limited = wire
     ? {
         author: 'Bench rules',
-        title: `Replace ${target} and add 220 Ω`,
-        rationale: 'A new part plus a series resistor keeps the current inside its rating.',
-        patches: [
-          { op: 'replace_part', part: target },
-          { op: 'insert_resistor', wire, ohms: 220 },
-        ],
+        title: `Replace ${named}, plus a 220 Ω resistor`,
+        rationale: 'New parts plus a series resistor keep the current inside its rating.',
+        patches: [...swaps, { op: 'insert_resistor', wire, ohms: 220 }],
       }
     : null;
   switch (incident?.type) {
@@ -915,7 +958,12 @@ A burned part stays dead until replace_part, and that includes the board (use it
       program: spec.program ?? [],
       world: spec.world ?? [],
     }),
-  createRun: (spec, seed) => new CircuitRun(spec, seed),
+  createRun: (spec, seed) => {
+    const run = new CircuitRun(spec, seed);
+    const plain = run.evaluation.bind(run);
+    run.evaluation = () => judgedByTests(spec, run.log, plain());
+    return run;
+  },
   variants: (spec) =>
     spec.parts
       .filter((p) => p.type === 'resistor')

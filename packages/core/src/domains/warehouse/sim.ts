@@ -1,7 +1,8 @@
 import { Grid, Traffic } from './planner';
 import { createRng, type Rng } from '../../rng';
 import { robotName } from './compile';
-import type { Metrics, Patch, Policy, SeriesPoint, Shelf, SimEvent, SimScenario, World } from './schema';
+import type { Cell, Charger, Metrics, Patch, Policy, SeriesPoint, Shelf, SimEvent, SimScenario, World } from './schema';
+import { validateWorld } from './validate';
 
 export const SERIES_STEP = 20;
 const THROUGHPUT_WINDOW = 5;
@@ -12,7 +13,7 @@ const LOW_BATTERY = 0.08;
 
 export type RobotMode = 'idle' | 'to_shelf' | 'picking' | 'to_drop' | 'dropping' | 'to_charger' | 'charging' | 'to_home' | 'failed';
 
-export type OrderState = 'queued' | 'assigned' | 'carried' | 'belt' | 'sorting' | 'chute' | 'done' | 'stranded';
+export type OrderState = 'queued' | 'assigned' | 'carried' | 'belt' | 'sorting' | 'chute' | 'done' | 'stranded' | 'cancelled';
 
 export interface Order {
   id: number;
@@ -37,6 +38,8 @@ export interface RobotState {
   failReason: 'fault' | 'battery' | null;
   /** Taken out of service by a patch, so a repair can't bring it back. */
   removed?: boolean;
+  /** Deleted by hand: off the floor entirely, so it neither works nor stands in anyone's way. */
+  gone?: boolean;
   home: number;
   goal: number | null;
   path: number[];
@@ -83,6 +86,8 @@ export class Sim {
 
   tick = 0;
   delivered = 0;
+  /** Orders whose shelf was deleted before anyone picked them; they leave the backlog. */
+  cancelled = 0;
   demandFactor = 1;
   orderEvery: number;
 
@@ -96,9 +101,14 @@ export class Sim {
   private waitTicks = 0;
   private chargeWaitTicks = 0;
   private spawnedRobots = 0;
+  // Ids for shelves and chargers added by hand carry on from the compiled ones, so a deleted id is never reused.
+  private spawnedShelves = 0;
+  private spawnedChargers = 0;
   private shelfWeights: number[] | null;
 
-  constructor(world: World, seed: number, events: SimEvent[] = []) {
+  constructor(compiled: World, seed: number, events: SimEvent[] = []) {
+    // Hand edits move things on this run's floor, so it gets its own copy: runs compiled from one design never share a layout.
+    const world = structuredClone(compiled);
     this.shelfWeights = orderWeights(world);
     this.world = world;
     this.policy = { ...world.policy };
@@ -115,6 +125,9 @@ export class Sim {
     for (const shelf of world.shelves) this.shelfOwner.set(shelf.id, shelf.owner);
     for (const def of world.robots) this.addRobot(def.id, def.name, this.grid.idx(def.home.x, def.home.y));
     this.spawnedRobots = world.robots.length;
+    const last = (ids: string[]) => Math.max(0, ...ids.map((id) => Number(id.replace(/\D/g, '')) || 0));
+    this.spawnedShelves = last(world.shelves.map((s) => s.id));
+    this.spawnedChargers = last(world.chargers.map((c) => c.id));
     for (const e of events) this.schedule(e);
   }
 
@@ -152,8 +165,21 @@ export class Sim {
     this.pending.sort((a, b) => a.at - b.at);
   }
 
+  /**
+   * Applies patches at this tick straight away, after anything already due, so a paused floor shows an edit at once
+   * and lands it in the order a replay does.
+   */
+  applyNow(patches: Patch[]) {
+    while (this.pending.length && this.pending[0].at <= this.tick) this.applyEvent(this.pending.shift()!);
+    this.applyEvent({ type: 'apply_patch', at: this.tick, patches });
+  }
+
   private cell(r: RobotState) {
     return this.grid.idx(r.x, r.y);
+  }
+
+  backlog() {
+    return this.orders.length - this.delivered - this.cancelled;
   }
 
   private live() {
@@ -163,6 +189,7 @@ export class Sim {
   private resetTraffic() {
     this.traffic.clear();
     for (const r of this.robots) {
+      if (r.gone) continue;
       r.path = [];
       r.stall = 0;
       r.retryAt = 0;
@@ -171,7 +198,7 @@ export class Sim {
   }
 
   private heldByFailed(cell: number) {
-    return this.robots.some((r) => r.mode === 'failed' && this.cell(r) === cell);
+    return this.robots.some((r) => r.mode === 'failed' && !r.gone && this.cell(r) === cell);
   }
 
   private redirectAround(cell: number) {
@@ -236,7 +263,8 @@ export class Sim {
         if (patch.conveyorBypass !== undefined) this.policy.conveyorBypass = patch.conveyorBypass;
         break;
       case 'add_robot': {
-        const free = this.freeParkingCell();
+        if (this.checkPatch(patch)) break;
+        const free = patch.at ? this.grid.idx(patch.at.x, patch.at.y) : this.freeParkingCell();
         if (free === null) break;
         const n = ++this.spawnedRobots;
         this.addRobot(`R${n}`, robotName(n - 1), free);
@@ -259,13 +287,374 @@ export class Sim {
       case 'set_demand':
         this.orderEvery = patch.orderEvery;
         break;
+      case 'move_robot': {
+        const robot = this.robots.find((r) => r.id === patch.robotId);
+        if (robot && !this.checkPatch(patch)) this.moveRobot(robot, this.grid.idx(patch.to.x, patch.to.y));
+        break;
+      }
+      case 'move_shelf': {
+        const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+        if (shelf && !this.checkPatch(patch)) this.moveShelf(shelf, this.grid.idx(patch.to.x, patch.to.y));
+        break;
+      }
+      case 'move_charger': {
+        const charger = this.world.chargers.findIndex((c) => c.id === patch.chargerId);
+        if (charger >= 0 && !this.checkPatch(patch)) this.moveCharger(charger, this.grid.idx(patch.to.x, patch.to.y));
+        break;
+      }
+      case 'delete_robot': {
+        const robot = this.robots.find((r) => r.id === patch.robotId);
+        if (robot && !this.checkPatch(patch)) this.deleteRobot(robot);
+        break;
+      }
+      case 'add_shelf': {
+        const shelf = this.checkPatch(patch) ? null : this.newShelf(this.grid.idx(patch.at.x, patch.at.y));
+        if (shelf) this.addShelf(shelf);
+        break;
+      }
+      case 'add_charger': {
+        const charger = this.checkPatch(patch) ? null : this.newCharger(this.grid.idx(patch.at.x, patch.at.y));
+        if (charger) this.addCharger(charger);
+        break;
+      }
+      case 'delete_shelf': {
+        const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+        if (shelf && !this.checkPatch(patch)) this.deleteShelf(shelf);
+        break;
+      }
+      case 'delete_charger': {
+        const charger = this.world.chargers.findIndex((c) => c.id === patch.chargerId);
+        if (charger >= 0 && !this.checkPatch(patch)) this.deleteCharger(charger);
+        break;
+      }
     }
+  }
+
+  /**
+   * Why a hand edit can't land on the floor as it stands, or null when it can. Applying runs the same check,
+   * so a replay refuses exactly what the live run refused.
+   */
+  checkPatch(patch: Patch): string | null {
+    switch (patch.op) {
+      case 'delete_robot': {
+        const robot = this.robots.find((r) => r.id === patch.robotId && !r.removed);
+        if (!robot) return `There is no robot ${patch.robotId}.`;
+        return this.robots.some((r) => r !== robot && !r.removed) ? null : 'The floor needs at least one robot.';
+      }
+      case 'delete_shelf':
+        if (!this.world.shelves.some((s) => s.id === patch.shelfId)) return `There is no shelf ${patch.shelfId}.`;
+        return this.world.shelves.length > 1 ? null : 'The floor needs at least one shelf.';
+      case 'delete_charger':
+        if (!this.world.chargers.some((c) => c.id === patch.chargerId)) return `There is no charger ${patch.chargerId}.`;
+        return this.world.chargers.length > 1 ? null : 'The floor needs at least one charger.';
+      case 'move_robot':
+      case 'move_shelf':
+      case 'move_charger':
+        return this.checkMove(patch);
+      case 'add_robot':
+        return patch.at ? this.checkAdd('robot', patch.at) : null;
+      case 'add_shelf':
+        return this.checkAdd('shelf', patch.at);
+      case 'add_charger':
+        return this.checkAdd('charger', patch.at);
+      default:
+        return null;
+    }
+  }
+
+  private checkAdd(kind: 'robot' | 'shelf' | 'charger', at: Cell): string | null {
+    if (at.x < 0 || at.y < 0 || at.x >= this.world.cols || at.y >= this.world.rows) return "That's off the floor.";
+    const cell = this.grid.idx(at.x, at.y);
+    const why = this.blockedBy(cell) ?? this.keptClear(cell) ?? this.robotAt(cell);
+    if (why) return why;
+    if (kind === 'robot') {
+      // Robots don't block cells, so a new one only needs a way out to the rest of the floor.
+      const other = this.robots.find((r) => !r.removed);
+      return !other || this.grid.reachable(this.cell(other), cell) ? null : 'A robot there would be boxed in.';
+    }
+    const world = structuredClone(this.world);
+    if (kind === 'shelf') {
+      const shelf = this.newShelf(cell);
+      if (!shelf) return 'There would be no open side for robots to reach it from.';
+      world.shelves.push(shelf);
+    } else {
+      const charger = this.newCharger(cell);
+      if (!charger) return 'There would be no open side for robots to reach it from.';
+      world.chargers.push(charger);
+    }
+    return this.layoutCheck(world, new Map());
+  }
+
+  /** A shelf for `cell`, picked from the west like the compiled ones where it can be, in the zone it stands in. */
+  private newShelf(cell: number): Shelf | null {
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const access = this.sideFor({ id: '', x, y, access: { x: x - 1, y }, owner: '' }, { x: x - 1, y }, cell);
+    if (!access) return null;
+    const shelf: Shelf = { id: `S${this.spawnedShelves + 1}`, x, y, access, owner: '' };
+    const zone = this.world.zones.find((z) => x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h);
+    if (zone) shelf.zone = zone.name;
+    return shelf;
+  }
+
+  /** A charger for `cell`, charging from the east like the compiled ones where it can be. */
+  private newCharger(cell: number): Charger | null {
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const bay = this.sideFor({ id: '', x, y, bay: { x: x + 1, y } }, { x: x + 1, y }, cell);
+    return bay ? { id: `E${this.spawnedChargers + 1}`, x, y, bay } : null;
+  }
+
+  private checkMove(patch: Extract<Patch, { to: Cell }>): string | null {
+    const { to } = patch;
+    if (to.x < 0 || to.y < 0 || to.x >= this.world.cols || to.y >= this.world.rows) return "That's off the floor.";
+    const cell = this.grid.idx(to.x, to.y);
+    if (patch.op === 'move_robot') {
+      const robot = this.robots.find((r) => r.id === patch.robotId && !r.removed);
+      if (!robot) return `There is no robot ${patch.robotId}.`;
+      if (this.cell(robot) === cell) return null;
+      const why = this.blockedBy(cell) ?? this.keptClear(cell) ?? this.robotAt(cell, robot);
+      return why ?? this.layoutCheck(this.world, new Map([[robot.id, cell]]));
+    }
+    if (patch.op === 'move_shelf') {
+      const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+      if (!shelf) return `There is no shelf ${patch.shelfId}.`;
+      return this.checkPlace(shelf, shelf.access, cell, (world, access) =>
+        Object.assign(
+          world.shelves.find((s) => s.id === shelf.id)!,
+          { ...to, access },
+        ),
+      );
+    }
+    const charger = this.world.chargers.find((c) => c.id === patch.chargerId);
+    if (!charger) return `There is no charger ${patch.chargerId}.`;
+    return this.checkPlace(charger, charger.bay, cell, (world, bay) =>
+      Object.assign(
+        world.chargers.find((c) => c.id === charger.id)!,
+        { ...to, bay },
+      ),
+    );
+  }
+
+  /** Whether a shelf or charger can stand on `cell`, with an open side for robots to work it from. */
+  private checkPlace(thing: Shelf | Charger, face: Cell, cell: number, place: (world: World, side: Cell) => void): string | null {
+    if (this.grid.idx(thing.x, thing.y) === cell) return null;
+    const why = this.blockedBy(cell) ?? this.keptClear(cell, thing) ?? this.robotAt(cell);
+    if (why) return why;
+    const side = this.sideFor(thing, face, cell);
+    if (!side) return 'There would be no open side for robots to reach it from.';
+    const world = structuredClone(this.world);
+    place(world, side);
+    return this.layoutCheck(world, new Map());
+  }
+
+  /** What stands on a blocked cell, as the reason nothing else can go there. */
+  private blockedBy(cell: number): string | null {
+    if (!this.grid.blocked[cell]) return null;
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const at = (c: { x: number; y: number }) => c.x === x && c.y === y;
+    const { world } = this;
+    if (world.walls.some(at)) return "That's outside the floor.";
+    if (world.shelves.some(at)) return 'A shelf already stands there.';
+    if (world.chargers.some(at)) return 'A charger stands there.';
+    if (world.conveyors.some((c) => c.path.some(at))) return 'The conveyor runs there.';
+    if (x >= world.sorter.x && y >= world.sorter.y) return 'The sorter stands there.';
+    return 'Something already stands there.';
+  }
+
+  /** Cells robots must be able to stand on to work, which nothing may cover. `own` may cover its own working cell. */
+  private keptClear(cell: number, own?: Shelf | Charger): string | null {
+    const { world } = this;
+    const here = (c: { x: number; y: number }) => this.grid.idx(c.x, c.y) === cell;
+    if (world.shelves.some((s) => s !== own && here(s.access))) return 'Robots pick a shelf from there.';
+    if (world.chargers.some((c) => c !== own && here(c.bay))) return 'Robots charge there.';
+    if (world.conveyors.some((c) => c.stations.some(here))) return 'Robots load the conveyor there.';
+    if (here(world.sorter.bypass)) return 'Robots hand packages to the sorter there.';
+    return null;
+  }
+
+  private robotAt(cell: number, except?: RobotState): string | null {
+    for (const r of this.robots) {
+      if (r === except || r.removed) continue;
+      if (this.cell(r) === cell) return `${r.name} is standing there.`;
+      if (r.home === cell) return `${r.name} parks there.`;
+    }
+    return null;
+  }
+
+  /**
+   * Where robots work a shelf or charger placed on `cell` from: the side it faces now if that's open, else the first
+   * open side. Its old cell counts as open, since it leaves it.
+   */
+  private sideFor(thing: Shelf | Charger, face: Cell, cell: number): Cell | null {
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const from = this.grid.idx(thing.x, thing.y);
+    const facing = { x: x + face.x - thing.x, y: y + face.y - thing.y };
+    const sides = [facing, { x: x - 1, y }, { x: x + 1, y }, { x, y: y - 1 }, { x, y: y + 1 }];
+    return (
+      sides.find((side) => {
+        if (side.x < 0 || side.y < 0 || side.x >= this.world.cols || side.y >= this.world.rows) return false;
+        const c = this.grid.idx(side.x, side.y);
+        if (this.grid.blocked[c] && c !== from) return false;
+        return !this.keptClear(c, thing) && !this.robots.some((r) => !r.removed && r.home === c);
+      }) ?? null
+    );
+  }
+
+  /**
+   * Runs the layout validator on a floor after an edit, with every robot where it stands now (or at `placed`),
+   * and returns the first problem the edit would add.
+   */
+  private layoutCheck(world: World, placed: Map<string, number>): string | null {
+    const robots = this.robots.filter((r) => !r.removed);
+    if (!robots.length) return null;
+    const cellOf = (r: RobotState) => placed.get(r.id) ?? this.cell(r);
+    const after: World = { ...world, robots: robots.map((r) => ({ id: r.id, name: r.name, home: { x: this.grid.x(cellOf(r)), y: this.grid.y(cellOf(r)) } })) };
+    const grid = new Grid(after);
+    const start = cellOf(robots[0]);
+    // A robot must still reach where it parks; the validator only sees where each one stands.
+    for (const r of robots) {
+      const home = placed.get(r.id) ?? r.home;
+      if (!grid.reachable(cellOf(r), home) || !grid.reachable(start, cellOf(r))) return `${r.name} would be boxed in.`;
+    }
+    const before: World = { ...this.world, robots: robots.map((r) => ({ id: r.id, name: r.name, home: { x: r.x, y: r.y } })) };
+    const errors = (w: World) =>
+      validateWorld(w)
+        .filter((i) => i.severity === 'error')
+        .map((i) => i.message);
+    const known = new Set(errors(before));
+    const added = errors(after).find((message) => !known.has(message));
+    return added ? `${added}.` : null;
+  }
+
+  private moveRobot(r: RobotState, cell: number) {
+    if (r.order && !r.carrying) {
+      r.order.state = 'queued';
+      this.queue.unshift(r.order);
+      r.order = null;
+    }
+    this.releaseCharger(r);
+    r.x = r.px = this.grid.x(cell);
+    r.y = r.py = this.grid.y(cell);
+    r.home = cell;
+    r.goal = null;
+    r.timer = 0;
+    // A carrier keeps its package and picks the nearest drop from its new spot; anyone else starts afresh.
+    if (r.mode !== 'failed') {
+      r.mode = r.carrying ? 'to_drop' : 'idle';
+      r.drop = null;
+    }
+    this.resetTraffic();
+  }
+
+  private moveShelf(shelf: Shelf, cell: number) {
+    const access = this.sideFor(shelf, shelf.access, cell)!;
+    this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), false);
+    shelf.x = this.grid.x(cell);
+    shelf.y = this.grid.y(cell);
+    shelf.access = access;
+    this.grid.setBlocked(cell, true);
+    // Orders hold the shelf itself, so queued ones follow it; robots on their way turn to its new face.
+    for (const r of this.robots) {
+      if (r.mode === 'to_shelf' && r.order?.shelf === shelf) this.setGoal(r, this.grid.idx(access.x, access.y));
+    }
+    this.resetTraffic();
+  }
+
+  private moveCharger(index: number, cell: number) {
+    const charger = this.world.chargers[index];
+    const bay = this.sideFor(charger, charger.bay, cell)!;
+    this.grid.setBlocked(this.grid.idx(charger.x, charger.y), false);
+    charger.x = this.grid.x(cell);
+    charger.y = this.grid.y(cell);
+    charger.bay = bay;
+    this.grid.setBlocked(cell, true);
+    // A robot on its way follows the charger; one plugged in at the old bay unplugs and looks for a charger again.
+    for (const r of this.robots) {
+      if (r.charger !== index) continue;
+      if (r.mode === 'to_charger') this.setGoal(r, this.grid.idx(bay.x, bay.y));
+      else if (r.mode === 'charging') {
+        this.releaseCharger(r);
+        r.mode = 'idle';
+      }
+    }
+    this.resetTraffic();
+  }
+
+  private deleteRobot(robot: RobotState) {
+    // As with remove_robot, an unpicked order goes back to the queue and a carried one is stranded; then it leaves the floor.
+    this.fail(robot, 'fault');
+    robot.removed = true;
+    robot.gone = true;
+    this.resetTraffic();
+    this.rebalanceZones();
+  }
+
+  private addShelf(shelf: Shelf) {
+    this.spawnedShelves++;
+    this.world.shelves.push(shelf);
+    this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), true);
+    this.shelfWeights = orderWeights(this.world);
+    this.rebalanceZones();
+    this.resetTraffic();
+  }
+
+  private addCharger(charger: Charger) {
+    this.spawnedChargers++;
+    this.world.chargers.push(charger);
+    this.chargers.push({ id: charger.id, offline: false, claimedBy: null });
+    this.grid.setBlocked(this.grid.idx(charger.x, charger.y), true);
+    this.resetTraffic();
+  }
+
+  private deleteShelf(shelf: Shelf) {
+    this.world.shelves.splice(this.world.shelves.indexOf(shelf), 1);
+    this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), false);
+    this.shelfOwner.delete(shelf.id);
+    this.shelfWeights = orderWeights(this.world);
+    // Orders nobody has picked yet can't be filled any more, and a robot on its way gives up. Picked ones still go out.
+    for (const r of this.robots) {
+      if (r.order?.shelf !== shelf || r.carrying) continue;
+      r.order.state = 'cancelled';
+      this.cancelled++;
+      r.order = null;
+      if (r.mode === 'to_shelf' || r.mode === 'picking') r.mode = 'idle';
+      this.setGoal(r, null);
+    }
+    for (let i = this.queue.length - 1; i >= 0; i--) {
+      if (this.queue[i].shelf !== shelf) continue;
+      this.queue[i].state = 'cancelled';
+      this.cancelled++;
+      this.queue.splice(i, 1);
+    }
+    this.resetTraffic();
+  }
+
+  private deleteCharger(index: number) {
+    const charger = this.world.chargers[index];
+    this.world.chargers.splice(index, 1);
+    this.chargers.splice(index, 1);
+    this.grid.setBlocked(this.grid.idx(charger.x, charger.y), false);
+    // Robots hold chargers by position in the list, so those after it shift down; anyone using it looks for another.
+    for (const r of this.robots) {
+      if (r.charger > index) r.charger--;
+      else if (r.charger === index) {
+        r.charger = -1;
+        if (r.mode === 'to_charger' || r.mode === 'charging') {
+          r.mode = 'idle';
+          this.setGoal(r, null);
+        }
+      }
+    }
+    this.resetTraffic();
   }
 
   private freeParkingCell(): number | null {
     for (let x = 0; x < this.world.cols; x++) {
       const cell = this.grid.idx(x, 0);
-      if (!this.grid.blocked[cell] && !this.traffic.parked.has(cell) && !this.robots.some((r) => this.cell(r) === cell)) {
+      if (!this.grid.blocked[cell] && !this.traffic.parked.has(cell) && !this.robots.some((r) => !r.gone && this.cell(r) === cell)) {
         return cell;
       }
     }
@@ -574,7 +963,7 @@ export class Sim {
       for (let i = 0; i < robots.length; i++) {
         if (intent[i] === here[i]) continue;
         for (let j = 0; j < robots.length; j++) {
-          if (i === j) continue;
+          if (i === j || robots[j].gone) continue;
           const sameTarget = intent[j] === intent[i] && (intent[j] === here[j] || j < i);
           const swap = here[j] === intent[i] && intent[j] === here[i];
           if (sameTarget || swap) {
@@ -667,6 +1056,7 @@ export class Sim {
 
   private record() {
     for (const r of this.robots) {
+      if (r.gone) continue;
       this.robotTicks++;
       if (r.mode !== 'idle' && r.mode !== 'failed' && r.mode !== 'to_home') this.busyTicks++;
     }
@@ -677,7 +1067,7 @@ export class Sim {
     this.series.push({
       t: this.tick,
       delivered: this.delivered,
-      backlog: this.orders.length - this.delivered,
+      backlog: this.backlog(),
       throughput: Math.round((gained / span) * 1000) / 10,
     });
   }
@@ -704,7 +1094,7 @@ export class Sim {
       ticks: this.tick,
       created: this.orders.length,
       delivered: this.delivered,
-      backlog: this.orders.length - this.delivered,
+      backlog: this.backlog(),
       stranded,
       avgLatency: this.delivered ? Math.round((this.latencySum / this.delivered) * 10) / 10 : 0,
       throughput: Math.round((this.delivered / Math.max(this.tick, 1)) * 1000) / 10,

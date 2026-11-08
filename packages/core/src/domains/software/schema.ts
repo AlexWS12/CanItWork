@@ -11,6 +11,10 @@ export const SystemNodeSchema = z.object({
   capacity: z.number().positive().optional(),
   latency: z.number().positive().optional(),
   zones: z.array(z.string().min(1).max(40)).min(1).max(6).optional(),
+  // Requests per second it admits; the rest are turned away at once (HTTP 429) instead of piling onto it and everything behind it.
+  rateLimit: z.number().positive().max(1_000_000).optional(),
+  // Adds replicas up to max when busy, after they boot, and removes them when quiet, never below the replicas it starts with.
+  autoscale: z.object({ max: z.number().int().min(1).max(50) }).optional(),
 });
 export type SystemNode = z.infer<typeof SystemNodeSchema>;
 
@@ -30,6 +34,8 @@ export const SystemEdgeSchema = z.object({
   mode: z.enum(['sync', 'async']).optional(),
   calls: z.number().positive().max(10).optional(),
   optional: z.boolean().optional(),
+  // A circuit breaker on this call: when the callee keeps failing it stops calling, fails fast, and tries again after a pause.
+  breaker: z.boolean().optional(),
 });
 export type SystemEdge = z.infer<typeof SystemEdgeSchema>;
 
@@ -49,6 +55,9 @@ export const SystemPatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('add_cache'), before: z.string() }),
   z.object({ op: z.literal('add_queue'), from: z.string(), to: z.string() }),
   z.object({ op: z.literal('add_zone'), node: z.string(), zone: z.string().min(1) }),
+  z.object({ op: z.literal('add_breaker'), from: z.string(), to: z.string() }),
+  z.object({ op: z.literal('rate_limit'), node: z.string(), rps: z.number().positive().max(1_000_000) }),
+  z.object({ op: z.literal('autoscale'), node: z.string(), max: z.number().int().min(1).max(50) }),
 ]);
 export type SystemPatch = z.infer<typeof SystemPatchSchema>;
 

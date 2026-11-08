@@ -7,6 +7,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { runner } from '../../runner';
 import { select } from '../../store';
 import { ClaimPin, Floor, Tag, pick } from '../shared';
+import { FloorEditMarks, PlacementLayer, useFloorDrag } from './drag';
 import { COLORS, ZONE_TINTS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
@@ -66,10 +67,14 @@ function Shelves({ world }: { world: World }) {
     frames.current.instanceMatrix.needsUpdate = true;
     crates.current.instanceMatrix.needsUpdate = true;
     plates.current.instanceMatrix.needsUpdate = true;
+    // Clicks test the instances' cached bounds first, so a shelf moved past the old ones would otherwise be unclickable.
+    frames.current.computeBoundingSphere();
   };
 
   useLayoutEffect(() => {
-    place(() => 0);
+    // Shelves grow in once when the floor first appears; after a hand edit they just stand where they now are.
+    const first = born.current === 0;
+    place(() => (first ? 0 : 1));
     world.shelves.forEach((_, i) => {
       for (let c = 0; c < CRATES_PER_SHELF; c++) {
         const seed = (i * 7 + c * 13) % 11;
@@ -77,7 +82,7 @@ function Shelves({ world }: { world: World }) {
       }
     });
     crates.current.instanceColor!.needsUpdate = true;
-    born.current = performance.now();
+    if (first) born.current = performance.now();
     lastOwners.current = '';
   }, [world]);
 
@@ -98,13 +103,27 @@ function Shelves({ world }: { world: World }) {
     if (plates.current.instanceColor) plates.current.instanceColor.needsUpdate = true;
   });
 
+  const drag = useFloorDrag(world);
+  const grabShelf = (e: ThreeEvent<PointerEvent>) => {
+    const shelf = e.instanceId === undefined ? undefined : world.shelves[e.instanceId];
+    return shelf ? { id: shelf.id, from: { x: shelf.x, y: shelf.y }, move: (to: { x: number; y: number }) => ({ op: 'move_shelf', shelfId: shelf.id, to }) } : null;
+  };
   const pickShelf = (e: ThreeEvent<MouseEvent>) => {
-    if (e.instanceId !== undefined) pick(world.shelves[e.instanceId].id)(e);
+    if (e.instanceId !== undefined) drag.onClick(e, world.shelves[e.instanceId].id);
   };
 
   return (
     <group>
-      <instancedMesh ref={frames} args={[rackGeometry, undefined, count]} castShadow receiveShadow onClick={pickShelf}>
+      <instancedMesh
+        ref={frames}
+        args={[rackGeometry, undefined, count]}
+        castShadow
+        receiveShadow
+        onPointerDown={(e) => drag.onPointerDown(e, grabShelf(e))}
+        onPointerMove={drag.onPointerMove}
+        onPointerUp={drag.onPointerUp}
+        onClick={pickShelf}
+      >
         <meshStandardMaterial color={COLORS.steel} metalness={0.6} roughness={0.4} />
       </instancedMesh>
       <instancedMesh ref={crates} args={[undefined, undefined, count * CRATES_PER_SHELF]} castShadow>
@@ -243,6 +262,8 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
   const pad = useRef<THREE.MeshBasicMaterial>(null!);
   const [x, , z] = toScene(world, charger);
   const [bx, , bz] = toScene(world, charger.bay);
+  const drag = useFloorDrag(world);
+  const grab = { id: charger.id, from: { x: charger.x, y: charger.y }, move: (to: { x: number; y: number }) => ({ op: 'move_charger', chargerId: charger.id, to }) };
 
   useFrame(({ clock }) => {
     const state = warehouseSim()?.chargers[index];
@@ -254,7 +275,7 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
   });
 
   return (
-    <group onClick={pick(charger.id)}>
+    <group onPointerDown={(e) => drag.onPointerDown(e, grab)} onPointerMove={drag.onPointerMove} onPointerUp={drag.onPointerUp} onClick={(e) => drag.onClick(e, charger.id)}>
       <ClaimPin id={charger.id} position={[x, 1.2, z]} />
       <mesh position={[x, 0.6, z]} castShadow>
         <boxGeometry args={[0.6, 1.2, 0.7]} />
@@ -374,6 +395,8 @@ export function Facility({ world }: { world: World }) {
       {world.chargers.map((c, i) => (
         <ChargerPost key={c.id} world={world} index={i} />
       ))}
+      <FloorEditMarks world={world} />
+      <PlacementLayer world={world} />
     </group>
   );
 }

@@ -8,8 +8,9 @@ import { useStore, type Message } from './store';
 
 const store = () => useStore.getState();
 
+// Carries the sign-in token, so the server counts a signed-in person by their account and lets them past a sign-in gate.
 async function stream(path: string, body: unknown, onEvent: (e: StreamEvent) => void) {
-  const res = await fetch(path, {
+  const res = await authFetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -57,7 +58,7 @@ function common(event: StreamEvent) {
       break;
     }
     case 'error':
-      store().addMessage({ role: 'app', text: event.message });
+      store().addMessage({ role: 'app', text: event.message, ...(event.signIn ? { signIn: true } : {}) });
       break;
   }
 }
@@ -130,6 +131,19 @@ export function moveComponent(id: string, at: [number, number]) {
   const environment = store().environment;
   if (!environment) return;
   store().set({ environment: { ...environment, layout: { ...environment.layout, [id]: at } } });
+}
+
+/**
+ * A hand edit to the running floor, such as moving a robot or a shelf. It goes in like any fix, so it's logged at its tick
+ * and replays; the run checks it first and the reason comes back when it can't land.
+ */
+export function editFloor(patches: unknown[]): string | null {
+  const run = runner.run;
+  if (!run) return 'Nothing is running.';
+  const reason = run.check?.(patches) ?? null;
+  if (reason) return reason;
+  runner.applyPatches(patches);
+  return null;
 }
 
 let movedBefore = false;

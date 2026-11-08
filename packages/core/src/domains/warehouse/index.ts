@@ -1,4 +1,17 @@
-import { defaultCompare, type Breakable, type Domain, type Evaluation, type Incident, type Inspection, type Metric, type Run, type TimedEvent } from '../../domain';
+import { money, usd } from '../../cost';
+import {
+  SYSTEM,
+  defaultCompare,
+  type Breakable,
+  type Domain,
+  type Evaluation,
+  type Incident,
+  type Inspection,
+  type Metric,
+  type MonthlyCost,
+  type Run,
+  type TimedEvent,
+} from '../../domain';
 import { DEFAULT_SPEC, compileWorld } from './compile';
 import { PatchSchema, WorldSpecSchema, type Patch, type SimEvent, type World, type WorldSpec } from './schema';
 import { Sim } from './sim';
@@ -23,15 +36,30 @@ function toEvent(incident: Incident, at: number): SimEvent | null {
   }
 }
 
+/** What the Inspector asks for to show the settings the whole floor runs with: the same id every domain answers. */
+export const FLOOR = SYSTEM;
+
+// A month of each, fully loaded: an autonomous mobile robot on lease with upkeep, a charging pad, a conveyor line, a staffed
+// loading dock, and a racked aisle of floor space.
+const ROBOT_USD = 1_500;
+const CHARGER_USD = 300;
+const CONVEYOR_USD = 2_500;
+const DOCK_USD = 4_000;
+const SHELF_USD = 120;
+
+const costMetric = (cost: MonthlyCost): Metric => ({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.map((l) => ({ label: l.label, value: money(l.usd) })) });
+
 export class WarehouseRun implements Run {
   readonly sim: Sim;
   readonly log: TimedEvent[] = [];
 
-  constructor(
-    readonly world: World,
-    seed: number,
-  ) {
+  constructor(world: World, seed: number) {
     this.sim = new Sim(world, seed);
+  }
+
+  /** This run's own floor, which hand edits change as it goes. */
+  get world() {
+    return this.sim.world;
   }
 
   get tick() {
@@ -51,7 +79,29 @@ export class WarehouseRun implements Run {
 
   apply(patches: unknown[]) {
     this.log.push({ at: this.tick, patches });
-    this.sim.schedule({ type: 'apply_patch', at: this.tick, patches: patches as Patch[] });
+    this.sim.applyNow(patches as Patch[]);
+  }
+
+  check(patches: unknown[]) {
+    for (const patch of patches as Patch[]) {
+      const reason = this.sim.checkPatch(patch);
+      if (reason) return reason;
+    }
+    return null;
+  }
+
+  /** The month's cost of the floor as it stands: robots added or removed by hand or by a fix count as they change. */
+  cost(): MonthlyCost {
+    const robots = this.sim.robots.filter((r) => !r.removed && !r.gone).length;
+    const w = this.world;
+    const lines: MonthlyCost['lines'] = [
+      { label: `${robots} robot${robots === 1 ? '' : 's'}`, usd: robots * ROBOT_USD },
+      { label: `${w.shelves.length} shelves of floor space`, usd: w.shelves.length * SHELF_USD },
+      { label: `${w.docks.length} loading dock${w.docks.length === 1 ? '' : 's'}`, usd: w.docks.length * DOCK_USD },
+      { label: `${w.conveyors.length} conveyor${w.conveyors.length === 1 ? '' : 's'}`, usd: w.conveyors.length * CONVEYOR_USD },
+      { label: `${w.chargers.length} charger${w.chargers.length === 1 ? '' : 's'}`, usd: w.chargers.length * CHARGER_USD },
+    ].sort((a, b) => b.usd - a.usd);
+    return { usd: usd(lines.reduce((sum, l) => sum + l.usd, 0)), lines };
   }
 
   evaluation(): Evaluation {
@@ -63,6 +113,7 @@ export class WarehouseRun implements Run {
         { label: 'backlog', value: m.backlog },
         { label: 'avg latency', value: m.avgLatency },
         { label: 'utilization', value: `${Math.round(m.utilization * 100)}%` },
+        { label: 'monthly cost', value: money(this.cost().usd) },
       ],
       series: this.sim.series.map((p) => ({ t: p.t, value: p.delivered })),
     };
@@ -71,13 +122,15 @@ export class WarehouseRun implements Run {
   telemetry(): Metric[] {
     const sim = this.sim;
     const last = sim.series[sim.series.length - 1];
-    const online = sim.robots.filter((r) => r.mode !== 'failed').length;
-    const backlog = sim.orders.length - sim.delivered;
+    const fleet = sim.robots.filter((r) => !r.gone);
+    const online = fleet.filter((r) => r.mode !== 'failed').length;
+    const backlog = sim.backlog();
     return [
       { label: 'delivered', value: sim.delivered },
       { label: 'per 100 ticks', value: last?.throughput ?? 0 },
       { label: 'backlog', value: backlog, tone: backlog > 25 ? 'warn' : undefined },
-      { label: 'robots online', value: `${online}/${sim.robots.length}`, tone: online < sim.robots.length ? 'danger' : undefined },
+      { label: 'robots online', value: `${online}/${fleet.length}`, tone: online < fleet.length ? 'danger' : undefined },
+      costMetric(this.cost()),
     ];
   }
 
@@ -93,7 +146,58 @@ export class WarehouseRun implements Run {
 
   inspect(target: string): Inspection | null {
     const { sim, world } = this;
-    const robot = sim.robots.find((r) => r.id === target);
+    if (target === FLOOR) {
+      const orderEvery = Math.round(sim.orderEvery);
+      return {
+        title: 'Floor settings',
+        rows: [
+          ['Robots', sim.robots.filter((r) => !r.gone).length],
+          ['Shelves', world.shelves.length],
+          ['Chargers', world.chargers.length],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'choice',
+            label: 'Dispatch',
+            hint: 'Zoned: each robot serves its own shelves. Pooled: the nearest free robot takes any order.',
+            value: sim.policy.dispatch,
+            options: [
+              { label: 'Zoned', value: 'zoned' },
+              { label: 'Pooled', value: 'pooled' },
+            ],
+            patch: { op: 'set_policy' },
+            key: 'dispatch',
+          },
+          {
+            kind: 'number',
+            label: 'Charge below',
+            hint: 'Robots head for a charger once their battery drops under this.',
+            value: Math.round(sim.policy.chargeThreshold * 100),
+            min: 5,
+            max: 80,
+            step: 5,
+            unit: '%',
+            scale: 100,
+            patch: { op: 'set_policy' },
+            key: 'chargeThreshold',
+          },
+          {
+            kind: 'number',
+            label: 'New order every',
+            hint: 'Lower is busier.',
+            value: orderEvery,
+            min: 1,
+            max: Math.max(60, orderEvery),
+            step: 1,
+            unit: ' ticks',
+            patch: { op: 'set_demand' },
+            key: 'orderEvery',
+          },
+        ],
+      };
+    }
+    const robot = sim.robots.find((r) => r.id === target && !r.gone);
     if (robot) {
       const zone = [...sim.shelfOwner.values()].filter((o) => o === robot.id).length;
       const failed = robot.mode === 'failed';
@@ -112,6 +216,8 @@ export class WarehouseRun implements Run {
                 ? { label: 'Repair robot', incident: { type: 'repair_robot', target }, destructive: false }
                 : { label: 'Fail this robot', incident: { type: 'fail_robot', target }, destructive: true },
             ],
+        edits: robot.removed ? [] : [{ label: 'Delete robot', patches: [{ op: 'delete_robot', robotId: target }], destructive: true }],
+        editHint: robot.removed ? undefined : 'Drag it to move it on the floor.',
       };
     }
     const belt = sim.belts.find((b) => b.id === target);
@@ -142,6 +248,8 @@ export class WarehouseRun implements Run {
             ? { label: 'Bring online', incident: { type: 'online_charger', target }, destructive: false }
             : { label: 'Take offline', incident: { type: 'offline_charger', target }, destructive: true },
         ],
+        edits: [{ label: 'Delete charger', patches: [{ op: 'delete_charger', chargerId: target }], destructive: true }],
+        editHint: 'Drag it to move it on the floor.',
       };
     }
     if (target === world.sorter.id) {
@@ -165,6 +273,8 @@ export class WarehouseRun implements Run {
           ['Orders waiting', sim.queue.filter((o) => o.shelf.id === target).length],
         ],
         actions: [],
+        edits: [{ label: 'Delete shelf', patches: [{ op: 'delete_shelf', shelfId: target }], destructive: true }],
+        editHint: 'Drag it to move it on the floor.',
       };
     }
     return null;

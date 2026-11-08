@@ -5,7 +5,8 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { useStore } from '../../store';
-import { ClaimPin, pick } from '../shared';
+import { ClaimPin } from '../shared';
+import { useFloorDrag, type Grab } from './drag';
 import { COLORS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
@@ -22,6 +23,11 @@ function Robot({ world, index }: { world: World; index: number }) {
   const heading = useRef(0);
   const tint = robotColor(index);
   const selected = useStore((s) => s.selected !== null && warehouseSim()?.robots[index]?.id === s.selected);
+  const drag = useFloorDrag(world);
+  const grab = (): Grab | null => {
+    const r = warehouseSim()?.robots[index];
+    return r && !r.removed ? { id: r.id, from: { x: r.x, y: r.y }, move: (to) => ({ op: 'move_robot', robotId: r.id, to }) } : null;
+  };
 
   const route = useMemo(() => {
     const geometry = new THREE.BufferGeometry();
@@ -87,7 +93,13 @@ function Robot({ world, index }: { world: World; index: number }) {
   return (
     <>
       <primitive object={route} />
-      <group ref={group} onClick={pick(warehouseSim()?.robots[index]?.id ?? '')}>
+      <group
+        ref={group}
+        onPointerDown={(e) => drag.onPointerDown(e, grab())}
+        onPointerMove={drag.onPointerMove}
+        onPointerUp={drag.onPointerUp}
+        onClick={(e) => drag.onClick(e, warehouseSim()?.robots[index]?.id ?? '')}
+      >
         <group ref={body}>
           {/* A low warehouse robot: rounded chassis in its own colour stripe, a lift deck on top and a lidar puck at the front */}
           <RoundedBox args={[0.74, 0.24, 0.88]} radius={0.07} smoothness={3} position={[0, 0.18, 0]} castShadow receiveShadow>
@@ -205,9 +217,7 @@ export function Actors({ world }: { world: World }) {
   const count = warehouseSim()?.robots.length ?? 0;
   return (
     <group>
-      {Array.from({ length: count }, (_, i) => (
-        <Robot key={i} world={world} index={i} />
-      ))}
+      {Array.from({ length: count }, (_, i) => (warehouseSim()?.robots[i]?.gone ? null : <Robot key={i} world={world} index={i} />))}
       <Cargo world={world} />
     </group>
   );

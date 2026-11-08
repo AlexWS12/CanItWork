@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DOMAINS } from '../src';
 import type { CircuitSpec } from '../src/domains/electronics/parts';
 import type { FleetSpec } from '../src/domains/fleet/schema';
+import type { DatabaseSpec } from '../src/domains/database/schema';
 import type { SystemSpec } from '../src/domains/software/schema';
 
 describe('mends for what repairs leave', () => {
@@ -39,6 +40,37 @@ describe('mends for what repairs leave', () => {
     expect(mended.notes[0]).toMatch(/added \d+ relay drone/);
     expect(f.validate(mended.spec).some((i) => /lose contact past/.test(i.message))).toBe(false);
   });
+  it('settles a schema whose keys, indexes and queries name things that are not there', () => {
+    const db = DOMAINS.database;
+    const spec = db.specSchema.parse({
+      tables: [
+        { name: 'customers', rows: 1000, columns: [{ name: 'id', type: 'uuid', primary: true }], indexes: [] },
+        {
+          name: 'orders',
+          rows: 50000,
+          columns: [
+            { name: 'id', type: 'bigint', primary: true },
+            { name: 'customer_id', type: 'bigint', references: { table: 'customers', column: 'customer_id' } },
+          ],
+          indexes: [['customer_id'], ['placed_at']],
+          partitions: 4,
+        },
+      ],
+      workload: [
+        { name: 'history', kind: 'read', table: 'orders', where: ['customer_id', 'status'], perSecond: 50 },
+        { name: 'ghost', kind: 'read', table: 'payments', perSecond: 5 },
+      ],
+    }) as DatabaseSpec;
+    expect(db.validate(spec).filter((i) => i.severity === 'error').length).toBeGreaterThan(2);
+    const mended = db.rules.mend!(spec, db.validate(spec), [])!;
+    const orders = (mended.spec as DatabaseSpec).tables[1];
+    expect(orders.columns[1]).toMatchObject({ type: 'uuid', references: { table: 'customers', column: 'id' } });
+    expect(orders.indexes).toEqual([['customer_id']]);
+    expect(orders.partitionBy).toBe('customer_id');
+    expect((mended.spec as DatabaseSpec).workload.map((q) => q.name)).toEqual(['history']);
+    expect(db.validate(mended.spec).filter((i) => i.severity === 'error')).toEqual([]);
+  });
+
   describe('software', () => {
     const sw = DOMAINS.software;
     const repairable = (spec: SystemSpec) => sw.validate(spec).filter((i) => i.severity === 'error' || i.repair);

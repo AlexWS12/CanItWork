@@ -1,9 +1,26 @@
-import type { Breakable, DomainId, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { money, usd } from '../../cost';
+import {
+  SYSTEM,
+  checkPatches,
+  type Breakable,
+  type DomainId,
+  type Evaluation,
+  type Incident,
+  type Inspection,
+  type Metric,
+  type MonthlyCost,
+  type Point,
+  type Run,
+  type Setting,
+  type TimedEvent,
+} from '../../domain';
 import { createRng, type Rng } from '../../rng';
-import { linkKey, netOrder, type KindDef, type NetEdge, type NetNode, type NetPatch, type NetSpec, type Role } from './schema';
+import { NetPatchSchema, linkKey, netOrder, type KindDef, type NetEdge, type NetNode, type NetPatch, type NetSpec, type Role } from './schema';
 
 const SERIES_STEP = 5;
 const TRIP_TICKS = 3;
+/** How far past its rating a line must be asked to carry before its protection trips it. */
+const TRIP_MARGIN = 0.1;
 const SMOOTHING = 0.15;
 const EPS = 1e-6;
 const BACKUP = 0.6;
@@ -460,14 +477,15 @@ export class NetRun implements Run {
     }
 
     if (this.config.trips) {
-      // A line at its rating while the area it feeds is still short is overloaded; held for a few ticks, it trips.
+      // A line at its rating while the area it feeds still wants well over that rating is overloaded; held for a few ticks, it trips.
+      // Running right at the rating is only a bottleneck, so a shortfall under TRIP_MARGIN of the rating leaves the line closed.
       for (const edge of this.spec.edges) {
         const link = this.links.get(linkKey(edge))!;
         if (!edge.capacity || link.down) continue;
         const target = this.node(edge.to);
         const state = this.states.get(edge.to)!;
         const short = target && this.role(target) === 'sink' ? state.demand - state.served : (this.need.get(edge.to) ?? 0);
-        link.overload = link.flow >= edge.capacity * 0.999 && short > 0.5 && served < wanted * 0.995 ? link.overload + 1 : 0;
+        link.overload = link.flow >= edge.capacity * 0.999 && short > Math.max(0.5, edge.capacity * TRIP_MARGIN) && served < wanted * 0.995 ? link.overload + 1 : 0;
         if (link.overload >= TRIP_TICKS) {
           link.down = true;
           link.tripped = true;
@@ -536,11 +554,68 @@ export class NetRun implements Run {
     for (const patch of patches as NetPatch[]) this.applyPatch(patch);
   }
 
+  check(patches: unknown[]) {
+    return checkPatches(NetPatchSchema, patches, (patch: NetPatch) => {
+      if ('node' in patch && !this.node(patch.node)) return `There is no ${patch.node} here.`;
+      if (patch.op === 'add_link') {
+        if (!this.node(patch.from) || !this.node(patch.to)) return 'Both ends of a link have to be in the design.';
+        if (this.links.has(linkKey(patch))) return 'Those two are already linked.';
+        if (netOrder({ ...this.spec, edges: [...this.spec.edges, patch] }).length !== this.spec.nodes.length) return 'That link would send work round in a loop.';
+      }
+      return null;
+    });
+  }
+
+  /** What a hand edit can change on one node as it runs: how many units it has and how much can wait there. */
+  private nodeSettings(node: NetNode): Setting[] {
+    const role = this.role(node);
+    if (role === 'sink') return [];
+    const units = node.count ?? 1;
+    const out: Setting[] = [
+      {
+        kind: 'number',
+        label: 'Units',
+        hint: 'Each unit adds its share of capacity.',
+        value: units,
+        min: 1,
+        max: Math.min(100, Math.max(12, units * 3)),
+        step: 1,
+        unit: '',
+        patch: { op: 'scale', node: node.id },
+        key: 'count',
+      },
+    ];
+    const buffer = this.bufferOf(node);
+    if (role === 'stage' && buffer > 0) {
+      const step = buffer >= 1000 ? 100 : buffer >= 100 ? 10 : 1;
+      out.push({
+        kind: 'number',
+        label: this.config.mode === 'flow' ? 'Room to wait' : 'Storage',
+        hint: 'How much can wait here before it backs up.',
+        value: Math.round(buffer),
+        min: 0,
+        max: Math.max(step * 10, Math.round(buffer * 4)),
+        step,
+        unit: ` ${this.config.unit}`,
+        patch: { op: 'set_buffer', node: node.id },
+        key: 'buffer',
+      });
+    }
+    return out;
+  }
+
   private applyPatch(patch: NetPatch) {
     switch (patch.op) {
       case 'scale': {
         const node = this.node(patch.node);
-        if (node) node.count = patch.count;
+        if (!node) break;
+        const before = node.count ?? 1;
+        node.count = patch.count;
+        // In flow mode a stage's links carry what it handles (more gates bring more taxi capacity), so they widen in proportion,
+        // or a capped link would hold the bigger stage to its old throughput. Grid lines keep their rating.
+        if (this.config.mode === 'flow' && before > 0) {
+          for (const edge of this.spec.edges) if (edge.capacity && (edge.from === node.id || edge.to === node.id)) edge.capacity *= patch.count / before;
+        }
         break;
       }
       case 'restore': {
@@ -603,6 +678,30 @@ export class NetRun implements Run {
     return [...this.states.values()].filter((s) => s.down).length + [...this.links.values()].filter((l) => l.down).length;
   }
 
+  /** Whether this domain has a price list, so a design has a running cost worth showing. */
+  private priced() {
+    return Object.values(this.config.kinds).some((k) => k.monthly || k.perUnit);
+  }
+
+  /**
+   * The month's cost of the system as it runs now: each unit at its monthly price (so a fix that opens more beds or adds a
+   * cashier costs what they do), and the work flowing through priced steps (fuel, freight, chemicals) at today's rate.
+   */
+  cost(): MonthlyCost {
+    const ticksPerMonth = (30.4 * 24 * 60) / minutesPerTick(this.config.tick);
+    const lines: MonthlyCost['lines'] = [];
+    for (const node of this.spec.nodes) {
+      const kind = this.config.kinds[node.kind];
+      if (!kind) continue;
+      const fixed = (kind.monthly ?? 0) * (node.count ?? 1);
+      const state = this.states.get(node.id);
+      const usage = (kind.perUnit ?? 0) * (state?.served ?? 0) * ticksPerMonth;
+      if (fixed + usage >= 0.5) lines.push({ label: this.name(node), usd: usd(fixed + usage) });
+    }
+    lines.sort((a, b) => b.usd - a.usd);
+    return { usd: usd(lines.reduce((sum, l) => sum + l.usd, 0)), lines };
+  }
+
   evaluation(): Evaluation {
     const busiest = this.busiest();
     return {
@@ -613,6 +712,7 @@ export class NetRun implements Run {
         { label: this.config.lostLabel, value: Math.round(this.lost) },
         { label: this.backlogLabel(), value: Math.round(this.backlog()) },
         { label: 'busiest', value: busiest ? `${this.name(busiest)} ${Math.round(this.states.get(busiest.id)!.utilization * 100)}%` : 'none' },
+        ...(this.priced() ? [{ label: 'monthly cost', value: money(this.cost().usd) }] : []),
       ],
       series: this.series,
     };
@@ -662,6 +762,10 @@ export class NetRun implements Run {
       { label: this.backlogLabel(), value: backlog, tone: this.config.mode === 'flow' && backlog > 0 && this.ratio < 0.99 ? 'warn' : undefined },
       { label: 'outages', value: out, tone: out ? 'danger' : undefined },
     );
+    if (this.priced()) {
+      const cost = this.cost();
+      metrics.push({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.slice(0, 8).map((l) => ({ label: l.label, value: money(l.usd) })) });
+    }
     return metrics;
   }
 
@@ -702,6 +806,33 @@ export class NetRun implements Run {
   }
 
   inspect(target: string): Inspection | null {
+    if (target === SYSTEM) {
+      const waiting = this.spec.nodes.reduce((sum, n) => sum + (this.states.get(n.id)?.queue ?? 0), 0);
+      return {
+        title: 'System settings',
+        rows: [
+          ['Parts', this.spec.nodes.length],
+          ['Links', this.spec.edges.length],
+          [this.config.mode === 'flow' ? 'Waiting' : 'Stored', Math.round(waiting)],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'number',
+            label: this.config.mode === 'demand' ? 'Shed load' : 'Turn away',
+            hint: this.config.mode === 'demand' ? 'Demand cut on purpose so the rest is served.' : 'Arrivals refused at the door so the rest keep moving.',
+            value: Math.round(this.shedding * 100),
+            min: 0,
+            max: 90,
+            step: 5,
+            unit: '%',
+            scale: 100,
+            patch: { op: 'shed' },
+            key: 'fraction',
+          },
+        ],
+      };
+    }
     const node = this.node(target);
     const state = this.states.get(target);
     if (node && state) {
@@ -725,6 +856,7 @@ export class NetRun implements Run {
       return {
         title: this.name(node),
         rows,
+        settings: this.nodeSettings(node),
         actions: broken
           ? [{ label: 'Bring it back', incident: { type: 'recover', target }, destructive: false }]
           : [

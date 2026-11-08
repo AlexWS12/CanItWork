@@ -4,6 +4,7 @@ import { buildEnvironment, showHero } from '../actions';
 import { reducedMotion } from '../motion';
 import { preloadModels, type ModelId } from '../scene/Model';
 import { useStore } from '../store';
+import { SignInButton } from './Account';
 import { Building } from './Building';
 import { Wordmark } from './Wordmark';
 import './Landing.css';
@@ -242,6 +243,7 @@ function Refusal() {
     <div className="refusal" role="status">
       <b>Nothing was built</b>
       <p>{refusal.reason}</p>
+      {refusal.signIn && <SignInButton />}
       {closest && (
         <p>
           The closest fit is {closest.label.toLowerCase()}: {closest.blurb.toLowerCase()}.

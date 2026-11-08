@@ -1,5 +1,22 @@
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
-import { partitionsOf, type DatabasePatch, type DatabaseSpec, type Query, type Table } from './schema';
+import { money } from '../../cost';
+import { databaseCost } from './cost';
+import { DEFAULT_POOL, partitionsOf, type DatabasePatch, type DatabaseSpec, type Query, type Table } from './schema';
+
+// One round trip from the app to the database, paid once per query in an N+1 loop.
+const ROUNDTRIP_MS = 1;
+// A query waiting on a lock keeps its connection this long before it times out, and no query holds one longer: apps set a
+// statement timeout so one slow query can't hold a connection forever.
+const LOCK_WAIT_MS = 5000;
+// Transaction pooling (PgBouncer and the like) lets one database connection serve several app connections.
+const POOLER = 4;
+// Share of a replica's capacity it can spend replaying the primary's writes.
+const REPLAY_SHARE = 0.6;
+// A tick is a minute of the system's time, as row growth already assumes.
+const SECONDS_PER_TICK = 60;
+// Reads from a replica further behind than this see data users can tell is old.
+const STALE_AFTER_S = 5;
+const MAX_LAG_S = 86_400;
 
 const ROWS_PER_PAGE = 100;
 const CAPACITY = 40000;
@@ -18,7 +35,15 @@ export interface QueryState {
   scanned: boolean;
   /** Partitions each execution touches: 1 when it filters on the partition key, all of them when it doesn't. */
   partitions: number;
+  /** Share of its executions answered fresh, in time and with a connection. */
+  served: number;
+  /** Some of its reads come from a replica that is behind. */
+  stale: boolean;
 }
+
+/** The read an ORM most likely turns into an N+1 loop: one that joins (a child fetched per parent row), else any read. */
+export const loopCandidate = (workload: Query[]) =>
+  workload.find((q) => q.kind === 'read' && q.joins.length && (q.repeats ?? 1) === 1) ?? workload.find((q) => q.kind === 'read' && (q.repeats ?? 1) === 1);
 
 const queueing = (utilization: number) => 1 / (1 - Math.min(utilization, 0.97));
 
@@ -44,9 +69,20 @@ export class SchemaRun implements Run {
   tick = 0;
   utilization = 0;
   withinBudget = 1;
+  /** Connections the workload holds at once (Little's law: rate times how long each holds one), and how many it may. */
+  inUse = 0;
+  poolSize = DEFAULT_POOL;
+  /** Connections taken and never given back. */
+  leaked = 0;
+  pooler = false;
+  /** How far the replicas are behind the primary, in seconds, and whether their replay has stopped. */
+  lag = 0;
+  stalled = false;
+  readsOnPrimary = false;
 
   private spike = 1;
   private replicas = 0;
+  private writeUnits = 0;
   private series: Point[] = [];
   private scoreSum = 0;
 
@@ -117,21 +153,33 @@ export class SchemaRun implements Run {
    * Unpartitioned tables share the primary; each partition of a partitioned table is its own node.
    * Every node has the same capacity, multiplied by its replicas.
    */
+  /** Nodes answering reads: the primary, plus the replicas unless reads were moved off them. */
+  /** Read replicas running now, counting any added as a fix. */
+  replicaCount() {
+    return this.replicas;
+  }
+
+  private readers() {
+    return 1 + (this.readsOnPrimary ? 0 : this.replicas);
+  }
+
   private measure() {
     this.queries.clear();
     this.tableLoad.clear();
     this.partitionLoad.clear();
-    const capacity = CAPACITY * (1 + this.replicas);
+    const capacity = CAPACITY * this.readers();
     let primary = 0;
+    this.writeUnits = 0;
     for (const table of this.spec.tables) {
       if (partitionsOf(table) > 1) this.partitionLoad.set(table.name, new Array(partitionsOf(table)).fill(0));
     }
     for (const query of this.spec.workload) {
       const { cost, each, partitions, scanned } = this.costOf(query);
       const broken = this.blocked(query);
-      this.queries.set(query.name, { cost, latency: 0, ok: false, broken, scanned, partitions });
+      this.queries.set(query.name, { cost, latency: 0, ok: false, broken, scanned, partitions, served: 0, stale: false });
       if (broken) continue;
-      const units = each * query.perSecond * this.spike;
+      const units = each * query.perSecond * this.spike * (query.repeats ?? 1);
+      if (query.kind === 'write') this.writeUnits += units * partitions;
       this.tableLoad.set(query.table, (this.tableLoad.get(query.table) ?? 0) + units * partitions);
       const parts = this.partitionLoad.get(query.table);
       if (!parts) primary += units;
@@ -142,11 +190,9 @@ export class SchemaRun implements Run {
     const primaryUtil = primary / capacity;
     this.utilization = Math.max(primaryUtil, ...[...this.partitionLoad.values()].flat());
 
-    let good = 0;
-    let total = 0;
+    const fractions = new Map<string, number>();
     for (const query of this.spec.workload) {
       const state = this.queries.get(query.name)!;
-      total += query.perSecond;
       const each = state.cost / state.partitions;
       const parts = this.partitionLoad.get(query.table);
       let fraction: number;
@@ -162,14 +208,60 @@ export class SchemaRun implements Run {
         state.latency = Math.max(...latencies.filter((_, i) => shares[i] > 0));
         fraction = latencies.reduce((sum, l, i) => sum + (l <= BUDGET_MS ? shares[i] : 0), 0);
       }
+      // An N+1 loop runs the query once per row, one round trip after another, so a request waits for all of them.
+      const repeats = query.repeats ?? 1;
+      if (repeats > 1) {
+        state.latency = state.latency * repeats + ROUNDTRIP_MS * (repeats - 1);
+        if (state.latency > BUDGET_MS) fraction = 0;
+      }
       if (state.broken) fraction = 0;
+      fractions.set(query.name, fraction);
+    }
+
+    // Every execution holds a connection while it runs, and one waiting on a lock holds it until it times out, so a lock on one
+    // table can use up the pool and stall queries that never touch it.
+    this.poolSize = (this.spec.pool ?? DEFAULT_POOL) * (this.pooler ? POOLER : 1) * this.readers();
+    this.inUse = this.leaked;
+    for (const query of this.spec.workload) {
+      const state = this.queries.get(query.name)!;
+      const held = state.broken ? (state.broken.endsWith('is locked') ? LOCK_WAIT_MS : 0) : Math.min(LOCK_WAIT_MS, state.latency);
+      this.inUse += (query.perSecond * this.spike * held) / 1000;
+    }
+    // Leaked connections are gone for good, so the working queries compete for what is left of the pool.
+    const left = this.poolSize - this.leaked;
+    const crowd = left <= 0 ? Infinity : (this.inUse - this.leaked) / left;
+    const stale = this.readers() > 1 && this.lag > STALE_AFTER_S;
+
+    let good = 0;
+    let total = 0;
+    for (const query of this.spec.workload) {
+      const state = this.queries.get(query.name)!;
+      let fraction = fractions.get(query.name)!;
+      if (crowd > 1 && !state.broken) {
+        // Past the pool's size, the rest wait for a connection that frees up too late.
+        fraction /= crowd;
+        state.latency += Math.min(LOCK_WAIT_MS, (crowd - 1) * BUDGET_MS);
+      }
+      if (stale && query.kind === 'read' && !state.broken) {
+        // Only the primary's share of reads is current; the replicas answer with old data.
+        fraction /= this.readers();
+        state.stale = true;
+      }
+      state.served = fraction;
       state.ok = fraction >= 0.999;
+      total += query.perSecond;
       good += query.perSecond * fraction;
     }
     this.withinBudget = total ? good / total : 1;
   }
 
   step() {
+    // Replicas replay the primary's writes; heavier writes than they can replay, or a stalled replay, put them further behind.
+    if (this.replicas > 0) {
+      if (this.stalled) this.lag += SECONDS_PER_TICK;
+      else this.lag = Math.max(0, this.lag + SECONDS_PER_TICK * (this.writeUnits / (CAPACITY * REPLAY_SHARE) - 1));
+      this.lag = Math.min(MAX_LAG_S, this.lag);
+    }
     for (const query of this.spec.workload) {
       if (query.kind !== 'write' || this.queries.get(query.name)?.broken) continue;
       const table = this.table(query.table);
@@ -217,6 +309,23 @@ export class SchemaRun implements Run {
       case 'cool_partition':
         this.hot.delete(tableName);
         break;
+      case 'connection_leak':
+        // A share of the pool taken by code that never gives connections back.
+        this.leaked += Math.min(1.5, Math.max(0.05, incident.value ?? 1)) * (this.spec.pool ?? DEFAULT_POOL) * this.readers();
+        break;
+      case 'replica_lag':
+        // A long query on a replica, or a disk too slow to keep up, stops its replay.
+        if (this.replicas > 0) {
+          this.stalled = true;
+          this.lag = Math.min(MAX_LAG_S, this.lag + Math.max(0, incident.value ?? 300));
+        }
+        break;
+      case 'n_plus_one': {
+        // A change that loads rows lazily: the app now runs this query once per row of an earlier result.
+        const query = this.spec.workload.find((q) => q.name === target);
+        if (query) query.repeats = Math.min(1000, Math.max(2, Math.round(incident.value ?? 50)));
+        break;
+      }
     }
     this.measure();
   }
@@ -244,6 +353,29 @@ export class SchemaRun implements Run {
         case 'unlock_table':
           this.locked.delete(patch.table);
           break;
+        case 'set_pool':
+          this.spec.pool = patch.size;
+          break;
+        case 'add_pooler':
+          this.pooler = true;
+          break;
+        case 'recycle_connections':
+          this.leaked = 0;
+          break;
+        case 'reads_to_primary':
+          this.readsOnPrimary = true;
+          break;
+        case 'resync_replica':
+          // Rebuilt from a fresh copy of the primary, the replicas start level again.
+          this.stalled = false;
+          this.lag = 0;
+          break;
+        case 'batch_query': {
+          // One query fetches every row at once (a join or an IN list) instead of one per row.
+          const query = this.spec.workload.find((q) => q.name === patch.query);
+          if (query) query.repeats = 1;
+          break;
+        }
         case 'repartition': {
           const table = this.table(patch.table);
           if (!table) break;
@@ -260,18 +392,28 @@ export class SchemaRun implements Run {
     this.measure();
   }
 
+  /** The month's cost of the schema as it stands: replicas, partitions, storage as rows grow, and a pooler once one is added. */
+  cost() {
+    return databaseCost({ ...this.spec, replicas: this.replicaCount() }, { pooler: this.pooler });
+  }
+
+  /** Queries the app runs in an N+1 loop. */
+  loops() {
+    return this.spec.workload.filter((q) => (q.repeats ?? 1) > 1);
+  }
+
   evaluation(): Evaluation {
     const broken = [...this.queries.values()].filter((q) => q.broken).length;
-    return {
-      score: this.tick ? Math.round((this.scoreSum / this.tick) * 10) / 10 : 0,
-      scoreLabel: '% of queries within 100 ms',
-      metrics: [
-        { label: 'database load', value: `${Math.round(this.utilization * 100)}%` },
-        { label: 'queries broken', value: broken },
-        { label: 'full scans', value: [...this.queries.values()].filter((q) => q.scanned).length },
-      ],
-      series: this.series,
-    };
+    const metrics: Evaluation['metrics'] = [
+      { label: 'database load', value: `${Math.round(this.utilization * 100)}%` },
+      { label: 'queries broken', value: broken },
+      { label: 'full scans', value: [...this.queries.values()].filter((q) => q.scanned).length },
+      { label: 'connections in use', value: `${Math.round(this.inUse)} of ${this.poolSize}` },
+    ];
+    if (this.replicas > 0) metrics.push({ label: 'replica lag', value: `${Math.round(this.lag)} s` });
+    if (this.loops().length) metrics.push({ label: 'N+1 loops', value: this.loops().length });
+    metrics.push({ label: 'monthly cost', value: money(this.cost().usd) });
+    return { score: this.tick ? Math.round((this.scoreSum / this.tick) * 10) / 10 : 0, scoreLabel: '% of queries within 100 ms', metrics, series: this.series };
   }
 
   telemetry(): Metric[] {
@@ -279,12 +421,30 @@ export class SchemaRun implements Run {
     const broken = [...this.queries.values()].filter((q) => q.broken).length;
     const load = Math.round(this.utilization * 100);
     const scans = [...this.queries.values()].filter((q) => q.scanned).length;
-    return [
+    const crowd = this.inUse / this.poolSize;
+    const out: Metric[] = [
       { label: 'within 100 ms', value: `${pct}%`, tone: pct < 80 ? 'danger' : pct < 99 ? 'warn' : undefined },
       { label: 'database load', value: `${load}%`, tone: load > 100 ? 'danger' : load > 80 ? 'warn' : undefined },
+      {
+        label: 'connections',
+        value: `${Math.min(Math.round(this.inUse), 99_999)}/${this.poolSize}`,
+        tone: crowd > 1 ? 'danger' : crowd > 0.8 ? 'warn' : undefined,
+      },
       { label: 'full table scans', value: scans, tone: scans ? 'warn' : undefined },
       { label: 'queries broken', value: broken, tone: broken ? 'danger' : undefined },
     ];
+    if (this.replicas > 0) {
+      const lag = Math.round(this.lag);
+      out.push({
+        label: this.readsOnPrimary ? 'replica lag (reads on primary)' : 'replica lag',
+        value: lag >= 3600 ? `${Math.round(lag / 360) / 10} h` : lag >= 120 ? `${Math.round(lag / 60)} min` : `${lag} s`,
+        tone: lag > 60 && !this.readsOnPrimary ? 'danger' : lag > STALE_AFTER_S ? 'warn' : undefined,
+      });
+    }
+    if (this.loops().length) out.push({ label: 'N+1 loops', value: this.loops().length, tone: 'warn' });
+    const cost = this.cost();
+    out.push({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.map((l) => ({ label: l.label, value: money(l.usd) })) });
+    return out;
   }
 
   private busiestTable() {
@@ -311,6 +471,12 @@ export class SchemaRun implements Run {
     }
     out.push({ label: `${busiest} ×10`, incident: { type: 'row_surge', target: busiest, value: 10 }, keywords: ['rows', 'growth', 'grow', 'data', busiest] });
     out.push({ label: 'Queries ×3', incident: { type: 'workload_spike', value: 3 }, keywords: ['traffic', 'spike', 'surge', 'load', 'workload'] });
+    out.push({ label: 'Leak connections', incident: { type: 'connection_leak', value: 1 }, keywords: ['connection', 'pool', 'leak', 'exhaust', 'too many clients'] });
+    if (this.replicas > 0 && !this.stalled)
+      out.push({ label: 'Stall the replicas', incident: { type: 'replica_lag', value: 300 }, keywords: ['replica', 'replication', 'lag', 'stale', 'behind'] });
+    const loopable = loopCandidate(this.spec.workload);
+    if (loopable)
+      out.push({ label: `N+1 on ${loopable.name}`, incident: { type: 'n_plus_one', target: loopable.name, value: 50 }, keywords: ['n+1', 'orm', 'lazy', 'loop', loopable.name] });
     return out;
   }
 

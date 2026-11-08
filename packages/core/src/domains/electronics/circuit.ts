@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { checkPatches, type Breakable, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type Setting, type TimedEvent } from '../../domain';
 import {
   FORWARD_VOLTS,
   SEGMENTS,
@@ -37,6 +37,10 @@ export const CircuitPatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('set_program'), program: z.array(RuleSchema).max(20), vars: z.record(z.number()).optional() }),
 ]);
 type CircuitPatch = z.infer<typeof CircuitPatchSchema>;
+
+const RESISTOR_VALUES = [100, 220, 330, 470, 1000, 2200, 4700, 10000, 47000, 100000];
+const BATTERY_VOLTS = [3, 3.7, 5, 9, 12];
+const ohmsLabel = (ohms: number) => (ohms >= 1e6 ? `${ohms / 1e6} MΩ` : ohms >= 1000 ? `${ohms / 1000} kΩ` : `${ohms} Ω`);
 
 export const DT = 1 / 12;
 const SUBSTEPS = 4;
@@ -494,7 +498,12 @@ export class CircuitRun implements Run {
   private act(action: Action) {
     if ('show' in action) this.texts.set(action.show, this.format(action.text));
     else if ('set' in action) this.vars.set(action.set, this.calc(action.to));
-    else this.pinStates.set(action.pin, { mode: action.mode, value: action.value === undefined ? undefined : this.calc(action.value), period: action.period });
+    else {
+      // A dead sensor reads NaN; a pin computed from it holds its last value, as a servo holds its angle, rather than driving NaN volts.
+      const computed = action.value === undefined ? undefined : this.calc(action.value);
+      const value = computed === undefined || Number.isFinite(computed) ? computed : (this.pinStates.get(action.pin)?.value ?? 0);
+      this.pinStates.set(action.pin, { mode: action.mode, value, period: action.period });
+    }
   }
 
   private runProgram() {
@@ -840,7 +849,9 @@ export class CircuitRun implements Run {
             const bottom = at(pin(amp.low)) + amp.headroom;
             const wanted = at(pin(amp.low)) + amp.gain * (at(pin(amp.plus)) - at(pin(amp.minus)));
             const now = this.ampState.get(key) ?? 'linear';
-            const next = wanted > top ? 'high' : wanted < bottom ? 'low' : 'linear';
+            // Leaving one rail, try the linear region before the other rail: with feedback (a follower), jumping rail to rail
+            // flips for ever, so an op-amp that once saturated, such as while an input wire was loose, never settled back.
+            const next = wanted > top ? (now === 'low' ? 'linear' : 'high') : wanted < bottom ? (now === 'high' ? 'linear' : 'low') : 'linear';
             if (next !== now) {
               this.ampState.set(key, next);
               changed = true;
@@ -1287,6 +1298,48 @@ export class CircuitRun implements Run {
     return out;
   }
 
+  check(patches: unknown[]) {
+    return checkPatches(CircuitPatchSchema, patches, (p: CircuitPatch) => {
+      if ('part' in p && !this.part(p.part)) return `There is no part ${p.part} here.`;
+      if (p.op === 'set_ohms' && this.part(p.part)!.type !== 'resistor') return 'Only a resistor takes a new value in ohms.';
+      if (p.op === 'set_volts' && this.part(p.part)!.type !== 'battery') return 'Only a battery takes a new voltage.';
+      return null;
+    });
+  }
+
+  /** Values a hand edit can swap on a part as it runs: a resistor from the standard series, or a battery's voltage. */
+  private partSettings(part: Part): Setting[] {
+    if (part.type === 'resistor' && part.ohms) {
+      const values = [...new Set([...RESISTOR_VALUES, part.ohms])].sort((a, b) => a - b);
+      return [
+        {
+          kind: 'choice',
+          label: 'Resistance',
+          hint: 'Swap in another standard value.',
+          value: part.ohms,
+          options: values.map((v) => ({ label: ohmsLabel(v), value: v })),
+          patch: { op: 'set_ohms', part: part.id },
+          key: 'ohms',
+        },
+      ];
+    }
+    if (part.type === 'battery' && part.volts) {
+      const values = [...new Set([...BATTERY_VOLTS, part.volts])].sort((a, b) => a - b);
+      return [
+        {
+          kind: 'choice',
+          label: 'Battery',
+          hint: 'Swap in a pack of another voltage.',
+          value: part.volts,
+          options: values.map((v) => ({ label: `${v} V`, value: v })),
+          patch: { op: 'set_volts', part: part.id },
+          key: 'volts',
+        },
+      ];
+    }
+    return [];
+  }
+
   inspect(target: string): Inspection | null {
     if (/^W\d+$/.test(target)) {
       const index = wireIndex(target);
@@ -1363,6 +1416,6 @@ export class CircuitRun implements Run {
     }
     if (broken) actions.push({ label: 'Replace part', incident: { type: 'repair', target }, destructive: false });
     else actions.push({ label: 'Burn this part', incident: { type: 'burn_part', target }, destructive: true });
-    return { title: target, rows, actions };
+    return { title: target, rows, actions, settings: broken ? [] : this.partSettings(part) };
   }
 }

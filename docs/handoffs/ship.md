@@ -34,9 +34,9 @@ You own deployment, sponsor integrations, `README.md` and the Devpost submission
 
 **Pending, roughly in order:**
 - **Vultr deploy from main.**
-  - A public deploy with keys lets anyone spend the team's Gemini and Swarms credits, so gate keyed builds before sharing the URL. Use Auth0 sign-in, a per-IP limit, or keyless mode for anonymous visitors.
+  - A public deploy with keys lets anyone spend the team's Gemini and Swarms credits, so set `REQUIRE_SIGN_IN=1` (Auth0) and `RATE_LIMIT_PER_HOUR` before sharing the URL.
 - **GoDaddy domain** pointed at the deploy.
-- **Auth0 sign-in.** It guards the shared credits, which makes it a real feature rather than a badge.
+- **Auth0 sign-in.** Done: `REQUIRE_SIGN_IN=1` keeps the agents for signed-in people, and limits count per account. See [docs/AUTH0.md](../AUTH0.md).
 - **Tiger Data:**
   - Store environments, event logs and scores so a run can be shared by link and replayed.
   - Replays are exact because the simulators are deterministic.
@@ -52,7 +52,7 @@ You own deployment, sponsor integrations, `README.md` and the Devpost submission
 
 1. Run the production build locally and check it works end to end at http://localhost:8787 (commands below).
 2. Write `deploy/README.md` with the exact Vultr steps: server size, Node 20 install, `npm ci`, build, a process manager such as `pm2` or a systemd unit, and HTTPS. Then follow it.
-3. Before posting the URL anywhere, agree with Platform on how keyed builds are gated. Auth0 needs a small server check in `apps/server/src/integrations/` and a call to it in `index.ts`. Platform owns `index.ts`, so ask them.
+3. Before posting the URL anywhere, set `REQUIRE_SIGN_IN=1` and `RATE_LIMIT_PER_HOUR` in the deploy's `.env`, so only signed-in people can make the agents spend credits.
 
 ## 5. Gotchas
 

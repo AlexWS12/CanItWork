@@ -69,6 +69,8 @@ export interface Candidate {
   // The Analyst's estimate of what this fix asks of whoever runs the system
   effort?: 'low' | 'medium' | 'high';
   cost?: string;
+  // What the fix adds to the system's monthly running cost, from the simulator's price list (negative when it saves)
+  monthly?: number;
 }
 
 export interface RecoveryReport {
@@ -104,6 +106,8 @@ export interface Explanation {
 export interface Refusal {
   reason: string;
   closest: DomainId | null;
+  /** Set when the request was turned away only because nobody is signed in. */
+  signIn?: true;
 }
 
 export type ChatAction =
@@ -125,7 +129,7 @@ export type StreamEvent =
   | { type: 'explanation'; explanation: Explanation }
   | { type: 'usage'; usage: Usage }
   | { type: 'reply'; text: string; action: ChatAction }
-  | { type: 'error'; message: string }
+  | { type: 'error'; message: string; signIn?: true }
   | { type: 'done' };
 
 export type KeyCheck = 'ok' | 'failing' | 'unchecked';

@@ -1,6 +1,7 @@
-import { componentIds, isEditable } from '@tv/core';
-import { useEffect } from 'react';
-import { breakThing, editComponent } from '../actions';
+import { componentIds, isEditable, settingPatch, type Setting } from '@tv/core';
+import { useEffect, useState } from 'react';
+import { breakThing, editComponent, editFloor } from '../actions';
+import { drillInto } from '../drill';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import './Inspector.css';
@@ -10,9 +11,15 @@ const isMac = /mac|iphone|ipad/i.test(navigator.platform);
 export function Inspector() {
   const selected = useStore((s) => s.selected);
   useStore((s) => s.telemetry.tick);
+  // A hand edit on a paused run changes what's shown without moving the clock
+  useStore((s) => s.structure);
   const set = useStore((s) => s.set);
   const environment = useStore((s) => s.environment);
   const busy = useStore((s) => s.editing || s.chatting);
+  const building = useStore((s) => s.building);
+  // Why the last hand edit from here was refused, until something else is selected
+  const [refusal, setRefusal] = useState<string | null>(null);
+  useEffect(() => setRefusal(null), [selected]);
   // Links and parts a patch added at runtime aren't in the spec, so only spec components can be edited
   const editable = Boolean(environment && selected && isEditable(environment.domain) && componentIds(environment.domain, environment.spec).includes(selected));
 
@@ -51,6 +58,16 @@ export function Inspector() {
           </div>
         ))}
       </dl>
+      {view.drill && (
+        <button
+          className="action drill"
+          disabled={busy || building}
+          onClick={() => void drillInto(view.drill!)}
+          title={`Build it as a design of its own, carrying the ${view.drill.rps} rps it gets here`}
+        >
+          {view.drill.label}
+        </button>
+      )}
       {view.actions.map((action) => (
         <button
           key={action.label}
@@ -60,6 +77,43 @@ export function Inspector() {
           {action.label}
         </button>
       ))}
+      {view.settings?.length ? (
+        <div className="settings">
+          {view.settings.map((setting) => (
+            <SettingControl key={setting.label} setting={setting} disabled={busy} onChange={(value) => setRefusal(editFloor([settingPatch(setting, value)]))} />
+          ))}
+          {/* With edit buttons below, the refusal shows once, under them */}
+          {refusal && !view.edits?.length && (
+            <p className="edit-hint edit-refusal" role="alert">
+              {refusal}
+            </p>
+          )}
+        </div>
+      ) : null}
+      {view.edits?.length ? (
+        <div className="edit-actions floor-edits">
+          {view.edits.map((edit) => (
+            <button
+              key={edit.label}
+              className={edit.destructive ? 'action danger' : 'action'}
+              disabled={busy}
+              onClick={() => {
+                const reason = editFloor(edit.patches);
+                setRefusal(reason);
+                // A deleted thing has nothing left to inspect
+                if (!reason && !runner.run?.inspect(selected)) set({ selected: null });
+              }}
+            >
+              {edit.label}
+            </button>
+          ))}
+          {(refusal ?? view.editHint) && (
+            <p className={refusal ? 'edit-hint edit-refusal' : 'edit-hint'} role={refusal ? 'alert' : undefined}>
+              {refusal ?? view.editHint}
+            </p>
+          )}
+        </div>
+      ) : null}
       {editable && (
         <div className="edit-actions">
           <button className="action" disabled={busy} onClick={() => void editComponent({ op: 'duplicate', id: selected })} title={`Duplicate (${isMac ? '⌘' : 'Ctrl+'}D)`}>
@@ -71,6 +125,59 @@ export function Inspector() {
           <p className="edit-hint">Drag to move. The agents check every duplicate or delete.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** One setting the design runs with. A slider sends its value once it's let go, so a drag is one change in the log. */
+function SettingControl({ setting, disabled, onChange }: { setting: Setting; disabled: boolean; onChange: (value: string | number) => void }) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const id = `setting-${setting.key}`;
+  if (setting.kind === 'choice') {
+    return (
+      <div className="setting" role="group" aria-labelledby={id}>
+        <span id={id} className="setting-label">
+          {setting.label}
+        </span>
+        <div className="setting-choices">
+          {setting.options.map((option) => (
+            <button key={option.value} aria-pressed={setting.value === option.value} disabled={disabled} onClick={() => setting.value !== option.value && onChange(option.value)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {setting.hint && <p className="setting-hint">{setting.hint}</p>}
+      </div>
+    );
+  }
+  const shown = draft ?? setting.value;
+  const commit = () => {
+    if (draft !== null && draft !== setting.value) onChange(draft);
+    setDraft(null);
+  };
+  return (
+    <div className="setting">
+      <label htmlFor={id} className="setting-label">
+        {setting.label}
+        <output htmlFor={id}>
+          {shown}
+          {setting.unit}
+        </output>
+      </label>
+      <input
+        id={id}
+        type="range"
+        min={setting.min}
+        max={setting.max}
+        step={setting.step}
+        value={shown}
+        disabled={disabled}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      {setting.hint && <p className="setting-hint">{setting.hint}</p>}
     </div>
   );
 }

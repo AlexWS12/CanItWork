@@ -1,6 +1,7 @@
 import {
   DOMAINS,
   IncidentSchema,
+  costOfFix,
   componentDiff,
   editSpec,
   defaultCompare,
@@ -8,6 +9,8 @@ import {
   evaluate,
   type AgentId,
   type Candidate,
+  type DatabaseSpec,
+  type SystemSpec,
   type Domain,
   type DomainId,
   type Engine,
@@ -32,6 +35,7 @@ import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
 import { forget, lookup, markStale, remember, showcase } from './design-cache';
+import { importFile, type Imported } from './importers';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -473,14 +477,95 @@ async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId;
   return served;
 }
 
+const FillQuery = z.object({
+  name: z.string().min(1),
+  kind: z.enum(['read', 'write']),
+  table: z.string(),
+  where: z.array(z.string()).default([]),
+  joins: z.array(z.object({ table: z.string(), local: z.string(), foreign: z.string() })).default([]),
+  perSecond: z.number().positive().max(100000),
+});
+const FillSchema = z.object({
+  name: z.string().min(1).max(60),
+  summary: z.string().max(280),
+  rows: z.record(z.number().int().min(0).max(1e10)).default({}),
+  workload: z.array(FillQuery).max(8).default([]),
+  traffic: z.number().positive().max(100000).optional(),
+  nodes: z.record(z.object({ capacity: z.number().positive().optional(), latency: z.number().positive().optional() })).default({}),
+});
+
+// A pasted SQL schema, Compose file or Kubernetes manifests: the structure is read from the file as it is, and the Architect only
+// estimates what the file can't say (row counts and queries, or traffic and capacity), keeping any number the user wrote beside it.
+async function fromFile(prompt: string, file: Imported, domain: Domain, emit: Emit, step: Step): Promise<Draft> {
+  await step('interpreter', 'rules', `Reading your ${file.format} ${file.domain === 'database' ? 'schema' : 'file'}`, async (detail) => {
+    detail(`${file.found}${file.notes.length ? `; ${file.notes.join('; ')}` : ''}`);
+  });
+  const estimated =
+    file.domain === 'database'
+      ? 'Row counts and the query workload are estimates; a schema file doesn’t say them'
+      : 'Traffic and per-replica capacity are estimates; the file doesn’t say them';
+  const base: Draft = {
+    name: file.name,
+    summary: `Your ${file.format} ${file.domain === 'database' ? 'schema' : 'setup'}: ${file.found}.`,
+    unmodelled: [estimated, ...file.notes.map((n) => `The import ${n}`)],
+    spec: file.spec,
+  };
+  if (!hasGemini()) return base;
+  const context = prompt.replace(/```[\s\S]*?```/g, '').trim();
+  return orRules(
+    () =>
+      step('architect', 'gemini', file.domain === 'database' ? 'Estimating rows and queries' : 'Estimating traffic and capacity', async (detail) => {
+        const fill = await chatJson({
+          feature: 'architect-import',
+          schema: FillSchema,
+          onUsage: onUsage(emit),
+          system: `You are the Architect on a team that simulates systems. The user pasted their real ${file.format} ${file.domain === 'database' ? 'schema' : 'deployment'}, already read into the structure below, which is fixed: never add, remove or rename anything. Estimate only what the file can't say, realistically for this kind of system, and keep exactly any number the user wrote beside the file (a rate they give becomes that query's or the system's rate). The name and summary describe only what is in the structure. Reply with JSON only: ${
+            file.domain === 'database'
+              ? '{"name": short title naming what this schema is for, "summary": one sentence, "rows": {table name: estimated row count}, "workload": [2 to 6 of the queries this app most likely runs: {"name": string, "kind": "read"|"write", "table": table, "where": [columns of that table], "joins": [{"table": other table, "local": column here, "foreign": column there}], "perSecond": number}]}'
+              : '{"name": short title naming what this system is, "summary": one sentence, "traffic": requests per second reaching it, "nodes": {node id: {"capacity"?: requests per second one replica handles, "latency"?: milliseconds}}}'
+          }`,
+          user: `${context ? `What the user said: ${context}\n` : ''}Structure: ${JSON.stringify(file.spec)}`,
+        });
+        const spec = structuredClone(file.spec) as Imported['spec'];
+        if (file.domain === 'database' && 'tables' in spec) {
+          for (const t of spec.tables) if (fill.rows[t.name] !== undefined) t.rows = fill.rows[t.name];
+          const has = (table: string, column: string) => spec.tables.some((t) => t.name === table && t.columns.some((c) => c.name === column));
+          const workload = fill.workload.filter((q) => q.where.every((c) => has(q.table, c)) && q.joins.every((j) => has(q.table, j.local) && has(j.table, j.foreign)));
+          if (workload.length) spec.workload = workload;
+        } else if ('nodes' in spec) {
+          if (fill.traffic) spec.traffic = fill.traffic;
+          for (const n of spec.nodes) {
+            const est = fill.nodes[n.id];
+            if (n.kind === 'client' || !est) continue;
+            if (est.capacity) n.capacity = est.capacity;
+            if (est.latency) n.latency = est.latency;
+          }
+        }
+        const parsed = domain.specSchema.safeParse(spec);
+        if (!parsed.success) throw new Error('The estimates did not fit the imported structure');
+        detail(
+          file.domain === 'database'
+            ? `${(parsed.data as DatabaseSpec).workload.length} queries over ${(parsed.data as DatabaseSpec).tables.length} tables`
+            : `${(parsed.data as SystemSpec).traffic} requests per second`,
+        );
+        return { ...base, name: fill.name, summary: fill.summary, spec: parsed.data };
+      }),
+    async () => base,
+  );
+}
+
 export async function build(prompt: string, emit: Emit) {
   const step = stepper(emit);
-  const cached = await cachedDesign(prompt, step);
-  const id = cached?.id ?? (await interpret(prompt, emit, step));
+  // A pasted file is the design itself: it skips the cache, the routing and the Architect's drafting.
+  const file = importFile(prompt);
+  const cached = file ? null : await cachedDesign(prompt, step);
+  const id = file?.domain ?? cached?.id ?? (await interpret(prompt, emit, step));
   if (!id) return;
   emit({ type: 'domain', domain: id });
   const domain = DOMAINS[id];
-  const first = cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
+  const first = file
+    ? await fromFile(prompt, file, domain, emit, step)
+    : (cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step)));
   if (!first) return;
   let draft = first;
 
@@ -508,11 +593,13 @@ export async function build(prompt: string, emit: Emit) {
   });
   sketch(issues);
   // A design from the verified cache already matched this exact request, so only fresh designs are reviewed.
-  if (!cached && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
+  // The Reviewer compares a design with a description; an imported file is its own description, so it isn't reviewed.
+  if (!cached && !file && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
   const errorsOf = () => issues.filter((i) => i.severity === 'error').map((i) => i.message);
   const toRepair = () => issues.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message);
 
-  for (let attempt = 0; attempt < MAX_REPAIRS && toRepair().length && hasGemini(); attempt++) {
+  // An imported structure is the user's own, so the Architect never redraws it; only the deterministic mend below settles it.
+  for (let attempt = 0; attempt < MAX_REPAIRS && toRepair().length && hasGemini() && !file; attempt++) {
     const previous = draft;
     const found = toRepair();
     draft = await orRules(
@@ -574,7 +661,7 @@ export async function build(prompt: string, emit: Emit) {
 
   const unresolved = issues.filter((i) => i.repair).map((i) => `Still failing the checks: ${i.message}`);
   const proof = !unresolved.length && domain.proof ? domain.proof(domain.compile(draft.spec)) : null;
-  if (!unresolved.length && hasGemini() && draft !== cached?.draft) remember(prompt, { domain: id, draft });
+  if (!unresolved.length && hasGemini() && !file && draft !== cached?.draft) remember(prompt, { domain: id, draft });
   if (proof) await step('validator', 'simulator', 'Proving it works', async (detail) => detail(proof));
   const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: [...unresolved, ...draft.unmodelled] };
   emit({ type: 'environment', environment });
@@ -663,6 +750,16 @@ const humanize = (incident: Incident | undefined) => {
   return text[0].toUpperCase() + text.slice(1);
 };
 
+/** What a fix adds to the monthly running cost while the incident it answers plays out, for domains with a price list. */
+function monthlyOf(domain: Domain, model: unknown, patches: unknown[], seed: number, during: { events: TimedEvent[]; ticks: number; at: number }): { monthly?: number } {
+  try {
+    const monthly = costOfFix(domain, model, patches, seed, during);
+    return monthly === null ? {} : { monthly };
+  } catch {
+    return {};
+  }
+}
+
 interface LiveState {
   environment: Environment;
   seed: number;
@@ -691,6 +788,7 @@ export async function recover(input: LiveState, emit: Emit) {
       rationale: p.rationale,
       patches: p.patches,
       evaluation: evaluate(domain, model, { seed, ticks, events: [...events, { at: applyAt, patches: p.patches }] }),
+      ...monthlyOf(domain, model, p.patches, seed, { events, ticks, at: applyAt }),
     }));
     candidates.sort((a, b) => b.evaluation.score - a.evaluation.score);
     detail(candidates.map((c) => `${c.title}: ${c.evaluation.score}`).join(' · '));
@@ -701,17 +799,24 @@ export async function recover(input: LiveState, emit: Emit) {
   const unmitigated = evaluate(domain, model, { seed, ticks, events });
   const winner = ranked[0] ?? null;
   const unit = reference.scoreLabel;
-  const fallback = winner
-    ? `${winner.title} scores ${winner.evaluation.score} ${unit}, against ${unmitigated.score} doing nothing and ${reference.score} with no incident.`
-    : 'No recovery options were available for this incident.';
-
-  let summary = fallback;
-  let headline: string | undefined;
-  let tradeoff: string | undefined;
   // Fixes this close to the best are a tie in practice, so the cheapest of them is the one to recommend
   const tolerance = Math.max(1, reference.score * 0.01);
+  // When even the best fix doesn't beat doing nothing by more than that, recommending it would make things no better, or worse.
+  const nothingHelps = Boolean(winner) && winner!.evaluation.score <= unmitigated.score + tolerance;
+  const fallback = !winner
+    ? 'No recovery options were available for this incident.'
+    : nothingHelps
+      ? `None of the ${ranked.length} fixes beats doing nothing: the best, ${winner.title}, scores ${winner.evaluation.score} ${unit} against ${unmitigated.score} doing nothing, so leave it as it is.`
+      : `${winner.title} scores ${winner.evaluation.score} ${unit}, against ${unmitigated.score} doing nothing and ${reference.score} with no incident.`;
+
+  let summary = fallback;
+  let headline: string | undefined = nothingHelps ? `Doing nothing is best: no fix beats ${unmitigated.score} ${unit.replace(/^%\s*/, '% ')}` : undefined;
+  let tradeoff: string | undefined;
   const tied = winner ? ranked.filter((c) => c.evaluation.score >= winner.evaluation.score - tolerance) : [];
-  let valueId: string | null = winner?.id ?? null;
+  // Among fixes that tie on the result, the one that adds least to the monthly bill is the one to recommend; the Analyst may
+  // still pick another on effort, which the price list doesn't see.
+  const cheapest = [...tied].sort((a, b) => (a.monthly ?? Infinity) - (b.monthly ?? Infinity))[0];
+  let valueId: string | null = (nothingHelps ? winner?.id : (cheapest?.id ?? winner?.id)) ?? null;
   if (winner && hasGemini()) {
     summary = await step('analyst', 'gemini', 'Explaining the result', async () => {
       const result = await chatJson({
@@ -725,16 +830,24 @@ export async function recover(input: LiveState, emit: Emit) {
         }),
         onUsage: onUsage(emit),
         system: `You are the Analyst. Explain to the non-technical person who runs this system what happened and what to do, in everyday words with no simulator jargon. Use only the numbers provided.
-For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars".
+For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars". When an option has "monthlyUsd", that is the simulator's estimate of what it adds to the monthly running cost: use it in the cost, such as "about $120 a month more".
 The options listed in "tied" score within a point of each other, so the result is the same in practice: pick the one with the lowest effort among them and recommend it. If doing nothing scores within a couple of points of no incident, say plainly that this problem barely hurt and a fix is optional.
+If "nothingHelps" is true, no option scores better than doing nothing: recommend leaving things as they are, say that every option scores the same as or worse than doing nothing, never describe an option as a way to recover, and set "pick" to "Do nothing".
 Reply with JSON only: {"pick":"exact title of the recommended option","headline":"one sentence recommendation, such as Add a third cashier for the rush: almost nobody walks out","summary":"two plain sentences on why the recommended option is the best choice, against the others and doing nothing","tradeoff":"one sentence on what the recommended option costs or asks of them","options":[{"title":"exact title","effort":"low|medium|high","cost":"short phrase"}]}`,
         user: JSON.stringify({
           incident,
           measure: unit,
           noIncident: reference.score,
           doNothing: unmitigated.score,
+          nothingHelps,
           tied: tied.map((c) => c.title),
-          options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, rationale: c.rationale, changes: JSON.stringify(c.patches).slice(0, 400) })),
+          options: ranked.map((c) => ({
+            title: c.title,
+            score: c.evaluation.score,
+            rationale: c.rationale,
+            changes: JSON.stringify(c.patches).slice(0, 400),
+            ...(c.monthly !== undefined ? { monthlyUsd: c.monthly } : {}),
+          })),
         }),
       });
       for (const option of result.options ?? []) {
@@ -742,8 +855,9 @@ Reply with JSON only: {"pick":"exact title of the recommended option","headline"
         if (candidate) Object.assign(candidate, { effort: option.effort, cost: option.cost });
       }
       const picked = tied.find((c) => c.title === result.pick);
-      if (picked) valueId = picked.id;
-      headline = result.headline;
+      if (picked && !nothingHelps) valueId = picked.id;
+      // The rule-based headline stands when nothing helps, so a model that still names a fix can't turn it into advice.
+      headline = nothingHelps ? headline : result.headline;
       tradeoff = result.tradeoff;
       return result.summary;
     }).catch(() => fallback);

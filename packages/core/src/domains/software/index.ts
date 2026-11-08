@@ -61,10 +61,26 @@ function validateSystem(spec: SystemSpec): Issue[] {
     }
   }
   issues.push(...zoneIssues(spec, reached));
+  for (const node of spec.nodes) {
+    if (node.autoscale && node.autoscale.max < (node.replicas ?? 1))
+      issues.push({
+        severity: 'warning',
+        repair: true,
+        target: node.id,
+        message: `${name(node)} autoscales to at most ${node.autoscale.max} but starts with ${node.replicas ?? 1} replicas, so it can never scale up`,
+      });
+  }
   const run = new SystemRun(spec, 1);
   for (let i = 0; i < 30; i++) run.step();
   for (const [id, state] of run.states) {
     const node = spec.nodes.find((n) => n.id === id);
+    if (node?.rateLimit && state.inflow - state.admitted >= 1)
+      issues.push({
+        severity: 'warning',
+        repair: true,
+        target: id,
+        message: `${name(node)}'s rate limit of ${node.rateLimit} rps turns away ${Math.round(state.inflow - state.admitted)} rps of normal traffic`,
+      });
     if (node?.kind !== 'client' && state.utilization > 1) {
       issues.push({ severity: 'warning', message: `${node?.label ?? id} is over capacity at ${Math.round(state.utilization * 100)}% load`, target: id, repair: true });
     }
@@ -148,32 +164,65 @@ function mend(spec: SystemSpec, issues: Issue[], stated: number[]) {
     next.edges.push({ from: queue.id, to: id, mode: 'async' });
     notes.push(`gave ${name(queue)} a worker to drain it`);
   }
+  // A rate limit the user set is a ceiling for normal traffic: traffic they didn't state comes down to 80% of the tightest one.
+  const limits = next.nodes.flatMap((n) =>
+    n.rateLimit && next.edges.some((e) => e.to === n.id && next.nodes.find((c) => c.id === e.from)?.kind === 'client') ? [n.rateLimit] : [],
+  );
+  if (issues.some((i) => /rate limit of .* turns away/.test(i.message)) && limits.length && !said(next.traffic)) {
+    const ceiling = Math.max(1, Math.round(Math.min(...limits) * 0.8));
+    if (ceiling < next.traffic) {
+      next.traffic = ceiling;
+      notes.push(`set normal traffic to ${ceiling} rps, under the rate limit`);
+    }
+  }
+  for (const node of next.nodes) {
+    if (node.autoscale && node.autoscale.max < (node.replicas ?? 1) && !said(node.autoscale.max)) {
+      node.autoscale = { max: Math.min(50, (node.replicas ?? 1) * 2) };
+      notes.push(`let ${name(node)} autoscale to ${node.autoscale.max} replicas`);
+    }
+  }
   for (const node of next.nodes) {
     if (node.zones && node.zones.length > (node.replicas ?? 1) && !said(node.replicas)) {
       node.replicas = node.zones.length;
       notes.push(`ran ${name(node)} in all ${node.zones.length} of its zones`);
     }
   }
-  if (issues.some((i) => /over capacity/.test(i.message)) && topoOrder(next).length === next.nodes.length) {
+  // A loop stops the checks before they measure load, so once one is broken the load is measured here too.
+  const sizing = issues.some((i) => /over capacity/.test(i.message)) || issues.some((i) => /has a cycle/.test(i.message));
+  if (sizing && topoOrder(next).length === next.nodes.length) {
     const fitted = new Set<string>();
-    const loadOf = (spec: SystemSpec) => {
-      const run = new SystemRun(spec, 1);
+    // Each component's real demand: the traffic that reaches it when nothing upstream is a bottleneck and nothing is retried.
+    // Sizing on the load the checks see instead chases its own tail, because one failing component sets off retries that
+    // multiply the load on everything above it.
+    const demandOf = () => {
+      const open = structuredClone(next);
+      open.retries = 0;
+      for (const n of open.nodes) if (n.kind !== 'client') n.capacity = 1e9;
+      const run = new SystemRun(open, 1);
       for (let i = 0; i < 30; i++) run.step();
-      return (id: string) => run.states.get(id)?.utilization ?? 0;
+      return (id: string) => run.states.get(id)?.inflow ?? 0;
     };
+    const overloaded = () => {
+      const run = new SystemRun(next, 1);
+      for (let i = 0; i < 30; i++) run.step();
+      return next.nodes.filter((n) => n.kind !== 'client' && (run.states.get(n.id)?.utilization ?? 0) > 1);
+    };
+    // One pass sizes everything from demand; a second catches what the run's jitter and retries still tip over.
     for (let pass = 0; pass < 3; pass++) {
-      // What the checks flag is the load with retries, but it is sized on the load without them: a component past capacity has
-      // its failed calls retried, which inflates its load beyond what it needs to carry once it is big enough.
-      const flagged = loadOf(next);
-      const bare = loadOf({ ...next, retries: 0 });
-      const hot = next.nodes.filter((n) => n.kind !== 'client' && flagged(n.id) > 1);
-      if (!hot.length) break;
+      const flagged = overloaded();
+      if (!flagged.length) break;
+      const demand = demandOf();
+      // Everything whose real demand passes its capacity, not only what the checks flag: a component behind a bottleneck looks
+      // fine until the bottleneck is fixed, then fails and sets off retries all the way up.
+      const capacityOf = (n: SystemNode) => (n.replicas ?? 1) * (n.capacity ?? DEFAULT_CAPACITY[n.kind]);
+      const hot = next.nodes.filter((n) => n.kind !== 'client' && (flagged.includes(n) || demand(n.id) > capacityOf(n) * 0.9));
       for (const node of hot) {
-        const load = Math.max(bare(node.id), 0.75);
         const replicas = node.replicas ?? 1;
-        const wanted = Math.max(replicas + 1, Math.ceil((replicas * load) / 0.7));
+        const perReplica = node.capacity ?? DEFAULT_CAPACITY[node.kind];
+        const needed = (demand(node.id) * (1 + 0.1 * pass)) / 0.7;
+        const wanted = Math.max(replicas + 1, Math.ceil(needed / perReplica));
         if (node.kind !== 'external' && !said(node.replicas) && wanted <= 50) node.replicas = wanted;
-        else if (!said(node.capacity)) node.capacity = Math.ceil(((node.capacity ?? DEFAULT_CAPACITY[node.kind]) * load) / 0.7);
+        else if (!said(node.capacity)) node.capacity = Math.max(perReplica + 1, Math.ceil(needed / replicas));
         else continue;
         fitted.add(name(node));
       }
@@ -181,6 +230,12 @@ function mend(spec: SystemSpec, issues: Issue[], stated: number[]) {
     if (fitted.size) notes.push(`sized ${list([...fitted])} to carry the traffic at about 70% load`);
   }
   return notes.length ? { spec: next, notes } : null;
+}
+
+/** Where users come in: the first node a client calls, preferring a gateway. */
+function entryOf(spec: SystemSpec) {
+  const firsts = spec.edges.filter((e) => spec.nodes.find((n) => n.id === e.from)?.kind === 'client').map((e) => spec.nodes.find((n) => n.id === e.to)!);
+  return firsts.find((n) => n?.kind === 'gateway') ?? firsts.find(Boolean) ?? null;
 }
 
 function zoneHypothesis(spec: SystemSpec): Hypothesis | null {
@@ -220,8 +275,25 @@ function recoveries(spec: SystemSpec, incident: Incident | undefined): RecoveryO
     patches: [{ op: 'set_retries', retries: 0 }],
   };
   if (incident?.type === 'traffic_spike') {
-    const busiest = spec.nodes.filter((n) => n.kind === 'service').map((n) => ({ op: 'scale', node: n.id, replicas: (n.replicas ?? 1) * 3 }));
-    return [{ author: 'Capacity rules', title: 'Scale every service', rationale: 'Add replicas to absorb the spike.', patches: busiest }, stopRetries];
+    const busiest = spec.nodes.filter((n) => n.kind === 'service').map((n) => ({ op: 'scale', node: n.id, replicas: Math.min(50, (n.replicas ?? 1) * 3) }));
+    const options: RecoveryOption[] = [{ author: 'Capacity rules', title: 'Scale every service', rationale: 'Add replicas to absorb the spike.', patches: busiest }];
+    const services = spec.nodes.filter((n) => n.kind === 'service' && !n.autoscale);
+    if (services.length)
+      options.push({
+        author: 'Capacity rules',
+        title: 'Autoscale every service',
+        rationale: 'Replicas follow the load, once they boot, and go away when it passes.',
+        patches: services.map((n) => ({ op: 'autoscale', node: n.id, max: Math.min(50, (n.replicas ?? 1) * 4) })),
+      });
+    const door = entryOf(spec);
+    if (door)
+      options.push({
+        author: 'Resilience rules',
+        title: `Rate limit ${name(door)}`,
+        rationale: 'Turn away what is past normal traffic at the door, so everything behind it keeps working for the rest.',
+        patches: [{ op: 'rate_limit', node: door.id, rps: Math.round(spec.traffic * 1.2) }],
+      });
+    return [...options, stopRetries];
   }
   if (incident?.type === 'zone_down') {
     const options: RecoveryOption[] = [];
@@ -251,6 +323,14 @@ function recoveries(spec: SystemSpec, incident: Incident | undefined): RecoveryO
     { author: 'Resilience rules', title: `Fail over ${node.label ?? node.id}`, rationale: 'Promote a standby at reduced capacity.', patches: [{ op: 'failover', node: target }] },
     stopRetries,
   ];
+  const unguarded = callers.filter((e) => !e.breaker && (e.mode ?? 'sync') === 'sync');
+  if (unguarded.length)
+    options.push({
+      author: 'Resilience rules',
+      title: `Put circuit breakers on calls to ${node.label ?? node.id}`,
+      rationale: 'Stop calling it while it fails, so callers answer at once and it gets room to recover.',
+      patches: unguarded.map((e) => ({ op: 'add_breaker', from: e.from, to: e.to })),
+    });
   if (callers.length) {
     options.push({
       author: 'Architecture rules',
@@ -267,7 +347,7 @@ export const software: Domain<SystemSpec, SystemSpec> = {
   label: 'Software systems',
   blurb: 'Services, databases, caches and queues under live traffic',
   capabilities:
-    'Distributed software: clients, gateways, services, databases, caches, queues and external APIs, with replicas spread across availability zones or regions. Simulates traffic, capacity, latency, retries, timeouts, retry storms, zone outages and how failures cascade.',
+    'Distributed software: clients, gateways, services, databases, caches, queues and external APIs, with replicas spread across availability zones or regions. Simulates traffic, capacity, latency, retries, timeouts, retry storms, circuit breakers, rate limiting, autoscaling, zone outages and how failures cascade.',
   limits: [
     'Models request volume, not individual requests or business logic',
     'The call graph must have no cycles',
@@ -275,7 +355,7 @@ export const software: Domain<SystemSpec, SystemSpec> = {
     'Latency comes from a simple queueing estimate',
   ],
   examples: ['A distributed payment system with an API gateway, payment service, card processor, database and event queue'],
-  suggestions: ['What happens if the database goes down?', 'What happens if traffic triples?', 'Where is the single point of failure?'],
+  suggestions: ['What happens if the database goes down?', 'What happens if traffic triples?', 'Would circuit breakers stop the cascade?'],
   keywords: /microservice|distributed|payment system|architecture|load balancer|kubernetes|backend|api gateway|message queue|\bkafka\b|services? (and|with|that)|web app/i,
   ticksPerSecond: 8,
   horizon: 300,
@@ -285,10 +365,10 @@ export const software: Domain<SystemSpec, SystemSpec> = {
   specDoc: `{
   "traffic": requests per second from clients,
   "retries": integer 0-5,
-  "nodes": [{"id": string, "label": string, "kind": "client"|"gateway"|"service"|"database"|"cache"|"queue"|"external", "replicas"?: integer, "capacity"?: requests per second per replica, "latency"?: milliseconds, "zones"?: [zone names, replicas spread round-robin]}],
-  "edges": [{"from": node id, "to": node id, "mode"?: "sync"|"async", "calls"?: calls per request, "optional"?: boolean}]
+  "nodes": [{"id": string, "label": string, "kind": "client"|"gateway"|"service"|"database"|"cache"|"queue"|"external", "replicas"?: integer, "capacity"?: requests per second per replica, "latency"?: milliseconds, "zones"?: [zone names, replicas spread round-robin], "rateLimit"?: requests per second it admits, "autoscale"?: {"max": replicas it may grow to}}],
+  "edges": [{"from": node id, "to": node id, "mode"?: "sync"|"async", "calls"?: calls per request, "optional"?: boolean, "breaker"?: true for a circuit breaker on this call}]
 }
-Include at least one client. Every component, service or third-party product the user names becomes its own node with an id and label that name it, even when its internals can't be simulated (a video call service, a CDN, an LLM API): model it as a service or an external. The graph must have no cycles. Use async edges into and out of queues, and give every queue a consumer. Size replicas and capacity so normal traffic stays under 70% of capacity on every component, unless the user asks for an overloaded system. Set zones only when the user mentions regions, availability zones or data centres.`,
+Include at least one client. Every component, service or third-party product the user names becomes its own node with an id and label that name it, even when its internals can't be simulated (a video call service, a CDN, an LLM API): model it as a service or an external. The graph must have no cycles. Use async edges into and out of queues, and give every queue a consumer. Size replicas and capacity so normal traffic stays under 70% of capacity on every component, unless the user asks for an overloaded system. Set zones only when the user mentions regions, availability zones or data centres. Set rateLimit, autoscale or breaker only when the user mentions rate limiting or throttling, autoscaling, or circuit breakers, and keep normal traffic under any rate limit at the front unless the user says it is exceeded.`,
   incidentTypes: ['node_down', 'node_slow', 'traffic_spike', 'cut_link', 'cache_flush', 'zone_down'],
   incidentDoc: `{"type":"node_down","target":"node id"}
 {"type":"node_slow","target":"node id","value":slowdown factor}
@@ -303,7 +383,10 @@ Include at least one client. Every component, service or third-party product the
 {"op":"make_optional","from":"id","to":"id"}
 {"op":"add_cache","before":"id"}
 {"op":"add_queue","from":"id","to":"id"}
-{"op":"add_zone","node":"id","zone":"name"} (adds replicas so one runs there)`,
+{"op":"add_zone","node":"id","zone":"name"} (adds replicas so one runs there)
+{"op":"add_breaker","from":"id","to":"id"} (circuit breaker: stops calling a failing callee, fails fast, retries after a pause)
+{"op":"rate_limit","node":"id","rps":number} (turns away traffic past this rate at once)
+{"op":"autoscale","node":"id","max":integer} (adds replicas under load, after they boot)`,
   council: [
     { name: 'SiteReliabilityLead', brief: 'failover and restoring the broken dependency' },
     { name: 'ResilienceEngineer', brief: 'retries, degradation and isolating the failure' },

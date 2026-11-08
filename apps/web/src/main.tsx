@@ -12,6 +12,7 @@ import { useStore } from './store';
 import './styles.css';
 import { LockedRunNotice, MySystems } from './ui/Account';
 import { ChatPanel } from './ui/ChatPanel';
+import { FloorTools } from './domains/warehouse/FloorTools';
 import { Inspector } from './ui/Inspector';
 import { Landing } from './ui/Landing';
 import { MobileNav } from './ui/MobileNav';
@@ -63,6 +64,8 @@ function App() {
           <MobileNav />
           <ChatPanel />
           <RightPanel />
+          {/* Before the Inspector, so the Inspector stacks over it where they meet */}
+          <FloorTools />
           <Inspector />
           <RecoveryCard />
           <Transport />

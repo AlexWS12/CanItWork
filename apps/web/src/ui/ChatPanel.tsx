@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { sendChat } from '../actions';
 import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
+import { SignInButton } from './Account';
+import { DrillBack } from './DrillBack';
 import './ChatPanel.css';
 import { AGENT_LABEL, ENGINE_LABEL } from './labels';
 
@@ -24,6 +26,7 @@ export function ChatPanel() {
   };
   return (
     <aside className="panel left" aria-label="Chat">
+      <DrillBack />
       <div className="messages">
         {messages.map((m, i) =>
           m.role === 'user' ? (
@@ -39,6 +42,7 @@ export function ChatPanel() {
               )}
               <div className="message" data-role="app">
                 {m.text}
+                {m.signIn && <SignInButton />}
               </div>
             </div>
           ),

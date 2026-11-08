@@ -56,7 +56,53 @@ export interface Inspection {
   title: string;
   rows: Array<[string, string | number]>;
   actions: Array<{ label: string; incident: Incident; destructive: boolean }>;
+  /** Hand edits to the design as it runs, such as deleting this component; applied like any fix */
+  edits?: Array<{ label: string; patches: unknown[]; destructive?: boolean }>;
+  /** One line under the edits, such as how to move the thing by hand */
+  editHint?: string;
+  /** Settings the design runs with, changed by hand mid-run like any fix */
+  settings?: Setting[];
+  /**
+   * A way into this part as a system of its own in another domain, such as a software design's database opened as a schema.
+   * `prompt` builds it, `rps` is the load this part carries, which the inner design is sized to, and `node` is where the
+   * result links back.
+   */
+  drill?: { label: string; prompt: string; node: string; rps: number };
 }
+
+/**
+ * What the Inspector asks a run for to show the settings the whole system runs with, such as a warehouse's dispatch
+ * policy or a service's retries. A run that has none returns null for it.
+ */
+export const SYSTEM = '@system';
+
+/**
+ * One setting, as plain data: changing it applies `{ ...patch, [key]: value }`. A number is shown as `value` with
+ * `unit` and sent divided by `scale`, so a fraction can be shown as a percentage.
+ */
+export type Setting = { label: string; hint?: string; patch: Record<string, unknown>; key: string } & (
+  | { kind: 'choice'; value: string | number; options: Array<{ label: string; value: string | number }> }
+  | { kind: 'number'; value: number; min: number; max: number; step: number; unit: string; scale?: number }
+);
+
+/**
+ * The check most domains need for a hand edit: the patch has to parse as one of the domain's fixes. Anything that
+ * parses is left to the run to apply, as an agent's fix would be.
+ */
+export function checkPatches(schema: ZodType<any, any, any>, patches: unknown[], exists: (patch: any) => string | null = () => null): string | null {
+  for (const patch of patches) {
+    const parsed = schema.safeParse(patch);
+    if (!parsed.success) return parsed.error.issues[0]?.message ?? 'That edit is not one this simulator can make.';
+    const reason = exists(parsed.data);
+    if (reason) return reason;
+  }
+  return null;
+}
+
+export const settingPatch = (setting: Setting, value: string | number) => ({
+  ...setting.patch,
+  [setting.key]: typeof value === 'number' && setting.kind === 'number' ? value / (setting.scale ?? 1) : value,
+});
 
 export interface Run {
   readonly tick: number;
@@ -64,10 +110,21 @@ export interface Run {
   step(): void;
   inject(incident: Incident): void;
   apply(patches: unknown[]): void;
+  /** Why these patches can't be applied to the run as it stands, or null; for domains that check hand edits. */
+  check?(patches: unknown[]): string | null;
   evaluation(): Evaluation;
   telemetry(): Metric[];
   breakables(): Breakable[];
   inspect(target: string): Inspection | null;
+  /** What the system as it stands costs to run for a month, for domains with a price list. */
+  cost?(): MonthlyCost;
+}
+
+/** An estimate from rough cloud list prices, line by line; `ceiling` is what it reaches with every autoscaler at its max. */
+export interface MonthlyCost {
+  usd: number;
+  lines: Array<{ label: string; usd: number }>;
+  ceiling?: number;
 }
 
 export interface Hypothesis {
@@ -142,6 +199,11 @@ export interface Environment {
 }
 
 export function evaluate(domain: Domain, model: unknown, scenario: Scenario): Evaluation {
+  return replay(domain, model, scenario).evaluation();
+}
+
+/** A scenario played out on a fresh run, which is left as it ends for anything else worth reading from it. */
+export function replay(domain: Domain, model: unknown, scenario: Scenario): Run {
   const run = domain.createRun(model, scenario.seed);
   const events = [...scenario.events].sort((a, b) => a.at - b.at);
   let next = 0;
@@ -153,7 +215,7 @@ export function evaluate(domain: Domain, model: unknown, scenario: Scenario): Ev
     }
     run.step();
   }
-  return run.evaluation();
+  return run;
 }
 
 export function defaultCompare(base: Evaluation, after: Evaluation): { hurt: boolean; evidence: string } {

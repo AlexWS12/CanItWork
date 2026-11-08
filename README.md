@@ -11,6 +11,8 @@ CanItWork is a team of AI agents that builds a live simulation of any system you
 
 The simulator settles every argument. It covers hardware, software, operations and infrastructure, and fleets of robots and drones. If it can't model something, it says so.
 
+Every agent call costs real money, so **Auth0 decides who can make the agents spend it**. Signing in unlocks new AI builds, limits follow the account instead of the network, and runs can be shared only with people whose identity Auth0 has verified. [docs/AUTH0.md](docs/AUTH0.md) explains why that matters and how it works.
+
 Built at SharkByte 2026.
 
 ## What it can build
@@ -27,8 +29,12 @@ Thirteen domains, each with its own simulator and 3D view.
 
 | Domain | Simulator | View |
 |---|---|---|
-| Software systems | Traffic, capacity, latency, retries, timeouts and cascading failures | Racks, databases and queues with live packets |
-| Databases | Query cost, indexes, data growth, locks and broken dependencies | Table cards with keys and relationships |
+| Software systems | Traffic, capacity, latency, retries, timeouts and cascading failures, with circuit breakers, rate limits and autoscaling that boots replicas under load | Racks, databases and queues with live packets |
+| Databases | Query cost, indexes, data growth, locks and broken dependencies, and classic outages: a lock or leak exhausting the connection pool, replicas falling behind and serving stale reads, and N+1 query loops | Table cards with keys and relationships |
+
+Every system except a circuit shows what it costs to run each month, from rough list prices: replicas, database nodes and storage, queue messages and API calls for software; staffed beds, gates, cashiers, agents, machines and plants (with fuel, freight and chemicals by volume) for the flow systems; robots, chargers, docks and floor space for a warehouse; units by role for a fleet. It moves live as autoscaling adds replicas or a fix lands. Every recovery the council proposes says what it adds to the bill, and among fixes that tie on the result the cheapest is recommended.
+
+Paste your own file instead of describing the system: `CREATE TABLE` SQL (Postgres or MySQL dumps, with keys, indexes, `ALTER TABLE` and partitions) builds the database exactly as written, and a Docker Compose file or Kubernetes manifests build the architecture, with each service's kind read from its image and its calls from `depends_on` and connection strings. No model reads the structure; the Architect only estimates what a file can't say (row counts and queries, or traffic and capacity), keeping any number you write beside it.
 
 **Operations and infrastructure**
 
@@ -96,7 +102,9 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 | `GEMINI_RPM` | Paces direct Gemini calls under a free-tier key's per-minute limit, such as `12` |
 | `ARCHITECT_MODEL` | Model for the Architect. It falls back to `GEMINI_MODEL` when this one is busy or out of quota |
 | `ARCHITECT_REPAIR_MODEL` | Model for repairing a design the Validator sent back. It falls back to `ARCHITECT_MODEL` |
-| `RATE_LIMIT_PER_HOUR` | AI builds, chats and recoveries allowed per visitor an hour on a public deploy. Cached examples never count |
+| `RATE_LIMIT_PER_HOUR` | AI builds, chats and recoveries allowed per visitor an hour on a public deploy. A signed-in person is counted by their account, not their address. Cached examples never count |
+| `REQUIRE_SIGN_IN` | With Auth0 configured, `1` keeps the AI for signed-in people: guests are offered a Sign-in button instead. Cached examples stay free for everyone |
+| `GUEST_LIMIT_PER_HOUR` | With `REQUIRE_SIGN_IN`, AI builds a guest may try an hour before being asked to sign in. Unset means none |
 | `PORT` | API port. Defaults to 8787 |
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID` | Turn on sign-in with Auth0: the tenant domain and a Single Page Application's client ID, whose allowed callback, logout and web origin URLs include where the app runs. Neither is secret. Without them, sign-in stays hidden |
 | `AUTH0_AUDIENCE` | Optional Auth0 API identifier: with it, tokens are checked locally against the tenant's keys; without it, the server asks Auth0 once per sign-in |
@@ -133,6 +141,8 @@ Agents propose and the simulators decide. Simulators are deterministic, so an en
 **Working together:** Share can start a live session. Everyone with the invite sees the same run, and every break, fix, switch flip, play and pause shows up for all of them, with who did it in the chat. The agents work for the whole room: when someone breaks the system, everyone watches the Recovery Council's steps and gets the same fix proposals, and anyone can apply one. Because the simulators are deterministic, the server only relays the action log; each browser replays it and lands on exactly the same state. Someone joining late starts from the whole log and the agents' work so far, and a screen that falls behind catches up to the session's clock. Sessions are saved with the runs (Tiger Data's Postgres when `DATABASE_URL` is set), so a server restart picks them up again for a day.
 
 **Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch. Share can also show the link as a QR code, drawn in the browser so the run never goes to an outside service.
+
+**Sign-in guards the agents:** with Auth0 configured and `REQUIRE_SIGN_IN=1`, a guest's new build, chat or recovery is turned away before any model is called, with a Sign in button where the build would have been. Verified examples and shared links stay free for everyone. The server checks each request's Auth0 token, and the hourly limit counts a signed-in person by their account, so a new network doesn't reset it and a shared one doesn't lock out a room. See [docs/AUTH0.md](docs/AUTH0.md).
 
 **Accounts:** with Auth0 configured, people sign in and save runs to their account, with a short link. The owner chooses who can open each one: anyone with the link, only themselves, or people they name by email. The server checks every request's Auth0 token, and only a verified email unlocks a run shared with that address. "My systems" lists saved runs, with each one's sharing setting, its link and a delete button.
 

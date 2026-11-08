@@ -1,9 +1,11 @@
 export * from './domain';
 export * from './domains';
+export { costOfFix, designCost, money } from './cost';
 export * from './edit';
 export * from './hash';
 export * from './protocol';
-export { WarehouseRun } from './domains/warehouse';
+export { MAX_REPLAY_TICKS } from './replay';
+export { FLOOR, WarehouseRun } from './domains/warehouse';
 export type { RobotState } from './domains/warehouse/sim';
 export type { World } from './domains/warehouse/schema';
 export { CircuitRun } from './domains/electronics/circuit';
@@ -15,7 +17,8 @@ export { buildGuide, guideText, type BuildGuide } from './domains/electronics/gu
 export { netsOf } from './domains/electronics/nets';
 export { PINS, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './domains/electronics/parts';
 export { SystemRun, edgeKey, topoOrder } from './domains/software/system';
-export type { SystemNode, SystemSpec } from './domains/software/schema';
+export type { NodeKind, SystemEdge, SystemNode, SystemSpec } from './domains/software/schema';
 export { SchemaRun, isIndexed } from './domains/database/engine';
-export type { DatabaseSpec, Table } from './domains/database/schema';
+export { asDatabaseNode, sizeWorkload } from './domains/database/link';
+export type { Column, DatabaseSpec, Query, Table } from './domains/database/schema';
 export { NetRun, linkKey, netOrder, type NetNode, type NetSpec } from './domains/network';

@@ -315,16 +315,24 @@ describe('agent pipelines', () => {
 
   it('refuses a design that still fails the checks after repairs', async () => {
     process.env.GEMINI_API_KEY = 'g';
-    const bad = { tables: [{ name: 'a', rows: 1, columns: [{ name: 'id', type: 'int', references: { table: 'ghost', column: 'id' } }], indexes: [] }], workload: [] };
+    // Nothing sends traffic: no mend invents a client, so this stays broken however often it is repaired.
+    const bad = {
+      traffic: 10,
+      nodes: [
+        { id: 'api', kind: 'service' },
+        { id: 'db', kind: 'database' },
+      ],
+      edges: [{ from: 'api', to: 'db' }],
+    };
     mockFetch((_, init) =>
       String(init.body).includes('You route requests')
-        ? json(openAiReply(JSON.stringify({ domain: 'database', reason: 'r' })))
+        ? json(openAiReply(JSON.stringify({ domain: 'software', reason: 'r' })))
         : json(openAiReply(JSON.stringify({ name: 'n', summary: 's', spec: bad }))),
     );
     const { events, emit } = collect();
-    await build('a schema', emit);
+    await build('a backend', emit);
     expect(environmentOf(events)).toBeNull();
-    expect(refusalOf(events)?.reason).toContain("doesn't exist");
+    expect(refusalOf(events)?.reason).toContain('add a client');
   });
 
   it('runs the Architect on Gemini and the Red Team on Swarms, and scores claims with the simulator', async () => {
@@ -394,6 +402,28 @@ describe('agent pipelines', () => {
     expect(calls).toHaveLength(1);
     expect(engines(second.events)).not.toContain('swarms');
     expect(second.events.some((e) => e.type === 'recovery')).toBe(true);
+  });
+
+  it('says doing nothing is best when every proposed fix scores no better than leaving it', async () => {
+    process.env.SWARMS_API_KEY = 'key';
+    // The council only proposes taking more robots out: every option is worse than doing nothing.
+    const worse = {
+      title: 'Pull two robots for maintenance',
+      rationale: 'r',
+      patches: [
+        { op: 'remove_robot', robotId: 'R1' },
+        { op: 'remove_robot', robotId: 'R3' },
+      ],
+    };
+    mockFetch(() => json({ output: [{ role: 'CapacityLead', content: JSON.stringify(worse) }], usage: { total_cost: 0.03 } }));
+    const { events, emit } = collect();
+    await recover(failure, emit);
+    const found = events.find((e) => e.type === 'recovery');
+    const report = found?.type === 'recovery' ? found.report : null;
+    expect(report).toBeTruthy();
+    expect(report!.candidates[0].evaluation.score).toBeLessThanOrEqual(report!.unmitigated.score);
+    expect(report!.headline).toMatch(/^Doing nothing is best/);
+    expect(report!.summary).toMatch(/None of the 1 fixes beats doing nothing/);
   });
 
   it('a crash on the Red Team model leaves the recovery council available', async () => {
