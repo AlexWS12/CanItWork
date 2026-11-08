@@ -16,7 +16,7 @@ export { buildGuide, guideText, type BuildGuide } from './domains/electronics/gu
 export { netsOf } from './domains/electronics/nets';
 export { PINS, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './domains/electronics/parts';
 export { SystemRun, edgeKey, topoOrder } from './domains/software/system';
-export type { SystemNode, SystemSpec } from './domains/software/schema';
+export type { NodeKind, SystemEdge, SystemNode, SystemSpec } from './domains/software/schema';
 export { SchemaRun, isIndexed } from './domains/database/engine';
-export type { DatabaseSpec, Table } from './domains/database/schema';
+export type { Column, DatabaseSpec, Query, Table } from './domains/database/schema';
 export { NetRun, linkKey, netOrder, type NetNode, type NetSpec } from './domains/network';

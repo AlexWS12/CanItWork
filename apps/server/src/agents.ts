@@ -8,6 +8,8 @@ import {
   evaluate,
   type AgentId,
   type Candidate,
+  type DatabaseSpec,
+  type SystemSpec,
   type Domain,
   type DomainId,
   type Engine,
@@ -32,6 +34,7 @@ import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
 import { forget, lookup, markStale, remember } from './design-cache';
+import { importFile, type Imported } from './importers';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -461,13 +464,94 @@ async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId;
   return served;
 }
 
+const FillQuery = z.object({
+  name: z.string().min(1),
+  kind: z.enum(['read', 'write']),
+  table: z.string(),
+  where: z.array(z.string()).default([]),
+  joins: z.array(z.object({ table: z.string(), local: z.string(), foreign: z.string() })).default([]),
+  perSecond: z.number().positive().max(100000),
+});
+const FillSchema = z.object({
+  name: z.string().min(1).max(60),
+  summary: z.string().max(280),
+  rows: z.record(z.number().int().min(0).max(1e10)).default({}),
+  workload: z.array(FillQuery).max(8).default([]),
+  traffic: z.number().positive().max(100000).optional(),
+  nodes: z.record(z.object({ capacity: z.number().positive().optional(), latency: z.number().positive().optional() })).default({}),
+});
+
+// A pasted SQL schema, Compose file or Kubernetes manifests: the structure is read from the file as it is, and the Architect only
+// estimates what the file can't say (row counts and queries, or traffic and capacity), keeping any number the user wrote beside it.
+async function fromFile(prompt: string, file: Imported, domain: Domain, emit: Emit, step: Step): Promise<Draft> {
+  await step('interpreter', 'rules', `Reading your ${file.format} ${file.domain === 'database' ? 'schema' : 'file'}`, async (detail) => {
+    detail(`${file.found}${file.notes.length ? `; ${file.notes.join('; ')}` : ''}`);
+  });
+  const estimated =
+    file.domain === 'database'
+      ? 'Row counts and the query workload are estimates; a schema file doesn’t say them'
+      : 'Traffic and per-replica capacity are estimates; the file doesn’t say them';
+  const base: Draft = {
+    name: file.name,
+    summary: `Your ${file.format} ${file.domain === 'database' ? 'schema' : 'setup'}: ${file.found}.`,
+    unmodelled: [estimated, ...file.notes.map((n) => `The import ${n}`)],
+    spec: file.spec,
+  };
+  if (!hasGemini()) return base;
+  const context = prompt.replace(/```[\s\S]*?```/g, '').trim();
+  return orRules(
+    () =>
+      step('architect', 'gemini', file.domain === 'database' ? 'Estimating rows and queries' : 'Estimating traffic and capacity', async (detail) => {
+        const fill = await chatJson({
+          feature: 'architect-import',
+          schema: FillSchema,
+          onUsage: onUsage(emit),
+          system: `You are the Architect on a team that simulates systems. The user pasted their real ${file.format} ${file.domain === 'database' ? 'schema' : 'deployment'}, already read into the structure below, which is fixed: never add, remove or rename anything. Estimate only what the file can't say, realistically for this kind of system, and keep exactly any number the user wrote beside the file (a rate they give becomes that query's or the system's rate). The name and summary describe only what is in the structure. Reply with JSON only: ${
+            file.domain === 'database'
+              ? '{"name": short title naming what this schema is for, "summary": one sentence, "rows": {table name: estimated row count}, "workload": [2 to 6 of the queries this app most likely runs: {"name": string, "kind": "read"|"write", "table": table, "where": [columns of that table], "joins": [{"table": other table, "local": column here, "foreign": column there}], "perSecond": number}]}'
+              : '{"name": short title naming what this system is, "summary": one sentence, "traffic": requests per second reaching it, "nodes": {node id: {"capacity"?: requests per second one replica handles, "latency"?: milliseconds}}}'
+          }`,
+          user: `${context ? `What the user said: ${context}\n` : ''}Structure: ${JSON.stringify(file.spec)}`,
+        });
+        const spec = structuredClone(file.spec) as Imported['spec'];
+        if (file.domain === 'database' && 'tables' in spec) {
+          for (const t of spec.tables) if (fill.rows[t.name] !== undefined) t.rows = fill.rows[t.name];
+          const has = (table: string, column: string) => spec.tables.some((t) => t.name === table && t.columns.some((c) => c.name === column));
+          const workload = fill.workload.filter((q) => q.where.every((c) => has(q.table, c)) && q.joins.every((j) => has(q.table, j.local) && has(j.table, j.foreign)));
+          if (workload.length) spec.workload = workload;
+        } else if ('nodes' in spec) {
+          if (fill.traffic) spec.traffic = fill.traffic;
+          for (const n of spec.nodes) {
+            const est = fill.nodes[n.id];
+            if (n.kind === 'client' || !est) continue;
+            if (est.capacity) n.capacity = est.capacity;
+            if (est.latency) n.latency = est.latency;
+          }
+        }
+        const parsed = domain.specSchema.safeParse(spec);
+        if (!parsed.success) throw new Error('The estimates did not fit the imported structure');
+        detail(
+          file.domain === 'database'
+            ? `${(parsed.data as DatabaseSpec).workload.length} queries over ${(parsed.data as DatabaseSpec).tables.length} tables`
+            : `${(parsed.data as SystemSpec).traffic} requests per second`,
+        );
+        return { ...base, name: fill.name, summary: fill.summary, spec: parsed.data };
+      }),
+    async () => base,
+  );
+}
+
 export async function build(prompt: string, emit: Emit) {
   const step = stepper(emit);
-  const cached = await cachedDesign(prompt, step);
-  const id = cached?.id ?? (await interpret(prompt, emit, step));
+  // A pasted file is the design itself: it skips the cache, the routing and the Architect's drafting.
+  const file = importFile(prompt);
+  const cached = file ? null : await cachedDesign(prompt, step);
+  const id = file?.domain ?? cached?.id ?? (await interpret(prompt, emit, step));
   if (!id) return;
   const domain = DOMAINS[id];
-  const first = cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
+  const first = file
+    ? await fromFile(prompt, file, domain, emit, step)
+    : (cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step)));
   if (!first) return;
   let draft = first;
 
@@ -485,11 +569,13 @@ export async function build(prompt: string, emit: Emit) {
     return found;
   });
   // A design from the verified cache already matched this exact request, so only fresh designs are reviewed.
-  if (!cached && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
+  // The Reviewer compares a design with a description; an imported file is its own description, so it isn't reviewed.
+  if (!cached && !file && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
   const errorsOf = () => issues.filter((i) => i.severity === 'error').map((i) => i.message);
   const toRepair = () => issues.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message);
 
-  for (let attempt = 0; attempt < MAX_REPAIRS && toRepair().length && hasGemini(); attempt++) {
+  // An imported structure is the user's own, so the Architect never redraws it; only the deterministic mend below settles it.
+  for (let attempt = 0; attempt < MAX_REPAIRS && toRepair().length && hasGemini() && !file; attempt++) {
     const previous = draft;
     const found = toRepair();
     draft = await orRules(
@@ -549,7 +635,7 @@ export async function build(prompt: string, emit: Emit) {
 
   const unresolved = issues.filter((i) => i.repair).map((i) => `Still failing the checks: ${i.message}`);
   const proof = !unresolved.length && domain.proof ? domain.proof(domain.compile(draft.spec)) : null;
-  if (!unresolved.length && hasGemini() && draft !== cached?.draft) remember(prompt, { domain: id, draft });
+  if (!unresolved.length && hasGemini() && !file && draft !== cached?.draft) remember(prompt, { domain: id, draft });
   if (proof) await step('validator', 'simulator', 'Proving it works', async (detail) => detail(proof));
   const environment: Environment = { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: [...unresolved, ...draft.unmodelled] };
   emit({ type: 'environment', environment });

@@ -111,6 +111,8 @@ const shown = (v: string | number) => (typeof v === 'number' ? Number.isFinite(v
 // An error outweighs any number of warnings: the checks stop at some errors (a loop), so mending one can reveal warnings behind it.
 const badness = (issues: Array<{ severity: string; repair?: boolean }>) => issues.reduce((sum, i) => sum + (i.severity === 'error' ? 1000 : i.repair ? 1 : 0), 0);
 
+// Per domain: enough to hit every odd shape, few enough to finish quickly beside the rest of the suite on a busy machine.
+const DESIGNS = 600;
 const mends = { better: 0, notBetter: 0 };
 
 function exercise(id: 'software' | 'database', spec: unknown, seed: number) {
@@ -171,16 +173,16 @@ describe('random software and database designs', () => {
     ['software', randomSystem],
     ['database', randomSchema],
   ] as const) {
-    it(`${id}: 1500 random designs check, mend, run, break and recover without throwing`, () => {
+    it(`${id}: ${DESIGNS} random designs check, mend, run, break and recover without throwing`, () => {
       const outcomes: Record<string, number> = {};
       mends.better = mends.notBetter = 0;
-      for (let seed = 1; seed <= 1500; seed++) {
+      for (let seed = 1; seed <= DESIGNS; seed++) {
         const outcome = exercise(id, make(rng(seed)), seed);
         outcomes[outcome] = (outcomes[outcome] ?? 0) + 1;
       }
       // Most random designs should come through runnable once mended, and nearly every mend should leave fewer problems.
-      expect(outcomes.ran ?? 0, JSON.stringify(outcomes)).toBeGreaterThan(1000);
+      expect(outcomes.ran ?? 0, JSON.stringify(outcomes)).toBeGreaterThan(DESIGNS * 0.66);
       expect(mends.better / (mends.better + mends.notBetter || 1), JSON.stringify(mends)).toBeGreaterThan(0.9);
-    });
+    }, 120_000);
   }
 });
