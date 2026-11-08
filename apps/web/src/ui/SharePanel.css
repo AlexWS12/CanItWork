@@ -1,0 +1,99 @@
+/* Share: a small panel under the button with the link and an optional QR code */
+.share-wrap {
+  position: relative;
+}
+
+.share-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 40;
+  width: min(300px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface-opaque);
+  border: var(--rule-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 18px 50px oklch(9% 0.012 261 / 0.55);
+  backdrop-filter: blur(14px);
+  /* The top bar keeps its items on one line; the panel's sentences wrap */
+  white-space: normal;
+  text-align: left;
+}
+
+.share-title {
+  font-weight: 600;
+}
+
+.share-note {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.share-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.share-actions button {
+  flex: 1;
+  font-size: var(--text-sm);
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+}
+
+.share-actions .share-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+
+.share-actions .share-primary:hover {
+  background: var(--color-accent-hover);
+}
+
+.share-qr {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* A QR code needs dark modules on white to scan, whatever the theme */
+.share-qr > div {
+  width: 220px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  padding: var(--space-1);
+  background: #ffffff;
+  border-radius: var(--radius-sm, 8px);
+}
+
+.share-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.share-qr figcaption {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.share-warn {
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+}
+
+.share-hash {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.share-hash code {
+  color: var(--color-text);
+}
