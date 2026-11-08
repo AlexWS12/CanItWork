@@ -4,6 +4,7 @@ import { shareRun, startOver } from '../actions';
 import { shortHash } from '../share';
 import { useStore } from '../store';
 import { ticks } from './labels';
+import { Wordmark } from './Wordmark';
 import './TopBar.css';
 
 const CHECK_LABEL: Record<KeyCheck, string> = { ok: 'key works', failing: 'key failing', unchecked: 'key not checked' };
@@ -66,19 +67,13 @@ export function TopBar() {
   const environment = useStore((s) => s.environment);
   const building = useStore((s) => s.building);
   const incident = useStore((s) => Boolean(s.report) && s.reportOpen);
+  const running = useStore((s) => s.telemetry.running);
   // The build screen has its own wordmark and nothing else belongs over it
   if (building) return null;
   if (!environment) {
     return (
       <div className="status">
-        {/* The landing title's circuit in miniature: power dot, the word with a teal "It", output dot */}
-        <span className="wordmark wordmark-circuit">
-          <span className="wordmark-dot" data-end="power" aria-hidden />
-          <span>
-            Can<span className="wordmark-it">It</span>Work
-          </span>
-          <span className="wordmark-dot" data-end="output" aria-hidden />
-        </span>
+        <Wordmark />
         <Integrations variant="chip" />
       </div>
     );
@@ -86,7 +81,8 @@ export function TopBar() {
   const domain = DOMAINS[environment.domain];
   return (
     <header className="topbar" data-incident={incident}>
-      <span className="wordmark">CanItWork</span>
+      {/* Same precedence as StatePill: an open incident, otherwise running or paused */}
+      <Wordmark state={incident ? 'incident' : running ? 'running' : 'paused'} />
       <span className="divider" aria-hidden />
       <div className="identity" title={environment.summary}>
         <b>{environment.name}</b>

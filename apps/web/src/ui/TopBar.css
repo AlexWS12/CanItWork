@@ -30,27 +30,6 @@
   margin-right: var(--space-2);
 }
 
-.wordmark-circuit {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.wordmark-it {
-  color: var(--color-teal);
-}
-
-.wordmark-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-pill);
-  background: var(--color-teal);
-}
-
-.wordmark-dot[data-end='power'] {
-  background: var(--color-accent);
-}
-
 .integrations {
   display: flex;
   align-items: center;

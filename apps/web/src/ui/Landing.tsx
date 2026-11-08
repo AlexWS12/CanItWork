@@ -68,7 +68,7 @@ const TAGLINE = ['Describe a system.', 'Run it.', 'Break it.', 'Fix it.'];
 // The wordmark on a circuit trace. The intro asks "Can it?", then "Work?", slides the words together into
 // "CanItWork?", runs current from the amber power dot through the node under "It" to the teal output,
 // and the "?" lifts away once it arrives. W is the width of "CanIt" (where the node sits), TW of the word.
-function Wordmark() {
+function CircuitTitle() {
   const canIt = useRef<HTMLSpanElement>(null);
   const word = useRef<HTMLSpanElement>(null);
   const [{ w, tw }, setSize] = useState({ w: 310, tw: 560 });
@@ -154,7 +154,7 @@ export function Landing() {
   return (
     <div className="landing">
       <header className="landing-head">
-        <Wordmark />
+        <CircuitTitle />
         <p className="tagline">
           {TAGLINE.map((phrase, i) => (
             <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>
