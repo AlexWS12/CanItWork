@@ -1,4 +1,4 @@
-import { createAuth0Client, type Auth0Client } from '@auth0/auth0-spa-js';
+import type { Auth0Client } from '@auth0/auth0-spa-js';
 import { create } from 'zustand';
 
 // Sign-in with Auth0. The server says whether a tenant is configured; without one, nothing here shows and the app
@@ -37,6 +37,8 @@ export async function initAuth() {
     const res = await fetch('/api/auth/config');
     const config = res.ok ? ((await res.json()) as { enabled: boolean; domain?: string; clientId?: string; audience?: string }) : { enabled: false };
     if (!config.enabled || !config.domain || !config.clientId) return useAuth.setState({ ready: true });
+    // The Auth0 SDK only loads when sign-in is configured.
+    const { createAuth0Client } = await import('@auth0/auth0-spa-js');
     client = await createAuth0Client({
       domain: config.domain,
       clientId: config.clientId,

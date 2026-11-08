@@ -1,4 +1,3 @@
-import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
 import { saveRun, shareRun, type Visibility } from '../actions';
 import { useAuth } from '../auth';
@@ -67,7 +66,9 @@ export function ShareButton() {
   useEffect(() => {
     if (!showQr || !link || link.length > QR_LIMIT) return;
     let live = true;
-    QRCode.toString(link, { type: 'svg', errorCorrectionLevel: 'L', margin: 2, color: { dark: '#0b0f17', light: '#ffffff' } })
+    // The QR library only loads when someone asks for a code.
+    import('qrcode')
+      .then(({ default: QRCode }) => QRCode.toString(link, { type: 'svg', errorCorrectionLevel: 'L', margin: 2, color: { dark: '#0b0f17', light: '#ffffff' } }))
       .then((svg) => live && setQr(svg))
       .catch(() => live && setQr(null));
     return () => {

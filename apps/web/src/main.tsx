@@ -1,13 +1,12 @@
 import '@fontsource-variable/space-grotesk';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as actions from './actions';
 import { fetchStatus, openSharedRun } from './actions';
 import { initAuth, useAuth } from './auth';
 import { runner } from './runner';
-import { Scene } from './scene/Scene';
 import { useStore } from './store';
 import './styles.css';
 import { LockedRunNotice, MySystems } from './ui/Account';
@@ -19,6 +18,12 @@ import { RecoveryCard } from './ui/RecoveryCard';
 import { RightPanel } from './ui/RightPanel';
 import { TopBar } from './ui/TopBar';
 import { Transport } from './ui/Transport';
+
+// The 3D scene (three.js and every domain's view) loads after the first paint, so the landing page shows at once;
+// it starts downloading as soon as the browser is idle, so it is ready by the time a build finishes.
+const loadScene = () => import('./scene/Scene');
+const Scene = lazy(() => loadScene().then((m) => ({ default: m.Scene })));
+if (typeof window !== 'undefined') ('requestIdleCallback' in window ? window.requestIdleCallback : setTimeout)(() => void loadScene());
 
 // A handle for poking at the live run from the browser console during development.
 if (import.meta.env.DEV) Object.assign(window, { __tv: { runner, store: useStore, actions, auth: useAuth } });
@@ -46,7 +51,9 @@ function App() {
   }, []);
   return (
     <>
-      <Scene />
+      <Suspense fallback={null}>
+        <Scene />
+      </Suspense>
       <TopBar />
       {environment && !building ? (
         <>
