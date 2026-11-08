@@ -1,7 +1,7 @@
 import type { Breakable } from '@tv/core';
 import { useEffect, useRef, useState } from 'react';
 import { breakThing } from '../actions';
-import { HEALTH_LABEL, displayLabel, headline, healthOf, metricHelp, type Health } from '../explain';
+import { HEALTH_LABEL, displayLabel, headline, healthOf, metricHelp, metricSource, type Health } from '../explain';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import { Sparkline } from './Charts';
@@ -42,6 +42,15 @@ function steady(key: string, health: Health, text = ''): { health: Health; text:
 const moved = (values: number[]) => values.length > 1 && Math.max(...values) - Math.min(...values) > 1e-9;
 
 const isCost = (value: string | number) => /\/mo$/.test(String(value));
+
+// "$1,240/mo" as 1240, so cost lines can be drawn against each other
+const dollars = (value: string) => Number(value.replace(/[^\d.]/g, '')) || 0;
+
+// A breakdown row's bar: a share of the largest line for costs, the reading itself for percentages
+function barWidth(row: { value: string }, cost: boolean, largest: number) {
+  if (cost) return largest > 0 ? (dollars(row.value) / largest) * 100 : 0;
+  return Math.min(100, parseFloat(row.value) || (row.value === 'closed' ? 100 : 0));
+}
 
 // A cost estimate wobbles with traffic every tick, so its tile shows the recent average, rounded to what an estimate can
 // claim: "≈ $320/mo" rather than $319, $327, $312 flickering past
@@ -88,6 +97,9 @@ export function Transport() {
           const health = steady(`${run}:${stat.label}`, healthOf(stat)).health;
           const history = t.statHistory[stat.label] ?? [];
           const help = metricHelp(stat.label, explanation);
+          const source = metricSource(stat.label);
+          const cost = isCost(stat.value);
+          const largest = cost ? Math.max(0, ...(stat.detail ?? []).map((row) => dollars(row.value))) : 0;
           return (
             <div key={stat.label} className="stat" data-tone={stat.tone} data-primary={i === 0} tabIndex={0} aria-describedby={`stat-help-${i}`}>
               <div className="stat-top">
@@ -109,13 +121,16 @@ export function Transport() {
               <span className="stat-help" role="tooltip" id={`stat-help-${i}`}>
                 <b>{displayLabel(stat.label)}</b>
                 {help}
+                <span className="stat-source" data-kind={source.kind}>
+                  Comes from <b>{source.text}</b>
+                </span>
                 {stat.detail && (
-                  <span className="stat-detail">
+                  <span className="stat-detail" data-kind={cost ? 'cost' : undefined}>
                     {stat.detail.map((row) => (
                       <span key={row.label} className="stat-detail-row" data-tone={row.tone}>
                         <span>{row.label}</span>
                         <span className="stat-detail-bar" aria-hidden>
-                          <span style={{ width: `${Math.min(100, parseFloat(row.value) || (row.value === 'closed' ? 100 : 0))}%` }} />
+                          <span style={{ width: `${barWidth(row, cost, largest)}%` }} />
                         </span>
                         <span className="num">{row.value}</span>
                       </span>

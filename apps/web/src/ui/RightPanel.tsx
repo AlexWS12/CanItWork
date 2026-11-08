@@ -77,6 +77,8 @@ function TraceLine({ step }: { step: StepEvent }) {
           {step.status === 'running' ? `${ENGINE_LABEL[step.engine]} · running` : engineLine(step)}
         </span>
       </button>
+      {/* What the step decided or found, shown without a click: it's the part that explains the result */}
+      {step.detail && <p className="trace-detail">{step.detail}</p>}
       {open && (
         <div className="step" data-status={step.status}>
           <div className="step-head">
@@ -86,7 +88,6 @@ function TraceLine({ step }: { step: StepEvent }) {
             </span>
           </div>
           <p>{stepTitle(step.title)}</p>
-          {step.detail && <small>{step.detail}</small>}
         </div>
       )}
     </li>

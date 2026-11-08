@@ -168,6 +168,13 @@
   color: var(--color-danger-soft);
 }
 
+.trace-detail {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
 .trace-engine {
   flex: none;
   font: var(--text-xs) var(--font-mono);

@@ -199,6 +199,28 @@
   transform: none;
 }
 
+/* Where the number comes from: the simulator, or the price list for a cost */
+.stat-source {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* Reset the tooltip's heading style for this inline emphasis */
+.stat-help .stat-source b {
+  display: inline;
+  margin: 0;
+  font: 600 var(--text-xs) var(--font-sans);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-teal);
+}
+
+.stat-help .stat-source[data-kind='price'] b {
+  color: var(--color-blueprint);
+}
+
 /* Every station behind the headline number */
 .stat-detail {
   display: flex;
@@ -215,6 +237,15 @@
   gap: var(--space-2);
   align-items: center;
   font-size: var(--text-xs);
+}
+
+/* Cost lines read "$30,000/mo", wider than a percentage */
+.stat-detail[data-kind='cost'] .stat-detail-row {
+  grid-template-columns: minmax(0, 1fr) 48px 76px;
+}
+
+.stat-detail[data-kind='cost'] .stat-detail-bar > span {
+  background: var(--color-blueprint);
 }
 
 .stat-detail-row > span:first-child {

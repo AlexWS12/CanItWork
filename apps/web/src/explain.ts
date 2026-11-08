@@ -14,7 +14,7 @@ const RULES: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [
     /^monthly cost$/i,
     () =>
-      'A rough estimate of what running this for a month would cost with a cloud provider, at public list prices: the servers, databases and queues it uses, plus a small charge per request. Traffic varies from moment to moment, so this shows the recent average. It is for comparing designs and fixes, not a quote. Where it comes from:',
+      'A rough estimate of what running this for a month would cost: a fixed price for each part of it, plus a usage charge where work flowing through it costs money. When that work varies, this shows the recent average. It is for comparing designs and fixes, not a quote.',
   ],
   [/^% of (.+?) within (.+)$/i, (m) => `Your main goal: the share of ${m[1]} answered in under ${m[2]}, which feels instant. Higher is better.`],
   [/^% of (.+)$/i, (m) => `Your main goal: the share of ${m[1]}. Higher is better; under 90% means people or work are being let down.`],
@@ -63,6 +63,12 @@ export function metricHelp(label: string, explanation: Explanation | null): stri
   }
   return 'A live reading from the simulator.';
 }
+
+// Where a reading's number comes from: a cost is added up from the app's price list, everything else is measured as the run plays
+export const metricSource = (label: string) =>
+  /cost/i.test(label)
+    ? { kind: 'price' as const, text: 'the price list, added up part by part' }
+    : { kind: 'simulator' as const, text: 'the simulator, measured as the run plays' };
 
 // A one-line verdict for the dock, from the first metric (the score) and any problems
 export function headline(stats: Metric[], explanation: Explanation | null, sameRun: boolean): { text: string; health: Health } {

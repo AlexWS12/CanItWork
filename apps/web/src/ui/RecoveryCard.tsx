@@ -10,11 +10,13 @@ const STAGGER_MS = 80;
 
 const EFFORT_LABEL = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' } as const;
 
+const AI_ESTIMATE = 'Written by the AI from what the fix changes. The simulator does not check it.';
+
 // What a fix adds to the monthly bill, shaded like effort: free or saving, a modest addition, or a big one.
 function Monthly({ usd }: { usd: number | undefined }) {
   if (usd === undefined) return null;
   return (
-    <span className="effort" data-effort={usd <= 0 ? 'low' : usd < 200 ? 'medium' : 'high'} title="What this fix adds to the monthly running cost">
+    <span className="effort" data-effort={usd <= 0 ? 'low' : usd < 200 ? 'medium' : 'high'} title="From the price list: what this fix adds to the monthly running cost">
       {money(usd, true)}
     </span>
   );
@@ -49,7 +51,7 @@ function Race({ report, chosen, picking, onPick }: { report: RecoveryReport; cho
                   </span>
                 )}
                 <Monthly usd={c.monthly} />
-                {c.cost ?? c.author}
+                {c.cost ? <span title={AI_ESTIMATE}>{c.cost}</span> : c.author}
               </small>
             </span>
             <span className="race-track">
@@ -185,15 +187,23 @@ export function RecoveryCard() {
           The simulator says this problem costs you {hurt > 0 ? `${hurt} points` : 'nothing'}, so a fix is optional. Try a bigger problem to see the agents earn their keep.
         </p>
       )}
-      {(chosen?.effort || chosen?.monthly !== undefined) && (
+      {chosen?.monthly !== undefined && (
         <p className="rc-cost">
-          {chosen.effort && (
-            <span className="effort" data-effort={chosen.effort}>
-              {EFFORT_LABEL[chosen.effort]}
-            </span>
-          )}
           <Monthly usd={chosen.monthly} />
-          {chosen.cost}
+          <span className="rc-source" data-kind="price">
+            Price list
+          </span>
+        </p>
+      )}
+      {chosen?.effort && (
+        <p className="rc-cost">
+          <span className="effort" data-effort={chosen.effort}>
+            {EFFORT_LABEL[chosen.effort]}
+          </span>
+          {chosen.cost && <span className="rc-cost-text">{chosen.cost}</span>}
+          <span className="rc-source" data-kind="ai" title={AI_ESTIMATE}>
+            AI estimate
+          </span>
         </p>
       )}
       {cheaper && chosen?.id === recommended?.id && (
