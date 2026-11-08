@@ -10,8 +10,9 @@ const circuit = () => runner.run as CircuitRun | null;
 export const PITCH = 0.3;
 const METAL = { color: '#c8d0da', metalness: 0.85, roughness: 0.3 };
 
-const DRAWN = new Set(['dip', 'module', 'to92', 'to220', 'axial', 'radial', 'bulb', 'display', 'pot', 'relay', 'speaker', 'sensor']);
-export const drawnByPackage = (part: Part) => Boolean(part.package && DRAWN.has(part.package)) && !(part.package === 'motor');
+const DRAWN = new Set(['dip', 'module', 'to92', 'to220', 'axial', 'radial', 'bulb', 'display', 'pot', 'relay', 'speaker', 'sensor', 'motor']);
+// A custom motor that brings its own moving shapes keeps them; one with none gets the motor body
+export const drawnByPackage = (part: Part) => Boolean(part.package && DRAWN.has(part.package)) && !(part.package === 'motor' && part.custom?.visual.length);
 
 export { dipRows };
 
@@ -268,6 +269,43 @@ function Relay() {
   );
 }
 
+// A small DC motor lying on its side: steel can, end cap with tabs, and a shaft whose flag turns while the motor runs
+function Motor({ part }: { part: Part }) {
+  const shaft = useRef<THREE.Group>(null!);
+  useFrame((_, dt) => {
+    const run = circuit();
+    if (run && runner.running && run.isRunning(part)) shaft.current.rotation.x += dt * 14 * runner.speed;
+  });
+  return (
+    <group>
+      <mesh position={[-0.1, 0.36, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <cylinderGeometry args={[0.34, 0.34, 0.95, 28]} />
+        <meshStandardMaterial {...METAL} />
+      </mesh>
+      <mesh position={[-0.6, 0.36, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <cylinderGeometry args={[0.3, 0.3, 0.08, 24]} />
+        <meshStandardMaterial color="#14171f" roughness={0.5} />
+      </mesh>
+      {[-0.12, 0.12].map((z) => (
+        <mesh key={z} position={[-0.66, 0.36, z]}>
+          <boxGeometry args={[0.04, 0.1, 0.05]} />
+          <meshStandardMaterial color="#c9a54a" metalness={0.8} roughness={0.3} />
+        </mesh>
+      ))}
+      <group ref={shaft} position={[0.5, 0.36, 0]}>
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.04, 0.04, 0.35, 10]} />
+          <meshStandardMaterial {...METAL} />
+        </mesh>
+        <mesh position={[0.12, 0.14, 0]}>
+          <boxGeometry args={[0.04, 0.24, 0.1]} />
+          <meshStandardMaterial color="#e2b43c" roughness={0.5} />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
 function Speaker() {
   return (
     <group>
@@ -357,6 +395,8 @@ export function PackageBody({ part }: { part: Part }) {
       return <Relay />;
     case 'speaker':
       return <Speaker />;
+    case 'motor':
+      return <Motor part={part} />;
     case 'sensor':
       return <SensorBoard part={part} />;
     default:
