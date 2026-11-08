@@ -1,5 +1,6 @@
+import { FLOOR } from '@tv/core';
 import { useEffect } from 'react';
-import { useStore } from '../../store';
+import { select, useStore } from '../../store';
 import { useFloorEdit, type Placeable } from './drag';
 import './FloorTools.css';
 
@@ -13,6 +14,7 @@ const KINDS: Array<[Placeable, string]> = [
 export function FloorTools() {
   const warehouse = useStore((s) => s.environment?.domain === 'warehouse');
   const placing = useFloorEdit((s) => s.placing);
+  const settingsOpen = useStore((s) => s.selected === FLOOR);
 
   useEffect(() => {
     if (!placing) return;
@@ -35,6 +37,10 @@ export function FloorTools() {
           {label}
         </button>
       ))}
+      <span className="floor-tools-divider" aria-hidden />
+      <button aria-pressed={settingsOpen} onClick={() => select(settingsOpen ? null : FLOOR)}>
+        Settings
+      </button>
       {placing && <span className="floor-tools-hint">Click a floor cell · Esc to cancel</span>}
     </div>
   );

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SPEC, compileWorld } from '../src/domains/warehouse/compile';
 import type { Patch } from '../src/domains/warehouse/schema';
-import { DOMAINS, WarehouseRun, evaluate } from '../src';
+import { DOMAINS, FLOOR, WarehouseRun, evaluate, settingPatch } from '../src';
 
 const world = compileWorld(DEFAULT_SPEC);
 const domain = DOMAINS.warehouse;
@@ -423,5 +423,55 @@ describe('placing new robots, shelves and chargers on a running floor', () => {
     live.apply([{ op: 'add_charger', at: { x: live.world.shelves[0].x, y: live.world.shelves[0].y } }]);
     for (let i = 0; i < 400; i++) live.step();
     expect(evaluate(domain, roomy, { seed: 2, ticks: live.tick, events: live.log })).toEqual(live.evaluation());
+  });
+});
+
+describe('changing the floor settings mid-run', () => {
+  const setting = (run: WarehouseRun, key: string) => run.inspect(FLOOR)!.settings!.find((s) => s.key === key)!;
+
+  it('shows dispatch, charge threshold and demand as the run has them', () => {
+    const run = stepped(10);
+    expect(run.inspect(FLOOR)!.title).toBe('Floor settings');
+    expect(setting(run, 'dispatch')).toMatchObject({ kind: 'choice', value: 'zoned' });
+    expect(setting(run, 'chargeThreshold')).toMatchObject({ kind: 'number', value: 25, unit: '%' });
+    expect(setting(run, 'orderEvery')).toMatchObject({ kind: 'number', value: Math.round(world.params.orderEvery) });
+  });
+
+  it('applies each setting through set_policy or set_demand, logged at its tick', () => {
+    const run = stepped(120);
+    run.apply([settingPatch(setting(run, 'dispatch'), 'pooled')]);
+    run.apply([settingPatch(setting(run, 'chargeThreshold'), 40)]);
+    run.apply([settingPatch(setting(run, 'orderEvery'), 4)]);
+    expect(run.sim.policy).toMatchObject({ dispatch: 'pooled', chargeThreshold: 0.4 });
+    expect(run.sim.orderEvery).toBe(4);
+    expect(run.log.map((e) => ('patches' in e ? [e.at, e.patches[0]] : null))).toEqual([
+      [120, { op: 'set_policy', dispatch: 'pooled' }],
+      [120, { op: 'set_policy', chargeThreshold: 0.4 }],
+      [120, { op: 'set_demand', orderEvery: 4 }],
+    ]);
+    for (const patch of run.log.flatMap((e) => ('patches' in e ? e.patches : []))) expect(domain.patchSchema.safeParse(patch).success).toBe(true);
+    expect(setting(run, 'chargeThreshold').value).toBe(40);
+    expect(setting(run, 'dispatch').value).toBe('pooled');
+  });
+
+  it('lets busier demand bring orders in faster from then on', () => {
+    const steady = stepped(200);
+    const busier = stepped(200);
+    busier.apply([settingPatch(setting(busier, 'orderEvery'), 2)]);
+    for (let i = 0; i < 300; i++) {
+      steady.step();
+      busier.step();
+    }
+    expect(busier.sim.orders.length).toBeGreaterThan(steady.sim.orders.length * 2);
+  });
+
+  it('replays setting changes to the same result', () => {
+    const live = stepped(100);
+    live.apply([settingPatch(setting(live, 'dispatch'), 'pooled')]);
+    for (let i = 0; i < 150; i++) live.step();
+    live.apply([settingPatch(setting(live, 'chargeThreshold'), 60)]);
+    live.apply([settingPatch(setting(live, 'orderEvery'), 6)]);
+    for (let i = 0; i < 300; i++) live.step();
+    expect(evaluate(domain, world, { seed: 1, ticks: live.tick, events: live.log })).toEqual(live.evaluation());
   });
 });

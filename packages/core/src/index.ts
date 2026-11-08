@@ -4,7 +4,7 @@ export * from './edit';
 export * from './hash';
 export * from './protocol';
 export { MAX_REPLAY_TICKS } from './replay';
-export { WarehouseRun } from './domains/warehouse';
+export { FLOOR, WarehouseRun } from './domains/warehouse';
 export type { RobotState } from './domains/warehouse/sim';
 export type { World } from './domains/warehouse/schema';
 export { CircuitRun } from './domains/electronics/circuit';

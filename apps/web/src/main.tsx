@@ -61,8 +61,9 @@ function App() {
           <MobileNav />
           <ChatPanel />
           <RightPanel />
-          <Inspector />
+          {/* Before the Inspector, so the Inspector stacks over it where they meet */}
           <FloorTools />
+          <Inspector />
           <RecoveryCard />
           <Transport />
         </>

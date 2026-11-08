@@ -23,6 +23,9 @@ function toEvent(incident: Incident, at: number): SimEvent | null {
   }
 }
 
+/** What the Inspector asks for to show the settings the whole floor runs with. */
+export const FLOOR = 'floor';
+
 export class WarehouseRun implements Run {
   readonly sim: Sim;
   readonly log: TimedEvent[] = [];
@@ -104,6 +107,57 @@ export class WarehouseRun implements Run {
 
   inspect(target: string): Inspection | null {
     const { sim, world } = this;
+    if (target === FLOOR) {
+      const orderEvery = Math.round(sim.orderEvery);
+      return {
+        title: 'Floor settings',
+        rows: [
+          ['Robots', sim.robots.filter((r) => !r.gone).length],
+          ['Shelves', world.shelves.length],
+          ['Chargers', world.chargers.length],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'choice',
+            label: 'Dispatch',
+            hint: 'Zoned: each robot serves its own shelves. Pooled: the nearest free robot takes any order.',
+            value: sim.policy.dispatch,
+            options: [
+              { label: 'Zoned', value: 'zoned' },
+              { label: 'Pooled', value: 'pooled' },
+            ],
+            patch: { op: 'set_policy' },
+            key: 'dispatch',
+          },
+          {
+            kind: 'number',
+            label: 'Charge below',
+            hint: 'Robots head for a charger once their battery drops under this.',
+            value: Math.round(sim.policy.chargeThreshold * 100),
+            min: 5,
+            max: 80,
+            step: 5,
+            unit: '%',
+            scale: 100,
+            patch: { op: 'set_policy' },
+            key: 'chargeThreshold',
+          },
+          {
+            kind: 'number',
+            label: 'New order every',
+            hint: 'Lower is busier.',
+            value: orderEvery,
+            min: 1,
+            max: Math.max(60, orderEvery),
+            step: 1,
+            unit: ' ticks',
+            patch: { op: 'set_demand' },
+            key: 'orderEvery',
+          },
+        ],
+      };
+    }
     const robot = sim.robots.find((r) => r.id === target && !r.gone);
     if (robot) {
       const zone = [...sim.shelfOwner.values()].filter((o) => o === robot.id).length;

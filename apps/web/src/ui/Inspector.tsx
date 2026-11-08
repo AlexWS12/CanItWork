@@ -1,4 +1,4 @@
-import { componentIds, isEditable } from '@tv/core';
+import { componentIds, isEditable, settingPatch, type Setting } from '@tv/core';
 import { useEffect, useState } from 'react';
 import { breakThing, editComponent, editFloor } from '../actions';
 import { runner } from '../runner';
@@ -10,6 +10,8 @@ const isMac = /mac|iphone|ipad/i.test(navigator.platform);
 export function Inspector() {
   const selected = useStore((s) => s.selected);
   useStore((s) => s.telemetry.tick);
+  // A hand edit on a paused run changes what's shown without moving the clock
+  useStore((s) => s.structure);
   const set = useStore((s) => s.set);
   const environment = useStore((s) => s.environment);
   const busy = useStore((s) => s.editing || s.chatting);
@@ -63,6 +65,18 @@ export function Inspector() {
           {action.label}
         </button>
       ))}
+      {view.settings?.length ? (
+        <div className="settings">
+          {view.settings.map((setting) => (
+            <SettingControl key={setting.label} setting={setting} disabled={busy} onChange={(value) => setRefusal(editFloor([settingPatch(setting, value)]))} />
+          ))}
+          {refusal && (
+            <p className="edit-hint edit-refusal" role="alert">
+              {refusal}
+            </p>
+          )}
+        </div>
+      ) : null}
       {view.edits?.length ? (
         <div className="edit-actions floor-edits">
           {view.edits.map((edit) => (
@@ -96,6 +110,59 @@ export function Inspector() {
           <p className="edit-hint">Drag to move. The agents check every duplicate or delete.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** One setting the design runs with. A slider sends its value once it's let go, so a drag is one change in the log. */
+function SettingControl({ setting, disabled, onChange }: { setting: Setting; disabled: boolean; onChange: (value: string | number) => void }) {
+  const [draft, setDraft] = useState<number | null>(null);
+  const id = `setting-${setting.key}`;
+  if (setting.kind === 'choice') {
+    return (
+      <div className="setting" role="group" aria-labelledby={id}>
+        <span id={id} className="setting-label">
+          {setting.label}
+        </span>
+        <div className="setting-choices">
+          {setting.options.map((option) => (
+            <button key={option.value} aria-pressed={setting.value === option.value} disabled={disabled} onClick={() => setting.value !== option.value && onChange(option.value)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+        {setting.hint && <p className="setting-hint">{setting.hint}</p>}
+      </div>
+    );
+  }
+  const shown = draft ?? setting.value;
+  const commit = () => {
+    if (draft !== null && draft !== setting.value) onChange(draft);
+    setDraft(null);
+  };
+  return (
+    <div className="setting">
+      <label htmlFor={id} className="setting-label">
+        {setting.label}
+        <output htmlFor={id}>
+          {shown}
+          {setting.unit}
+        </output>
+      </label>
+      <input
+        id={id}
+        type="range"
+        min={setting.min}
+        max={setting.max}
+        step={setting.step}
+        value={shown}
+        disabled={disabled}
+        onChange={(e) => setDraft(Number(e.target.value))}
+        onPointerUp={commit}
+        onKeyUp={commit}
+        onBlur={commit}
+      />
+      {setting.hint && <p className="setting-hint">{setting.hint}</p>}
     </div>
   );
 }
