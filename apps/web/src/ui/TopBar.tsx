@@ -71,7 +71,14 @@ export function TopBar() {
   if (!environment) {
     return (
       <div className="status">
-        <span className="wordmark">CanItWork</span>
+        {/* The landing title's circuit in miniature: power dot, the word with a teal "It", output dot */}
+        <span className="wordmark wordmark-circuit">
+          <span className="wordmark-dot" data-end="power" aria-hidden />
+          <span>
+            Can<span className="wordmark-it">It</span>Work
+          </span>
+          <span className="wordmark-dot" data-end="output" aria-hidden />
+        </span>
         <Integrations variant="chip" />
       </div>
     );
