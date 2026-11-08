@@ -79,6 +79,7 @@ const BUILT_WITH = [
   ['Swarms', 'weak spots and fixes'],
   ['Tiger Data', 'saves every run'],
   ['Auth0', 'sign-in and sharing'],
+  ['Solana', 'proves when each run existed'],
   ['Vultr', 'hosting'],
   ['Kenney', 'CC0 3D models'],
 ] as const;
