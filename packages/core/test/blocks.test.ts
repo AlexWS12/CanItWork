@@ -90,6 +90,34 @@ describe('building blocks', () => {
     expect(electronics.proof!(built)).toMatch(/^16 of 16 behaviour tests pass/);
   });
 
+  it('folds a design’s own copies of a block’s parts into the block, as the live ALU eval produced them', () => {
+    const spec = electronics.specSchema.parse({
+      parts: [
+        { id: 'bat1', type: 'battery', volts: 5, maxAmps: 1 },
+        { id: 'sw_s0', type: 'switch' },
+        { id: 'r_s0', type: 'resistor', ohms: 10000 },
+        { id: 'led_r0', type: 'led' },
+        { id: 'r_r0', type: 'resistor', ohms: 220 },
+      ],
+      wires: [
+        { from: 'bat1.pos', to: 'sw_s0.a' },
+        { from: 'sw_s0.b', to: 'r_s0.a' },
+        { from: 'r_s0.b', to: 'bat1.neg' },
+        { from: 'r_r0.b', to: 'led_r0.anode' },
+        { from: 'led_r0.cathode', to: 'bat1.neg' },
+      ],
+      layout: 'breadboard',
+      blocks: [{ id: 'alu_4', kind: 'alu', bits: 4 }],
+      tests: [{ name: 'add', set: { sw_s0: 0 }, on: [], off: ['led_r0'] }],
+    }) as CircuitSpec;
+    const built = electronics.compile(spec);
+    const ids = built.parts.map((p) => p.id);
+    for (const gone of ['sw_s0', 'r_s0', 'led_r0', 'r_r0']) expect(ids).not.toContain(gone);
+    expect(ids).toContain('ledR0');
+    expect(built.tests![0]).toMatchObject({ set: { swS0: 0 }, off: ['ledR0'] });
+    expect(problems(spec)).toEqual([]);
+  });
+
   it('holds each kind to a width that still builds, and says so', () => {
     const tooWide = electronics.specSchema.safeParse({ parts: [], wires: [], blocks: [{ id: 'mul', kind: 'multiplier', bits: 12 }] });
     expect(tooWide.success).toBe(false);

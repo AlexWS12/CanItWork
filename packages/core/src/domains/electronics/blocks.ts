@@ -13,7 +13,7 @@ export const BlockSchema = z
   .object({
     id: z
       .string()
-      .regex(/^[A-Za-z][A-Za-z0-9]*$/)
+      .regex(/^[A-Za-z][A-Za-z0-9_-]*$/)
       .max(16),
     kind: z.enum(KINDS),
     bits: z.number().int().min(1).max(32),
@@ -306,33 +306,39 @@ function expand(block: Block, prefix: string, supply: { pos: string; neg: string
   return { parts: b.parts, wires: b.wires, tests };
 }
 
+// "led_r0", "LED-R0" and "ledR0" all name the same part.
+const plainName = (id: string) => id.toLowerCase().replace(/[^a-z0-9]/g, '');
+
 /** Expands a design's blocks into parts, wires and tests; a design without blocks is returned as it is. */
 export function expandBlocks(spec: CircuitSpec): CircuitSpec {
   if (!spec.blocks?.length) return spec;
-  const parts = [...spec.parts];
-  let battery = parts.find((p) => p.type === 'battery');
-  if (!battery) {
-    battery = { id: 'batt', type: 'battery', volts: 5, maxAmps: 1 } as Part;
-    parts.unshift(battery);
-  }
+  const battery = spec.parts.find((p) => p.type === 'battery') ?? ({ id: 'batt', type: 'battery', volts: 5, maxAmps: 1 } as Part);
   const supply = { pos: `${battery.id}.pos`, neg: `${battery.id}.neg` };
-  const taken = new Set(parts.map((p) => p.id));
+  const builtParts: Part[] = [];
   const builtWires: CircuitSpec['wires'] = [];
   const builtTests: NonNullable<CircuitSpec['tests']> = [];
   // How a design may refer to a block's parts: "calc_swA0", "calc.swA0" or plain "swA0" all mean the part the block built.
   const aliases = new Map<string, string>();
+  const byPlainName = new Map<string, string>();
   for (const block of spec.blocks) {
     const prefix = spec.blocks.length > 1 ? `${block.id}_` : '';
     const built = expand(block, prefix, supply);
-    // A part the design already defines under the same id wins, so a hand-placed part is never duplicated.
-    parts.push(...built.parts.filter((p) => !taken.has(p.id)));
+    builtParts.push(...built.parts);
     builtWires.push(...built.wires);
     builtTests.push(...built.tests);
     for (const part of built.parts) {
       const plain = part.id.slice(prefix.length);
-      for (const name of [part.id, plain, `${block.id}_${plain}`, `${block.id}.${plain}`]) aliases.set(name, part.id);
+      for (const name of [part.id, plain, `${block.id}_${plain}`, `${block.id}.${plain}`]) {
+        aliases.set(name, part.id);
+        byPlainName.set(plainName(name), part.id);
+      }
     }
   }
+  const builtIds = new Set(builtParts.map((p) => p.id));
+  // A design sometimes adds its own copy of a block's part as well ("led_r0" beside the block's "ledR0"). The block's part is the
+  // wired one, so the copy is folded into it: its id means the block's part, and its own wires are dropped with it.
+  const copies = new Set(spec.parts.filter((p) => p !== battery && !builtIds.has(p.id) && byPlainName.has(plainName(p.id))).map((p) => p.id));
+  for (const id of copies) aliases.set(id, byPlainName.get(plainName(id))!);
   const blockIds = new Set(spec.blocks.map((b) => b.id));
   const resolve = (ref: string) => {
     if (aliases.has(ref)) return aliases.get(ref)!;
@@ -340,14 +346,23 @@ export function expandBlocks(spec: CircuitSpec): CircuitSpec {
     const owner = dot > 0 ? ref.slice(0, dot) : ref;
     return aliases.has(owner) ? `${aliases.get(owner)}.${ref.slice(dot + 1)}` : ref;
   };
-  // A block wires and powers itself, so a wire to the block as a whole (such as "calc.batt_pos") is dropped.
+  const ownerOf = (end: string) => end.split('.')[0];
+  // A block wires and powers itself, so a wire to the block as a whole (such as "calc.batt_pos") is dropped, and so are a copy's wires.
+  const designWires = spec.wires.filter((w) => ![w.from, w.to].some((end) => blockIds.has(ownerOf(end)) || copies.has(ownerOf(end))));
+  // Helpers that only served a copy, such as its resistor, are left with nothing connected, so they go too.
+  const wired = new Set(designWires.flatMap((w) => [ownerOf(w.from), ownerOf(w.to)]));
+  const hadWires = new Set(spec.wires.flatMap((w) => [ownerOf(w.from), ownerOf(w.to)]));
+  const kept = spec.parts.filter((p) => !copies.has(p.id) && (p === battery || !hadWires.has(p.id) || wired.has(p.id)));
+  const keptIds = new Set(kept.map((p) => p.id));
+  // A part the design already defines under the same id wins, so a hand-placed part is never duplicated.
+  const parts = [...(spec.parts.includes(battery) ? [] : [battery]), ...kept, ...builtParts.filter((p) => !keptIds.has(p.id))];
   const wires = [
-    ...spec.wires.map((w) => ({ from: resolve(w.from), to: resolve(w.to) })).filter((w) => ![w.from, w.to].some((end) => blockIds.has(end.split('.')[0]))),
+    ...designWires.map((w) => ({ from: resolve(w.from), to: resolve(w.to) })).filter((w) => keptIds.has(ownerOf(w.from)) || builtIds.has(ownerOf(w.from))),
     ...builtWires,
   ];
   // The block brings its own tests, so a design's tests are kept only where every id they use exists.
   const known = new Set(parts.map((p) => p.id));
-  const exists = (ref: string) => known.has(ref.split('.')[0]) || (spec.world ?? []).some((q) => q.id === ref);
+  const exists = (ref: string) => known.has(ownerOf(ref)) || (spec.world ?? []).some((q) => q.id === ref);
   const tests = (spec.tests ?? [])
     .map((t) => ({ ...t, set: Object.fromEntries(Object.entries(t.set).map(([k, v]) => [resolve(k), v])), on: t.on.map(resolve), off: t.off.map(resolve) }))
     .filter((t) => [...Object.keys(t.set), ...t.on, ...t.off].every(exists));
