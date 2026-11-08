@@ -295,15 +295,15 @@
   background: var(--color-danger);
 }
 
+/* Two rows of two equal chips under a label; a long list opens upward from the last slot */
 .breakers {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(2, minmax(0, 150px));
   align-content: center;
-  gap: var(--space-1);
+  gap: 5px 6px;
   padding-left: 6px;
   min-width: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
 }
 
 .breakers-head {
@@ -316,13 +316,16 @@
 
 .breakers button {
   min-height: 0;
-  max-width: 160px;
-  padding: 3px var(--space-2);
+  min-width: 0;
+  padding: 4px var(--space-2);
   border-radius: var(--radius-2xs);
   border: 1px solid var(--color-danger-line);
   background: none;
   color: var(--color-danger-soft);
   font-size: var(--text-sm);
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -330,6 +333,45 @@
 .breakers button:hover:not(:disabled) {
   background: var(--color-danger-fill);
   border-color: var(--color-danger);
+}
+
+.breakers button[data-extra='true'] {
+  display: none;
+}
+
+.breakers .breakers-more {
+  border-style: dashed;
+  color: var(--color-muted);
+}
+
+.breakers .breakers-more[aria-expanded='true'] {
+  border-style: solid;
+  color: var(--color-text);
+}
+
+.breakers-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 14px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: max-content;
+  min-width: 220px;
+  max-width: 340px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--color-danger-line);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-opaque);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
+.breakers-menu button {
+  padding: 6px var(--space-2);
+  white-space: normal;
 }
 
 @media (max-width: 1100px) {
@@ -384,6 +426,15 @@
 
   .breakers button {
     flex: none;
+    max-width: 200px;
+  }
+
+  .breakers button[data-extra='true'] {
+    display: block;
+  }
+
+  .breakers .breakers-more {
+    display: none;
   }
 }
 

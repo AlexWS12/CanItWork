@@ -1,3 +1,5 @@
+import type { Breakable } from '@tv/core';
+import { useEffect, useRef, useState } from 'react';
 import { breakThing } from '../actions';
 import { HEALTH_LABEL, displayLabel, headline, healthOf, metricHelp } from '../explain';
 import { runner } from '../runner';
@@ -92,14 +94,59 @@ export function Transport() {
           );
         })}
       </div>
-      <div className="breakers">
-        <span className="breakers-head">Try a problem</span>
-        {t.breakables.map((option) => (
-          <button key={option.label} title={`${option.label}: see what happens, then let the agents find and test a fix`} onClick={() => void breakThing(option.incident)}>
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <Breakers options={t.breakables} />
     </footer>
+  );
+}
+
+// The dock fits two rows of two: with more problems than that, three show and the fourth slot opens the full list
+const SHOWN = 3;
+
+function Breakers({ options }: { options: Breakable[] }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const overflow = options.length > SHOWN + 1;
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [open]);
+
+  const pick = (incident: Breakable['incident']) => {
+    setOpen(false);
+    void breakThing(incident);
+  };
+  const title = (label: string) => `${label}: see what happens, then let the agents find and test a fix`;
+
+  return (
+    <div className="breakers" ref={box}>
+      <span className="breakers-head">Try a problem</span>
+      {options.map((option, i) => (
+        <button key={option.label} data-extra={overflow && i >= SHOWN} title={title(option.label)} onClick={() => pick(option.incident)}>
+          {option.label}
+        </button>
+      ))}
+      {overflow && (
+        <button className="breakers-more" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((o) => !o)}>
+          All {options.length} problems
+        </button>
+      )}
+      {open && (
+        <div className="breakers-menu" role="menu">
+          {options.map((option) => (
+            <button key={option.label} role="menuitem" title={title(option.label)} onClick={() => pick(option.incident)}>
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

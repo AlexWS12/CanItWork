@@ -9,6 +9,7 @@ import { reducedMotion } from '../motion';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import { BlueprintLook, EmptyStage } from './Blueprint';
+import { setSnapshotRenderer } from './snapshot';
 import { Gallery } from './Gallery';
 import { Stage, framingOffset } from './Stage';
 
@@ -16,6 +17,16 @@ import { Stage, framingOffset } from './Stage';
 function DevRenderer({ content }: { content: React.RefObject<THREE.Group> }) {
   const gl = useThree((s) => s.gl);
   useEffect(() => registerRenderer(gl, content.current), [gl, content]);
+  return null;
+}
+
+// Lets Save take a picture of the view for the system's card
+function SnapshotRenderer() {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => {
+    setSnapshotRenderer(gl);
+    return () => setSnapshotRenderer(null);
+  }, [gl]);
   return null;
 }
 
@@ -56,6 +67,7 @@ export function Scene() {
     >
       <Stage content={content} />
       <Clock />
+      <SnapshotRenderer />
       {import.meta.env.DEV && <DevRenderer content={content} />}
       <ViewShift />
       <group ref={content}>
