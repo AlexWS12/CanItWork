@@ -277,6 +277,13 @@ p {
   }
 }
 
+/* Phones: the dock stacks its stats in two rows, so it needs a little more height */
+@media (max-width: 600px) {
+  :root {
+    --dock-h: 140px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

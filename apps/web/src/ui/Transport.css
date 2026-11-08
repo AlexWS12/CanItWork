@@ -383,3 +383,27 @@
     display: none;
   }
 }
+
+/* Phones: two rows of stats so every KPI stays visible without sideways scrolling */
+@media (max-width: 600px) {
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    overflow: visible;
+  }
+
+  .stat {
+    min-width: 0;
+  }
+
+  /* Keep the hover help inside the screen now that the tiles sit in two columns */
+  .stat-help {
+    width: min(240px, calc(100vw - 32px));
+  }
+
+  .stat:nth-child(even) .stat-help {
+    left: auto;
+    right: 0;
+  }
+}

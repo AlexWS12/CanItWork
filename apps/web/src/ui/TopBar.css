@@ -145,6 +145,11 @@
   color: var(--color-text);
 }
 
+/* The full incident line doesn't fit beside the top bar's buttons on a phone */
+.pill-short {
+  display: none;
+}
+
 .dots {
   gap: 6px;
   font: var(--text-xs) var(--font-mono);
@@ -189,13 +194,21 @@
 
 @media (max-width: 900px) {
   .topbar {
-    gap: var(--space-3);
-    padding: 0 var(--space-3);
+    gap: var(--space-2);
+    padding: 0 var(--gutter);
   }
 
   .topbar .identity,
   .topbar .divider,
   .topbar .dots {
+    display: none;
+  }
+
+  .pill-short {
+    display: inline;
+  }
+
+  .pill-long {
     display: none;
   }
 }

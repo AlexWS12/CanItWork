@@ -53,7 +53,10 @@ function StatePill() {
   if (report && open) {
     return (
       <span className="state-pill" data-state="incident">
-        Incident · {report.incident} · t {ticks(report.tick)}
+        <span className="pill-short">Incident</span>
+        <span className="pill-long">
+          Incident · {report.incident} · t {ticks(report.tick)}
+        </span>
       </span>
     );
   }

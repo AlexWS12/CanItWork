@@ -415,6 +415,9 @@ button.race-row:hover:not(:disabled) {
   .recovery.card {
     top: calc(var(--top-h) + var(--gutter));
     bottom: auto;
+    /* The side panels are tabs here, so the card spans the screen instead of the gap between them */
+    left: var(--gutter);
+    right: var(--gutter);
     max-height: calc(100dvh - var(--top-h) - var(--gutter) * 2);
     z-index: 4;
   }
