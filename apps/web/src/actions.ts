@@ -170,8 +170,8 @@ export async function shareRun() {
 export type Visibility = 'public' | 'private' | 'people';
 
 /** Saves the open run to the signed-in user's account and returns its short link. */
-export async function saveRun(run: SharedRun, visibility: Visibility, people: string[]) {
-  const res = await authFetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run, visibility, people }) });
+export async function saveRun(run: SharedRun, visibility: Visibility, people: string[], name?: string) {
+  const res = await authFetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run, visibility, people, name }) });
   const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
   if (!res.ok || !body.id) throw new Error(body.error ?? 'The run could not be saved');
   window.history.replaceState(null, '', savedRunLink(body.id));

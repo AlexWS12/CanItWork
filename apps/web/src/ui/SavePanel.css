@@ -1,0 +1,11 @@
+/* Save: the same small panel as Share, opening straight onto the name and who can open it */
+.share-save.save-form {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.share-save .save-name {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}

@@ -180,7 +180,7 @@ export function MySystems() {
         ) : !runs ? (
           <p className="systems-note">Loading…</p>
         ) : !runs.length ? (
-          <p className="systems-note">Nothing saved yet. Build a system, then use Share and save it to your account.</p>
+          <p className="systems-note">Nothing saved yet. Build a system, then use Save to name it and keep it here.</p>
         ) : (
           <ul>
             {runs.map((run) => (

@@ -64,6 +64,14 @@ describe('saved runs', () => {
     expect(((await res.json()) as { id: string }).id).toMatch(/^[A-Za-z0-9]{10}$/);
   });
 
+  it('keeps the name it was saved under, or the system name when none is given', async () => {
+    const named = (await (await call('POST', '/api/runs', await alice(), { run, visibility: 'private', name: '  Demo adder  ' })).json()) as { name: string };
+    expect(named.name).toBe('Demo adder');
+    const plain = (await (await call('POST', '/api/runs', await alice(), { run, visibility: 'private' })).json()) as { name: string };
+    expect(plain.name).toBe('16-bit adder');
+    expect((await call('POST', '/api/runs', await alice(), { run, visibility: 'private', name: '   ' })).status).toBe(400);
+  });
+
   it('opens a public run for anyone, with or without signing in', async () => {
     const { id } = await save('public');
     const anyone = await call('GET', `/api/runs/${id}`);
