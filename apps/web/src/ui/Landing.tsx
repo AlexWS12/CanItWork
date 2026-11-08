@@ -5,6 +5,7 @@ import { reducedMotion } from '../motion';
 import { preloadModels, type ModelId } from '../scene/Model';
 import { useStore } from '../store';
 import { Building } from './Building';
+import { Wordmark } from './Wordmark';
 import './Landing.css';
 
 type Verified = { prompt: string; domain: DomainId };
@@ -152,6 +153,87 @@ function StageSwitch({ hero, total }: { hero: ReturnType<typeof useHero>; total:
   );
 }
 
+// The story under the hero, each beside a real capture of the app; the agents and the kinds of system sit between the chapters
+const CHAPTERS = [
+  {
+    kicker: 'Describe it',
+    title: 'Say what you want, in your own words.',
+    body: 'A circuit, an app, a hospital on a busy night. The Interpreter picks the simulator that fits, and the Architect draws a first blueprint while you watch.',
+    by: 'Interpreter · Architect',
+    image: '/landing/draft.jpg',
+    alt: 'A first draft of an emergency room drawn as a blue blueprint while it is checked',
+  },
+  {
+    kicker: 'The simulator settles it',
+    title: 'Nothing reaches you until it runs.',
+    body: 'A real simulator runs every draft and sends it back with what failed. Only a design that passes every check turns solid.',
+    by: 'Validator · Reviewer',
+    image: '/landing/verified.jpg',
+    alt: 'The verified emergency room running, with ambulances, beds, a scanner and people',
+  },
+  {
+    kicker: 'Break it on purpose',
+    title: 'Then break it, and see what recovers.',
+    body: 'Knock out a part while it runs. The Recovery Council proposes fixes, and the simulator ranks them by what they actually do.',
+    by: 'Red Team · Recovery Council',
+    image: '/landing/break.jpg',
+    alt: 'A power grid running: a solar field, a substation and a city',
+  },
+];
+
+function Chapter({ index }: { index: number }) {
+  const c = CHAPTERS[index];
+  return (
+    <section className="chapter" data-flip={index % 2 === 1} aria-labelledby={`chapter-${index}`}>
+      <figure className="chapter-figure">
+        <img src={c.image} alt={c.alt} width={760} height={520} loading="lazy" />
+      </figure>
+      <div className="chapter-copy">
+        <span className="eyebrow">
+          {String(index + 1).padStart(2, '0')} · {c.kicker}
+        </span>
+        <h2 id={`chapter-${index}`}>{c.title}</h2>
+        <p>{c.body}</p>
+        <span className="chapter-by">{c.by}</span>
+      </div>
+    </section>
+  );
+}
+
+/** The prompt, in the hero and again at the end of the page; both share one draft. */
+function PromptForm({ id, text, setText, submit, autoFocus }: { id: string; text: string; setText: (text: string) => void; submit: (text: string) => void; autoFocus?: boolean }) {
+  return (
+    <form
+      className="hero-input"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit(text);
+      }}
+    >
+      <label htmlFor={id} className="sr-only">
+        Describe a system
+      </label>
+      <textarea
+        id={id}
+        autoFocus={autoFocus}
+        rows={1}
+        value={text}
+        placeholder="Describe a circuit, a warehouse, an app…"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit(text);
+          }
+        }}
+      />
+      <button type="submit" disabled={!text.trim()}>
+        Build it
+      </button>
+    </form>
+  );
+}
+
 function Refusal() {
   const refusal = useStore((s) => s.refusal);
   if (!refusal) return null;
@@ -203,37 +285,13 @@ export function Landing() {
         <div className="stage-prompt">
           <Refusal />
           {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-          <form
-            className="hero-input"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit(text);
-            }}
-          >
-            <label htmlFor="describe" className="sr-only">
-              Describe a system
-            </label>
-            <textarea
-              id="describe"
-              autoFocus
-              rows={1}
-              value={text}
-              placeholder="Describe a circuit, a warehouse, an app…"
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  submit(text);
-                }
-              }}
-            />
-            <button type="submit" disabled={!text.trim()}>
-              Build it
-            </button>
-          </form>
+          <PromptForm id="describe" text={text} setText={setText} submit={submit} autoFocus />
           <StageSwitch hero={hero} total={kinds.length} />
         </div>
       </section>
+
+      <Chapter index={0} />
+      <Chapter index={1} />
 
       <section className="landing-section" id="how" aria-labelledby="how-title">
         <div className="section-head">
@@ -268,6 +326,8 @@ export function Landing() {
         </div>
       </section>
 
+      <Chapter index={2} />
+
       <section className="landing-section landing-kinds" id="systems" aria-labelledby="systems-title">
         <div className="section-head">
           <div>
@@ -300,15 +360,15 @@ export function Landing() {
         </ul>
       </section>
 
-      <section className="landing-band" aria-label="No guessing">
-        <span className="eyebrow eyebrow-green">No guessing</span>
+      <section className="landing-band" aria-labelledby="close-title">
+        <h2 id="close-title">Can it work? Find out.</h2>
+        <PromptForm id="describe-again" text={text} setText={setText} submit={submit} />
         <p>If it can’t model what you describe, it says so instead of guessing.</p>
-        <a href="#top">Describe a system</a>
       </section>
 
       <footer className="landing-footer">
-        <b>CanItWork</b>
-        <span>Gemini · Swarms · TypeSafe Jev · Tiger Data</span>
+        <Wordmark />
+        <span>Gemini · Swarms · TypeSafe Jev · Tiger Data · 3D models by Kenney (CC0)</span>
       </footer>
     </div>
   );

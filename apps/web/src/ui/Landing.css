@@ -466,37 +466,97 @@
 }
 
 /* The promise, then the footer */
+/* A chapter: a real capture beside a short paragraph, the sides swapping each time */
+.chapter {
+  /* Solid like the other sections, so the live scene behind the hero never shows through */
+  padding: 100px max(var(--side), calc((100% - 1296px) / 2));
+  background: var(--color-bg);
+  border-top: var(--rule);
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(32px, 5vw, 72px);
+}
+
+.chapter[data-flip='true'] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+}
+
+.chapter[data-flip='true'] .chapter-figure {
+  order: 2;
+}
+
+.chapter-figure {
+  margin: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  border: var(--rule);
+  background: var(--color-surface-opaque);
+}
+
+.chapter-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 760 / 520;
+  object-fit: cover;
+}
+
+.chapter-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.chapter-copy h2 {
+  margin: 0;
+  font-size: clamp(32px, 3.6vw, 52px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
+.chapter-copy p {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: 1.6;
+  color: var(--color-muted);
+}
+
+.chapter-by {
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-muted);
+}
+
+/* The close: the question the name asks, and the prompt once more */
 .landing-band {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-8);
+  gap: var(--space-6);
   padding: 140px var(--side);
   text-align: center;
   background: radial-gradient(800px 400px at 50% 0%, var(--color-accent-tint), transparent), var(--color-bg);
   border-top: var(--rule);
 }
 
-.landing-band p {
-  max-width: 1000px;
+.landing-band h2 {
   margin: 0;
-  font-size: clamp(32px, 4vw, 56px);
-  font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: -0.025em;
+  font-size: clamp(36px, 5vw, 72px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
 }
 
-.landing-band a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 52px;
-  padding: 0 28px;
-  border-radius: 14px;
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font-weight: 600;
-  font-size: var(--text-lg);
-  text-decoration: none;
+.landing-band .hero-input {
+  width: min(760px, 100%);
+  text-align: left;
+}
+
+.landing-band p {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-muted);
 }
 
 .landing-footer {
@@ -511,9 +571,13 @@
   color: var(--color-muted);
 }
 
-.landing-footer b {
+.landing-footer {
+  align-items: center;
+}
+
+.landing-footer .wordmark {
   color: var(--color-text);
-  font-weight: 600;
+  font-size: var(--text-lg);
 }
 
 .landing-note {
@@ -579,6 +643,17 @@
   .landing-band {
     padding-top: 80px;
     padding-bottom: 80px;
+  }
+
+  .chapter,
+  .chapter[data-flip='true'] {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 64px;
+    padding-bottom: 64px;
+  }
+
+  .chapter[data-flip='true'] .chapter-figure {
+    order: 0;
   }
 }
 
