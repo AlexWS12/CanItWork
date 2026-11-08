@@ -1,11 +1,13 @@
-import { Grid, Html } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { netsOf, pinsOf, sensorOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
 import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Floor, Tag, pick } from '../shared';
+import { Unknown } from '../../scene/Unknown';
+import { LOOK } from '../../scene/look';
 import { BoardParts, breadboardExtent, jumperColor, layoutBreadboard, spotPosition, type BoardLayout, type Spot } from './Breadboard';
 import { PackageBody, SevenSegment, SmallPart, dipSpan, drawnByPackage, packagePin } from './Packages';
 import './Bench.css';
@@ -244,14 +246,7 @@ function VisualBody({ part }: { part: Part }) {
       }
     }
   });
-  if (!visual.length) {
-    return (
-      <mesh position={[0, 0.3, 0]} castShadow>
-        <boxGeometry args={[2, 0.5, 1.4]} />
-        <meshStandardMaterial color="#3d4d6e" roughness={0.5} />
-      </mesh>
-    );
-  }
+  if (!visual.length) return <Unknown size={[2, 0.6, 1.4]} label={part.custom?.label ?? part.id} quiet />;
   return (
     <group>
       {visual.map((v, i) => (
@@ -338,6 +333,8 @@ function PartBody({ part }: { part: Part }) {
           <meshStandardMaterial color="#14171f" roughness={0.4} />
         </mesh>
       );
+    default:
+      return <Unknown size={[1.2, 0.6, 1]} label={part.type} quiet />;
   }
 }
 
@@ -677,21 +674,7 @@ export function Bench() {
   const { width, depth, centerX, centerZ } = benchExtent(spec);
   return (
     <group position={[-centerX, 0, -centerZ]}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centerX, -0.01, centerZ]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[width + 4, depth + 4]} />
-        <meshStandardMaterial color="#1b2636" roughness={0.75} metalness={0.15} />
-      </mesh>
-      <Grid
-        position={[centerX, 0, centerZ]}
-        args={[width + 4, depth + 4]}
-        cellSize={0.5}
-        cellThickness={0.4}
-        cellColor="#2a3a52"
-        sectionSize={2.5}
-        sectionThickness={0.8}
-        sectionColor="#3a4e70"
-        fadeDistance={90}
-      />
+      <Floor position={[centerX, 0, centerZ]} width={width + 4} depth={depth + 4} cell={0.5} section={2.5} color={LOOK.bench} roughness={0.75} metalness={0.15} fade={90} />
       {spec.layout === 'breadboard' ? (
         <BreadboardScene spec={spec} />
       ) : (

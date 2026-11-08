@@ -46,6 +46,12 @@ interface State {
   editing: boolean;
   refusal: Refusal | null;
   building: boolean;
+  /** While building: the simulator the Interpreter chose, so its stage shows before any design exists. */
+  stage: DomainId | null;
+  /** The environment on screen is a draft that has not passed the checks yet, drawn as a blueprint and held still. */
+  blueprint: boolean;
+  /** The environment on screen is the landing page's live hero, a showcase design running behind the page, not the user's system. */
+  showcase: DomainId | null;
   prompt: string;
   entities: string[];
   domainOdds: Partial<Record<DomainId, number>> | null;
@@ -83,6 +89,9 @@ export const useStore = create<State>((set) => ({
   editing: false,
   refusal: null,
   building: false,
+  stage: null,
+  blueprint: false,
+  showcase: null,
   prompt: '',
   entities: [],
   domainOdds: null,
@@ -117,6 +126,9 @@ export const useStore = create<State>((set) => ({
   reset: () =>
     set({
       environment: null,
+      stage: null,
+      blueprint: false,
+      showcase: null,
       refusal: null,
       steps: [],
       findings: [],

@@ -34,7 +34,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
-import { forget, lookup, markStale, remember } from './design-cache';
+import { forget, lookup, markStale, remember, showcase } from './design-cache';
 import { importFile, type Imported } from './importers';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
@@ -418,6 +418,18 @@ export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } 
   return { id: hit.domain, draft: parsed.data as Draft };
 }
 
+// A showcase design ready to replay: the landing hero and the dev tour load these without any model call or agent.
+export function showcaseEnvironment(domainId: string): { prompt: string; environment: Environment } | null {
+  for (const { prompt, domain } of showcase()) {
+    if (domain !== domainId) continue;
+    const hit = servedFromCache(prompt);
+    if (!hit) continue;
+    const { name, summary, spec, unmodelled } = hit.draft;
+    return { prompt, environment: { domain: hit.id, name, summary, spec, unmodelled } };
+  }
+  return null;
+}
+
 const ReviewSchema = z.object({ shortfalls: z.array(z.string()).max(4).default([]) });
 
 // What a design becomes once its building blocks expand, as part counts, so the Reviewer judges the real hardware rather than a block's name.
@@ -549,6 +561,7 @@ export async function build(prompt: string, emit: Emit) {
   const cached = file ? null : await cachedDesign(prompt, step);
   const id = file?.domain ?? cached?.id ?? (await interpret(prompt, emit, step));
   if (!id) return;
+  emit({ type: 'domain', domain: id });
   const domain = DOMAINS[id];
   const first = file
     ? await fromFile(prompt, file, domain, emit, step)
@@ -557,6 +570,15 @@ export async function build(prompt: string, emit: Emit) {
   let draft = first;
 
   const check = (candidate: Draft) => domain.validate(domain.compile(candidate.spec));
+  // Each round's design goes to the view as a blueprint, so a never-seen system takes shape on screen while it is checked
+  let round = 0;
+  const sketch = (found: Issue[]) =>
+    emit({
+      type: 'draft',
+      attempt: round++,
+      environment: { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: draft.unmodelled },
+      issues: found.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message),
+    });
   let issues = await step('validator', 'simulator', 'Checking the design', async (detail) => {
     const found = check(draft);
     detail(
@@ -569,6 +591,7 @@ export async function build(prompt: string, emit: Emit) {
     );
     return found;
   });
+  sketch(issues);
   // A design from the verified cache already matched this exact request, so only fresh designs are reviewed.
   // The Reviewer compares a design with a description; an imported file is its own description, so it isn't reviewed.
   if (!cached && !file && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
@@ -606,6 +629,7 @@ export async function build(prompt: string, emit: Emit) {
       );
       return result;
     });
+    if (draft !== previous) sketch(issues);
   }
   // Whatever the repairs left, the domain may fix without a model: a loop in a flow, or an overload whose rates the user never
   // stated. It is kept only if it leaves fewer problems, and the trace says exactly what changed.
@@ -625,6 +649,7 @@ export async function build(prompt: string, emit: Emit) {
         });
         draft = candidate;
         issues = after;
+        sketch(issues);
       }
     }
   }

@@ -1,11 +1,11 @@
-import { Grid, Html } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { linkKey, netOrder, type Environment, type NetNode, type NetRun, type NetSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Movable, Tag, pick, useArranged } from '../shared';
+import { ClaimPin, Floor, Movable, Tag, pick, useArranged } from '../shared';
 import './Queues.css';
 import { Tower, floorsOf, towerHeight } from './Tower';
 
@@ -207,6 +207,9 @@ function Line({ node, cars }: { node: NetNode; cars: boolean }) {
         heads.current.setMatrixAt(i, dummy.matrix);
       }
     }
+    // Only the people actually waiting are drawn: parked instances still cost their triangles twice, with shadows
+    mesh.current.count = waiting;
+    if (heads.current) heads.current.count = waiting;
     mesh.current.instanceMatrix.needsUpdate = true;
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
     if (heads.current) heads.current.instanceMatrix.needsUpdate = true;
@@ -330,11 +333,7 @@ export function Queues() {
   const ground = upstairs.size ? { ...spec, edges: spec.edges.filter((e) => !upstairs.has(e.to)) } : spec;
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[width + 10, depth + 10]} />
-        <meshStandardMaterial color="#141b28" roughness={0.85} />
-      </mesh>
-      <Grid args={[width + 10, depth + 10]} cellSize={1} cellThickness={0.3} cellColor="#1d2738" sectionSize={4} sectionThickness={0.6} sectionColor="#283349" fadeDistance={120} />
+      <Floor width={width + 10} depth={depth + 10} section={4} fade={120} />
       <Paths spec={ground} positions={positions} />
       <Walkers spec={ground} positions={positions} />
       {spec.nodes.map((node) => {

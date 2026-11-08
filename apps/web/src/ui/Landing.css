@@ -1,590 +1,587 @@
-/* Landing: centred in the viewport; input and prompts on the left, the domain chips and their detail on the right */
+/* Landing, after the Full Stage design: a real system runs edge to edge on the first screen, with a short headline above it
+   and the prompt below; the agents, the kinds of system and the promise scroll over solid graphite underneath. */
 .landing {
   position: fixed;
   inset: 0;
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
-  /* safe keeps the top reachable when the content is taller than the viewport */
-  align-content: safe center;
-  column-gap: var(--space-16);
-  row-gap: var(--space-8);
-  /* The scroller spans the viewport so its scrollbar sits at the window edge; side padding centres content capped at 1240px */
-  --gutter: clamp(var(--space-4), 6vw, 96px);
-  --side: max(var(--gutter), (100% - 1240px) / 2);
-  padding: var(--space-16) var(--side) var(--space-12);
+  --side: clamp(var(--space-4), 5vw, 72px);
 }
 
-.landing-head {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-/* The agent pipeline behind every build, read left to right */
-.agent-team {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-.agent-team p {
-  color: var(--color-muted);
-  font-size: var(--text-md);
-  max-width: 62ch;
-}
-
-.agent-team ol {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.agent-team li {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.agent-team li:not(:last-child)::after {
-  content: '→';
+.eyebrow {
+  font: 500 var(--text-sm) var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--color-accent);
 }
 
-.agent-pill {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: var(--rule);
-  border-radius: 999px;
-  background: var(--color-surface);
-}
-
-.agent-pill b {
-  font-weight: 500;
-  font-size: var(--text-sm);
-}
-
-.agent-pill small {
-  font-size: var(--text-xs, var(--text-sm));
-  color: var(--color-muted);
-}
-
-.agent-pill[data-engine='swarms'] {
-  border-color: var(--color-teal-line);
-}
-
-.agent-pill[data-engine='swarms'] small {
+.eyebrow-green {
   color: var(--color-teal);
 }
 
-.landing-main {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.landing h1 {
-  /* Scales down on narrow screens so the name stays on one line */
-  font-size: min(var(--text-display), 13vw);
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  line-height: 0.9;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.tagline {
+.hero-muted {
   color: var(--color-muted);
-  font-size: var(--text-xl);
-  max-width: 32ch;
 }
 
-/* Wordmark on a circuit trace (see Wordmark in Landing.tsx). At rest: the word with a teal "It",
-   the trace fully drawn, and no "?". --w is the width of "CanIt", --tw of the whole word. */
-.wm {
-  display: inline-flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  width: fit-content;
-  align-self: flex-start;
+.hero-accent {
+  color: var(--color-accent);
 }
 
-.wm-title {
+/* The first screen: the scene fills it, shaded only at the top for the headline and at the bottom for the prompt */
+.hero {
   position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 0 var(--side);
+  background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-scrim) 9%, transparent 28%, transparent 62%, var(--color-bg-scrim) 84%, var(--color-bg) 100%);
 }
 
-.wm-q {
+.stage-copy {
   position: absolute;
-  left: 0;
-  top: 0;
-  opacity: 0;
-  pointer-events: none;
+  left: var(--side);
+  top: 104px;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.wm-amber {
-  color: var(--color-accent);
+.hero-title {
+  margin: 0;
+  font-size: clamp(38px, 4.2vw, 60px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
 }
 
-.wm-word {
-  display: inline-flex;
+.hero-lede {
+  margin: 0;
+  max-width: 34em;
+  font-size: var(--text-lg);
+  line-height: 1.5;
+  color: var(--color-muted);
 }
 
-.wm-canit,
-.wm-work {
-  display: inline-block;
-}
-
-.wm-it {
-  color: var(--color-teal);
-}
-
-/* At the start of the merge, "Work" (and the "?") sit where "Work?" was and "CanIt" a further 0.25em (28px at 112px) to its left */
-.wm-canit {
-  --from: calc(-1 * var(--w) - 0.25em);
-}
-
-.wm-work,
-.wm-qm {
-  --from: calc(-1 * var(--w));
-}
-
-.wm-qm {
+/* What is running, top right */
+.stage-live {
   position: absolute;
-  left: calc(var(--tw) + 4px);
-  top: 0;
-  color: var(--color-accent);
-  pointer-events: none;
+  right: var(--side);
+  top: 112px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-muted);
 }
 
-.wm-qm-glyph {
-  display: inline-block;
-  opacity: 0;
-  transform-origin: 30% 80%;
+.stage-live b {
+  font: 600 var(--text-lg) var(--font-sans);
+  color: var(--color-text);
 }
 
-.wm-trace {
-  display: block;
-  overflow: visible;
+.now-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-xs) var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-muted);
 }
 
-/* pathLength=1, so a dash offset of 1 hides a segment and 0 draws it whatever its length in pixels */
-.wm-seg {
-  stroke-width: 2;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 0;
+.now-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-teal);
+  animation: now-pulse 1.8s ease-in-out infinite;
 }
 
-.wm-seg-a {
-  stroke: var(--color-accent);
-}
-
-.wm-seg-b {
-  stroke: var(--color-teal);
-}
-
-.wm-dot {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
-.wm-d0 {
-  fill: var(--color-accent);
-}
-
-.wm-d1 {
-  fill: var(--color-stage);
-  stroke: var(--color-teal);
-  stroke-width: 2;
-}
-
-.wm-d2 {
-  fill: var(--color-teal);
-}
-
-.tagline .phrase {
-  display: inline-block;
-  white-space: pre;
-}
-
-/* Intro timeline: the 4a handoff's, with the holds on "Can it?" and "Work?" shortened, so every step
-   from the merge on runs 0.6 s earlier than in the handoff. The title settles at 3.5 s. */
-:root[data-intro='playing'] .wm-q1 {
-  animation:
-    intro-in 250ms var(--ease-out) 50ms both,
-    intro-out 150ms var(--ease-out) 950ms forwards;
-}
-
-:root[data-intro='playing'] .wm-q2 {
-  animation:
-    intro-in 300ms var(--ease-out) 1000ms both,
-    intro-out 1ms linear 1850ms forwards;
-}
-
-:root[data-intro='playing'] .wm-word {
-  animation: intro-in 1ms linear 1850ms both;
-}
-
-:root[data-intro='playing'] .wm-canit,
-:root[data-intro='playing'] .wm-work,
-:root[data-intro='playing'] .wm-qm {
-  animation: intro-slide 360ms var(--ease-out) 1850ms both;
-}
-
-:root[data-intro='playing'] .wm-qm-glyph {
-  animation:
-    intro-in 1ms linear 1850ms both,
-    intro-q-out 300ms var(--ease-out) 3200ms forwards;
-}
-
-:root[data-intro='playing'] .wm-d0 {
-  animation: intro-pop 150ms var(--ease-out) 2250ms both;
-}
-
-/* The trace draws linearly, so the current reads as moving at a constant speed */
-:root[data-intro='playing'] .wm-seg-a {
-  animation: intro-draw 400ms linear 2300ms both;
-}
-
-:root[data-intro='playing'] .wm-d1 {
-  animation: intro-pop 150ms var(--ease-out) 2650ms both;
-}
-
-:root[data-intro='playing'] .wm-it {
-  animation: intro-teal 250ms var(--ease-out) 2700ms both;
-}
-
-:root[data-intro='playing'] .wm-seg-b {
-  animation: intro-draw 500ms linear 2700ms both;
-}
-
-:root[data-intro='playing'] .wm-d2 {
-  animation: intro-pop 150ms var(--ease-out) 3200ms both;
-}
-
-/* The Try rows fade on their own stagger, so only the input and the headings fade here */
-:root[data-intro='playing'] .hero-input,
-:root[data-intro='playing'] .prompts h2,
-:root[data-intro='playing'] .landing-domains h2 {
-  animation: intro-in 400ms var(--ease-out) 2350ms both;
-}
-
-:root[data-intro='playing'] .tagline .phrase {
-  animation: intro-rise 600ms var(--ease-out) calc(2500ms + var(--i) * 240ms) both;
-}
-
-:root[data-intro='playing'] .prompts .prompt-list li {
-  animation: intro-in 350ms var(--ease-out) calc(2650ms + var(--i) * 100ms) both;
-}
-
-:root[data-intro='playing'] .domain-chips li {
-  animation: intro-in 500ms var(--ease-out) calc(2650ms + var(--i) * 90ms) both;
-}
-
-/* Starts as the last chip starts: --n is the number of domains */
-:root[data-intro='playing'] .landing-honest {
-  animation: intro-in 500ms var(--ease-out) calc(2650ms + var(--n) * 90ms) both;
-}
-
-/* Both ends are explicit, so a fade-out starts from the visible state rather than the hidden base */
-@keyframes intro-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes intro-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes intro-slide {
-  from {
-    transform: translateX(var(--from));
-  }
-  to {
-    transform: none;
-  }
-}
-
-@keyframes intro-draw {
-  from {
-    stroke-dashoffset: 1;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes intro-pop {
-  from {
-    opacity: 0;
-    transform: scale(0);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes intro-teal {
-  from {
-    color: var(--color-text);
-  }
-  to {
-    color: var(--color-teal);
-  }
-}
-
-@keyframes intro-q-out {
-  from {
-    opacity: 1;
-    transform: none;
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-12px) scale(0.4);
-  }
-}
-
-@keyframes intro-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+/* The prompt and the systems to watch, centred at the bottom */
+.stage-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  width: min(780px, calc(100% - 2 * var(--side)));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
 }
 
 .hero-input {
   display: flex;
+  align-items: flex-end;
   gap: var(--space-3);
-  margin-top: var(--space-4);
-  padding: var(--space-3);
-  background: var(--color-surface);
-  border: var(--rule-strong);
-  border-radius: var(--radius-md);
-  backdrop-filter: blur(14px);
+  padding: 10px 10px 10px 22px;
+  border-radius: 18px;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-surface-opaque);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-float);
+  transition: border-color var(--dur-short) var(--ease-out);
 }
 
 .hero-input:focus-within {
-  border-color: var(--color-focus);
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
+  border-color: var(--color-accent-line);
 }
 
 .hero-input textarea {
   flex: 1;
   min-width: 0;
   resize: none;
+  field-sizing: content;
+  max-height: 7.5em;
   background: none;
   border: 0;
   outline: none;
-  padding: var(--space-2);
+  padding: 12px 0;
   font-size: var(--text-lg);
+  line-height: 1.45;
 }
 
 .hero-input textarea::placeholder {
   color: var(--color-muted);
 }
 
-.hero-actions {
-  display: flex;
-  gap: var(--space-2);
-  align-self: flex-end;
-}
-
-.hero-input {
-  flex-wrap: wrap;
-}
-
 .hero-input button {
-  align-self: flex-end;
+  flex: none;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 12px;
   background: var(--color-accent);
   color: var(--color-on-accent);
-  border: 0;
   font-weight: 600;
-  padding: var(--space-2) var(--space-5);
+  font-size: var(--text-lg);
 }
 
 .hero-input button:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
 
-.landing-note {
-  color: var(--color-accent);
+.stage-switch {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
 }
 
-/* Example prompts read as a list of rows, not a stack of buttons */
-.prompts h2,
-.landing-domains h2 {
-  font-size: var(--text-md);
-  font-weight: 500;
+.stage-switch button,
+.stage-switch a {
+  position: relative;
+  min-height: 40px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
   color: var(--color-muted);
-  margin-bottom: var(--space-2);
+  font-size: var(--text-base);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
-.prompt-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.stage-switch button:hover,
+.stage-switch a:hover {
+  color: var(--color-text);
 }
 
-.prompt-list li {
+.stage-switch button[aria-pressed='true'] {
+  color: var(--color-text);
+}
+
+.stage-switch button[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  height: 2px;
+  background: var(--color-accent);
+}
+
+/* The running scene's underline fills as its turn runs out */
+.stage-switch button[data-run='true']::after {
+  transform-origin: left;
+  animation: now-progress var(--hero) linear forwards;
+}
+
+@keyframes now-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes now-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Sections below the first screen sit on solid graphite */
+.landing-section {
+  position: relative;
+  padding: 120px var(--side);
+  background: var(--color-bg);
   border-top: var(--rule);
 }
 
-.prompt-list li:last-child {
-  border-bottom: var(--rule);
+.landing-kinds {
+  background: oklch(16% 0.004 265);
 }
 
-.prompt-list button {
-  display: block;
-  width: 100%;
-  min-height: 0;
-  text-align: left;
-  white-space: normal;
-  text-wrap: pretty;
-  color: var(--color-muted);
-  background: none;
-  border: 0;
-  border-radius: 0;
-  padding: var(--space-2) 0;
+.section-head {
+  max-width: 1296px;
+  margin: 0 auto var(--space-12);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-8);
+  flex-wrap: wrap;
 }
 
-.prompt-list button::before {
-  content: '↳ ';
-  color: var(--color-accent);
-}
-
-.prompt-list button:hover:not(:disabled) {
-  color: var(--color-text);
-  background: none;
-}
-
-/* Domain index */
-.landing-domains {
-  position: relative;
-  min-width: 0;
-  align-self: start;
-}
-
-.domain-groups {
+.section-head > div {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
-.domain-group h3 {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.section-head h2 {
+  margin: 0;
+  font-size: clamp(36px, 4.4vw, 62px);
+  font-weight: 600;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+}
+
+.section-head p {
+  max-width: 400px;
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: 1.55;
   color: var(--color-muted);
-  margin-bottom: var(--space-1);
 }
 
-.prompt-list .ready {
-  margin-left: var(--space-2);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--color-teal-line, var(--color-accent-line));
-  border-radius: 999px;
-  font-size: var(--text-sm);
-  color: var(--color-teal, var(--color-accent));
-  white-space: nowrap;
+/* The agents: six cards on a line, with a token handing off down it */
+.relay {
+  position: relative;
+  max-width: 1296px;
+  margin: 0 auto;
 }
 
-.domain-chips {
+.relay-track {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 34px;
+  height: 2px;
+  background: var(--color-line);
+}
+
+.relay-token {
+  position: absolute;
+  top: -5px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 16px 3px oklch(82.1% 0.149 72 / 0.55);
+  animation: relay 6s ease-in-out infinite;
+}
+
+@keyframes relay {
+  from {
+    left: 0%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+.agent-cards {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-4);
+}
+
+.agent-cards li {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-6);
+  border-radius: 18px;
+  border: var(--rule);
+  background: var(--color-surface-solid);
+  animation: agent-turn 6s infinite;
+  animation-delay: calc(var(--i) * 1s);
 }
 
-.domain-chips button {
-  border-radius: 999px;
-  padding: var(--space-1) var(--space-3);
+@keyframes agent-turn {
+  0%,
+  18%,
+  100% {
+    border-color: var(--color-line);
+  }
+  4%,
+  14% {
+    border-color: var(--color-accent-line);
+  }
 }
 
-.domain-chips button[aria-pressed='true'] {
-  background: var(--color-accent-fill);
-  border-color: var(--color-accent-line);
+.agent-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.agent-n {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--color-accent-line);
+  background: var(--color-bg);
+  font: var(--text-xs) var(--font-mono);
   color: var(--color-accent);
 }
 
-/* Out of flow, so opening it doesn't re-centre the page */
-.domain-detail {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  margin-top: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--color-surface);
+.agent-engine {
+  font: var(--text-xs) var(--font-mono);
+  color: var(--color-muted);
+}
+
+.agent-engine[data-engine='Swarms'] {
+  color: var(--color-teal);
+}
+
+.agent-engine[data-engine='Simulator'] {
+  color: var(--color-accent);
+}
+
+.agent-cards b {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.agent-does {
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--color-muted);
+}
+
+/* The kinds of system: one tile each, opening a design straight away */
+.kind-tiles {
+  list-style: none;
+  max-width: 1296px;
+  margin: 0 auto;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.kind-tiles button {
+  width: 100%;
+  height: 100%;
+  min-height: 188px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 22px;
+  text-align: left;
+  white-space: normal;
+  border-radius: 18px;
   border: var(--rule);
-  border-radius: var(--radius-md);
+  background: var(--color-surface-solid);
+  transition:
+    transform 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out);
 }
 
-.domain-detail > p {
-  font-size: var(--text-md);
-  margin-bottom: var(--space-2);
+.kind-tiles button:hover:not(:disabled) {
+  transform: translateY(-3px);
+  border-color: var(--color-accent-line);
+  background: var(--color-surface-solid);
 }
 
-/* Reveal: the card slides down into place, then the description and examples cascade in */
-.domain-detail {
-  animation: detail-drop 220ms var(--ease-out) both;
+.kind-top {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.domain-detail > p {
-  animation: intro-rise 260ms var(--ease-out) 80ms both;
+.kind-icon {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--color-accent-fill);
+  color: var(--color-accent);
 }
 
-.domain-detail .prompt-list li {
-  animation: intro-rise 260ms var(--ease-out) calc(130ms + var(--i) * 50ms) both;
+.kind-icon[data-group='1'],
+.kind-icon[data-group='3'] {
+  background: var(--color-fill);
+  color: var(--color-text);
 }
 
-@keyframes detail-drop {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+.kind-group {
+  font: var(--text-xs) var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-muted);
 }
 
-/* styles.css zeroes durations under reduced motion, but delays would still hold items hidden */
-@media (prefers-reduced-motion: reduce) {
-  .domain-detail,
-  .domain-detail > p,
-  .domain-detail .prompt-list li {
-    animation: none;
-  }
+.kind-tiles b {
+  font-size: 21px;
+  font-weight: 600;
 }
 
-.landing-honest {
-  margin-top: var(--space-4);
-  font-size: var(--text-md);
+.kind-example {
+  font-size: var(--text-base);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.kind-ready {
+  margin-top: auto;
+  font-size: var(--text-sm);
+  color: var(--color-teal);
+}
+
+/* The promise, then the footer */
+/* A chapter: a real capture beside a short paragraph, the sides swapping each time */
+.chapter {
+  /* Solid like the other sections, so the live scene behind the hero never shows through */
+  padding: 100px max(var(--side), calc((100% - 1296px) / 2));
+  background: var(--color-bg);
+  border-top: var(--rule);
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(32px, 5vw, 72px);
+}
+
+.chapter[data-flip='true'] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+}
+
+.chapter[data-flip='true'] .chapter-figure {
+  order: 2;
+}
+
+.chapter-figure {
+  margin: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  border: var(--rule);
+  background: var(--color-surface-opaque);
+}
+
+.chapter-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 760 / 520;
+  object-fit: cover;
+}
+
+.chapter-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.chapter-copy h2 {
+  margin: 0;
+  font-size: clamp(32px, 3.6vw, 52px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
+.chapter-copy p {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: 1.6;
+  color: var(--color-muted);
+}
+
+.chapter-by {
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-muted);
+}
+
+/* The close: the question the name asks, and the prompt once more */
+.landing-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  padding: 140px var(--side);
+  text-align: center;
+  background: radial-gradient(800px 400px at 50% 0%, var(--color-accent-tint), transparent), var(--color-bg);
+  border-top: var(--rule);
+}
+
+.landing-band h2 {
+  margin: 0;
+  font-size: clamp(36px, 5vw, 72px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+}
+
+.landing-band .hero-input {
+  width: min(760px, 100%);
+  text-align: left;
+}
+
+.landing-band p {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-muted);
+}
+
+.landing-footer {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: 28px var(--side);
+  border-top: var(--rule);
+  background: var(--color-bg);
+  font-size: var(--text-base);
+  color: var(--color-muted);
+}
+
+.landing-footer {
+  align-items: center;
+}
+
+.landing-footer .wordmark {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+}
+
+.landing-note {
+  margin: 0;
   color: var(--color-accent);
 }
 
@@ -611,22 +608,60 @@
   color: var(--color-muted);
 }
 
+/* A phone: the headline at the top, the prompt at the bottom, the scene between; the readout steps aside and the systems scroll sideways */
 @media (max-width: 900px) {
-  .landing {
+  .stage-copy {
+    top: 76px;
+    right: var(--side);
+  }
+
+  .hero-lede {
+    font-size: var(--text-base);
+  }
+
+  .stage-live {
+    display: none;
+  }
+
+  .stage-prompt {
+    bottom: 16px;
+  }
+
+  .stage-switch {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .stage-switch button,
+  .stage-switch a {
+    flex: none;
+  }
+
+  .landing-section,
+  .landing-band {
+    padding-top: 80px;
+    padding-bottom: 80px;
+  }
+
+  .chapter,
+  .chapter[data-flip='true'] {
     grid-template-columns: minmax(0, 1fr);
+    padding-top: 64px;
+    padding-bottom: 64px;
+  }
+
+  .chapter[data-flip='true'] .chapter-figure {
+    order: 0;
   }
 }
 
-@media (max-width: 480px) {
-  .hero-input {
-    flex-direction: column;
-  }
-
-  .hero-actions {
-    align-self: stretch;
-  }
-
-  .hero-actions button[type='submit'] {
-    flex: 1;
+@media (prefers-reduced-motion: reduce) {
+  .now-dot,
+  .stage-switch button[data-run='true']::after,
+  .relay-token,
+  .agent-cards li {
+    animation: none;
   }
 }

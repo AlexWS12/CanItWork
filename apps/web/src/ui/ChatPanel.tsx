@@ -92,9 +92,28 @@ export function ChatPanel() {
           submit(text);
         }}
       >
-        <input aria-label="Ask or change something" value={text} placeholder="Ask, change or break something" onChange={(e) => setText(e.target.value)} />
-        <button type="submit" disabled={chatting || !text.trim()}>
-          Send
+        <textarea
+          aria-label="Ask or change something"
+          rows={1}
+          value={text}
+          placeholder="Ask, change or break something"
+          onChange={(e) => {
+            setText(e.target.value);
+            // Grows with what is typed, up to five lines
+            e.target.style.height = 'auto';
+            e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              submit(text);
+            }
+          }}
+        />
+        <button type="submit" className="chat-send" aria-label="Send" disabled={chatting || !text.trim()}>
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+            <path d="M8 13 V3 M3.5 7.5 L8 3 L12.5 7.5" fill="none" stroke="currentColor" strokeWidth="2" />
+          </svg>
         </button>
       </form>
     </aside>

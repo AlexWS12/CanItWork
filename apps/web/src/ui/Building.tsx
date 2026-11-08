@@ -4,6 +4,7 @@ import { splitPrompt } from '../entities';
 import { reducedMotion } from '../motion';
 import { useStore } from '../store';
 import './Building.css';
+import { Wordmark } from './Wordmark';
 import { AGENT_LABEL, engineLine } from './labels';
 
 // The build pipeline in apps/server/src/agents.ts `build`, used to show the steps still to come.
@@ -169,7 +170,7 @@ export function Building() {
   return (
     <div className="building">
       <section className="build-main">
-        <span className="wordmark">CanItWork</span>
+        <Wordmark />
         <div className="build-sentence">
           <span className="build-state">
             <span className="pulse" aria-hidden /> Building

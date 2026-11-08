@@ -6,6 +6,13 @@
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   overflow-y: auto;
+  /* The 3D view behind takes drags and clicks, except where the build screen has controls */
+  pointer-events: none;
+}
+
+.build-agents,
+.build-main button {
+  pointer-events: auto;
 }
 
 .build-main {
@@ -14,7 +21,9 @@
   flex-direction: column;
   justify-content: space-between;
   gap: var(--space-8);
-  background: radial-gradient(ellipse 80% 70% at 30% 50%, var(--color-stage-glow) 0%, var(--color-stage) 80%);
+  /* See-through: the chosen stage, then each draft as a blueprint, shows behind the sentence. Shade only where text sits. */
+  background: linear-gradient(to top, var(--color-bg-scrim) 0%, transparent 45%), linear-gradient(to bottom, var(--color-bg-scrim) 0%, transparent 22%);
+  pointer-events: none;
   min-width: 0;
 }
 
@@ -184,7 +193,8 @@
 .build-agents {
   padding: 72px 56px var(--space-12) 40px;
   border-left: var(--rule);
-  background: var(--color-bg);
+  background: var(--color-surface-opaque);
+  backdrop-filter: blur(16px);
   display: flex;
   flex-direction: column;
   min-width: 0;

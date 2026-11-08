@@ -1,12 +1,13 @@
 import { DOMAINS, domainList, type DomainId } from '@tv/core';
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { buildEnvironment } from '../actions';
+import { useEffect, useState, type CSSProperties } from 'react';
+import { buildEnvironment, showHero } from '../actions';
+import { reducedMotion } from '../motion';
+import { preloadModels, type ModelId } from '../scene/Model';
 import { useStore } from '../store';
 import { SignInButton } from './Account';
 import { Building } from './Building';
+import { Wordmark } from './Wordmark';
 import './Landing.css';
-
-const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
 type Verified = { prompt: string; domain: DomainId };
 
@@ -22,115 +23,215 @@ const TEAM = [
   { name: 'Recovery Council', engine: 'Swarms', does: 'proposes fixes after a failure; the simulator ranks them by what they actually do' },
 ];
 const groupOf = (id: DomainId) => (id === 'electronics' ? 0 : id === 'software' || id === 'database' ? 1 : id === 'fleet' ? 3 : 2);
-const grouped = () => {
-  const groups: Array<ReturnType<typeof domainList>> = GROUPS.map(() => []);
-  for (const d of domainList()) groups[groupOf(d.id)].push(d);
-  return groups;
-};
 
-// One example from each group, so four prompts still show the whole range
-function featuredExamples() {
-  return grouped()
-    .filter((group) => group.length)
-    .map((group) => pick(pick(group).examples));
-}
-
-// The server lists prompts it can rebuild from verified designs: they open instantly and cost no model calls, so they are featured when there is one for each group.
-function useFeatured() {
-  const [featured, setFeatured] = useState(featuredExamples);
+// The server lists prompts it can rebuild from verified designs: they open instantly and cost no model calls
+function useVerified() {
   const [verified, setVerified] = useState<Verified[]>([]);
   useEffect(() => {
     let live = true;
     fetch('/api/examples')
-      .then((res) => (res.ok ? (res.json() as Promise<{ examples?: Array<{ prompt: string; domain: DomainId }> }>) : null))
+      .then((res) => (res.ok ? (res.json() as Promise<{ examples?: Verified[] }>) : null))
       .then((body) => {
-        const verified = (body?.examples ?? []).filter((v) => v.domain in DOMAINS);
-        if (!live || !verified.length) return;
-        setVerified(verified);
-        const fallback = featuredExamples();
-        setFeatured(
-          GROUPS.map((_, group) => group)
-            .map((group, i) => {
-              const options = verified.filter((v) => v.domain in DOMAINS && groupOf(v.domain) === group);
-              return options.length ? pick(options).prompt : fallback[i];
-            })
-            .filter(Boolean),
-        );
+        const found = (body?.examples ?? []).filter((v) => v.domain in DOMAINS);
+        if (live && found.length) setVerified(found);
       })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, []);
-  return { featured, verified };
+  return verified;
 }
 
-// The title intro plays once per page load. While it runs, the root carries data-intro="playing" and the
-// CSS animations in Landing.css and TopBar.css apply; removing it shows every element in its end state.
-const INTRO_MS = 4350;
-let introStarted = false;
+// The live hero: real showcase designs take turns behind the page, each a simulation running, not a picture
+const HERO: Array<{ id: DomainId; label: string }> = [
+  { id: 'electronics', label: 'Breadboard' },
+  { id: 'warehouse', label: 'Warehouse' },
+  { id: 'supply', label: 'Supply chain' },
+  { id: 'airport', label: 'Airport' },
+  { id: 'queues', label: 'Supermarket' },
+];
+const HERO_SECONDS = 14;
 
-function playIntro() {
-  if (introStarted) return;
-  introStarted = true;
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  document.documentElement.dataset.intro = 'playing';
-  setTimeout(endIntro, INTRO_MS);
-}
+// A small line icon per kind of system, drawn on a 24 by 24 grid
+const ICON: Record<DomainId, string> = {
+  electronics: 'M7 7h10v10H7z M10 4v3 M14 4v3 M10 17v3 M14 17v3 M4 10h3 M4 14h3 M17 10h3 M17 14h3',
+  software: 'M3 5h7v5H3z M14 14h7v5h-7z M14 5h7v5h-7z M6.5 10v6.5H14 M10 7.5h4',
+  database: 'M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3z M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6 M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3',
+  warehouse: 'M3 20V4h18v16 M3 10h18 M3 15h18 M8 4v6 M14 10v5',
+  power: 'M13 2L5 14h6l-1 8 8-12h-6z',
+  water: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z',
+  supply: 'M3 7h11v9H3z M14 10h4l3 3v3h-7 M6.5 18.5a1.5 1.5 0 1 0 0-.1 M17.5 18.5a1.5 1.5 0 1 0 0-.1',
+  hospital: 'M9 3h6v6h6v6h-6v6H9v-6H3V9h6z',
+  factory: 'M3 21V10l6 4V10l6 4V5h6v16z M7 17h2 M12 17h2',
+  airport: 'M2 16l20-6-2-2-7 2-5-6H6l3 7-5 1-2-2H1z M3 21h18',
+  callcenter: 'M4 14v-2a8 8 0 0 1 16 0v2 M4 14h3v6H4z M17 14h3v6h-3z',
+  queues: 'M5 8a2 2 0 1 0 0-.1 M12 8a2 2 0 1 0 0-.1 M19 8a2 2 0 1 0 0-.1 M3 20v-4a2 2 0 0 1 4 0v4 M10 20v-4a2 2 0 0 1 4 0v4 M17 20v-4a2 2 0 0 1 4 0v4',
+  fleet: 'M9 9h6v6H9z M9 9L5 5 M15 9l4-4 M9 15l-4 4 M15 15l4 4 M3 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M17 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
+};
 
-function endIntro() {
-  delete document.documentElement.dataset.intro;
-}
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1) + '.';
 
-const TAGLINE = ['Describe a system.', 'Run it.', 'Break it.', 'Fix it.'];
-
-// The wordmark on a circuit trace. The intro asks "Can it?", then "Work?", slides the words together into
-// "CanItWork?", runs current from the amber power dot through the node under "It" to the teal output,
-// and the "?" lifts away once it arrives. W is the width of "CanIt" (where the node sits), TW of the word.
-function CircuitTitle() {
-  const canIt = useRef<HTMLSpanElement>(null);
-  const word = useRef<HTMLSpanElement>(null);
-  const [{ w, tw }, setSize] = useState({ w: 310, tw: 560 });
-  useLayoutEffect(() => {
-    playIntro();
-    const measure = () => {
-      if (canIt.current && word.current) {
-        setSize({ w: canIt.current.getBoundingClientRect().width, tw: word.current.getBoundingClientRect().width });
+/** Which showcase runs behind the page: it moves on by itself until someone picks one, or not at all with reduced motion. */
+function useHero() {
+  const [turn, setTurn] = useState(0);
+  const [held, setHeld] = useState(false);
+  const current = HERO[turn % HERO.length];
+  // One system fades out and the next fades in, rather than cutting from one to the other
+  useEffect(() => {
+    const stage = document.querySelector<HTMLElement>('canvas.stage, .stage');
+    let live = true;
+    const swap = async () => {
+      if (stage && !reducedMotion()) {
+        stage.style.opacity = '0';
+        await new Promise((resolve) => setTimeout(resolve, 380));
       }
+      if (!live) return;
+      await showHero(current.id);
+      // Gives the new view a moment to mount and start its glide before it shows
+      setTimeout(() => stage && (stage.style.opacity = '1'), 220);
     };
-    measure();
-    void document.fonts.ready.then(measure);
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    void swap();
+    return () => {
+      live = false;
+      if (stage) stage.style.opacity = '1';
+    };
+  }, [current.id]);
+  // Every pack model loads while the page is idle, so nothing pops in when its scene comes round
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 2000));
+    idle(() => {
+      void fetch('/models/manifest.json')
+        .then((r) => (r.ok ? (r.json() as Promise<ModelId[]>) : []))
+        .then(preloadModels)
+        .catch(() => undefined);
+    });
   }, []);
+  useEffect(() => {
+    if (held || reducedMotion()) return;
+    const timer = setTimeout(() => setTurn((t) => t + 1), HERO_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [turn, held]);
+  const choose = (i: number) => {
+    setHeld(true);
+    setTurn(i);
+  };
+  return { current, held, choose };
+}
+
+/** What is running behind the page, in the top right corner. */
+function LiveReadout({ hero }: { hero: ReturnType<typeof useHero> }) {
+  const name = useStore((s) => (s.showcase ? s.environment?.name : null));
   return (
-    <div className="wm" style={{ '--w': `${w}px`, '--tw': `${tw}px` } as CSSProperties}>
-      <h1 aria-label="CanItWork" className="wm-title">
-        <span className="wm-q wm-q1" aria-hidden>
-          Can it?
+    <aside className="stage-live" aria-label="Live simulation" aria-live="polite">
+      <span className="now-kicker">
+        <span className="now-dot" aria-hidden />
+        Running live
+      </span>
+      <b>{name ?? 'Loading the scene'}</b>
+      <span>{DOMAINS[hero.current.id].label} · every check passes</span>
+    </aside>
+  );
+}
+
+/** The row under the prompt that picks which system runs behind the page; the running one's underline fills as its turn runs out. */
+function StageSwitch({ hero, total }: { hero: ReturnType<typeof useHero>; total: number }) {
+  return (
+    <nav className="stage-switch" aria-label="Pick a system to watch">
+      {HERO.map((h, i) => (
+        <button
+          key={h.id}
+          aria-pressed={hero.current.id === h.id}
+          data-run={!hero.held && hero.current.id === h.id}
+          style={{ '--hero': `${HERO_SECONDS}s` } as CSSProperties}
+          onClick={() => hero.choose(i)}
+        >
+          {h.label}
+        </button>
+      ))}
+      <a href="#systems">All {total} →</a>
+    </nav>
+  );
+}
+
+// The story under the hero, each beside a real capture of the app; the agents and the kinds of system sit between the chapters
+const CHAPTERS = [
+  {
+    kicker: 'Describe it',
+    title: 'Say what you want, in your own words.',
+    body: 'A circuit, an app, a hospital on a busy night. The Interpreter picks the simulator that fits, and the Architect draws a first blueprint while you watch.',
+    by: 'Interpreter · Architect',
+    image: '/landing/draft.jpg',
+    alt: 'A first draft of an emergency room drawn as a blue blueprint while it is checked',
+  },
+  {
+    kicker: 'The simulator settles it',
+    title: 'Nothing reaches you until it runs.',
+    body: 'A real simulator runs every draft and sends it back with what failed. Only a design that passes every check turns solid.',
+    by: 'Validator · Reviewer',
+    image: '/landing/verified.jpg',
+    alt: 'The verified emergency room running, with ambulances, beds, a scanner and people',
+  },
+  {
+    kicker: 'Break it on purpose',
+    title: 'Then break it, and see what recovers.',
+    body: 'Knock out a part while it runs. The Recovery Council proposes fixes, and the simulator ranks them by what they actually do.',
+    by: 'Red Team · Recovery Council',
+    image: '/landing/break.jpg',
+    alt: 'A power grid running: a solar field, a substation and a city',
+  },
+];
+
+function Chapter({ index }: { index: number }) {
+  const c = CHAPTERS[index];
+  return (
+    <section className="chapter" data-flip={index % 2 === 1} aria-labelledby={`chapter-${index}`}>
+      <figure className="chapter-figure">
+        <img src={c.image} alt={c.alt} width={760} height={520} loading="lazy" />
+      </figure>
+      <div className="chapter-copy">
+        <span className="eyebrow">
+          {String(index + 1).padStart(2, '0')} · {c.kicker}
         </span>
-        <span className="wm-q wm-q2" aria-hidden>
-          Work<span className="wm-amber">?</span>
-        </span>
-        <span ref={word} className="wm-word" aria-hidden>
-          <span ref={canIt} className="wm-canit">
-            Can<span className="wm-it">It</span>
-          </span>
-          <span className="wm-work">Work</span>
-        </span>
-        {/* The wrapper rides with "Work" during the merge; the inner "?" lifts away on its own */}
-        <span className="wm-qm" aria-hidden>
-          <span className="wm-qm-glyph">?</span>
-        </span>
-      </h1>
-      <svg className="wm-trace" width={tw} height="24" viewBox={`0 0 ${tw} 24`} aria-hidden>
-        <line className="wm-seg wm-seg-a" x1="6" y1="12" x2={w} y2="12" pathLength={1} />
-        <line className="wm-seg wm-seg-b" x1={w} y1="12" x2={tw - 6} y2="12" pathLength={1} />
-        <circle className="wm-dot wm-d0" cx="6" cy="12" r="6" />
-        <circle className="wm-dot wm-d1" cx={w} cy="12" r="5" />
-        <circle className="wm-dot wm-d2" cx={tw - 6} cy="12" r="6" />
-      </svg>
-    </div>
+        <h2 id={`chapter-${index}`}>{c.title}</h2>
+        <p>{c.body}</p>
+        <span className="chapter-by">{c.by}</span>
+      </div>
+    </section>
+  );
+}
+
+/** The prompt, in the hero and again at the end of the page; both share one draft. */
+function PromptForm({ id, text, setText, submit, autoFocus }: { id: string; text: string; setText: (text: string) => void; submit: (text: string) => void; autoFocus?: boolean }) {
+  return (
+    <form
+      className="hero-input"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit(text);
+      }}
+    >
+      <label htmlFor={id} className="sr-only">
+        Describe a system
+      </label>
+      <textarea
+        id={id}
+        autoFocus={autoFocus}
+        rows={1}
+        value={text}
+        placeholder="Describe a circuit, a warehouse, an app…"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit(text);
+          }
+        }}
+      />
+      <button type="submit" disabled={!text.trim()}>
+        Build it
+      </button>
+    </form>
   );
 }
 
@@ -154,9 +255,8 @@ function Refusal() {
 
 export function Landing() {
   const [text, setText] = useState('');
-  const { featured, verified } = useFeatured();
-  const [selected, setSelected] = useState<DomainId | null>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
+  const verified = useVerified();
+  const hero = useHero();
   const building = useStore((s) => s.building);
   const messages = useStore((s) => s.messages);
   const last = messages[messages.length - 1];
@@ -165,127 +265,113 @@ export function Landing() {
   };
   // Examples build straight away; typing in the box is how to change one first
   const use = (example: string) => {
-    endIntro();
     setText(example);
     submit(example);
   };
-  const domain = selected ? DOMAINS[selected] : null;
-  // A domain's verified designs come first: they open instantly with no model calls
-  const ready = domain ? verified.filter((v) => v.domain === domain.id).map((v) => v.prompt) : [];
-  const examples = domain ? [...ready, ...domain.examples.filter((e) => !ready.includes(e))].slice(0, 4) : [];
+  const kinds = domainList();
+  // Each tile offers a design that passed every check before when there is one: it opens instantly with no model calls
+  const exampleOf = (id: DomainId) => verified.find((v) => v.domain === id)?.prompt ?? DOMAINS[id].examples[0];
   if (building) return <Building />;
   return (
     <div className="landing">
-      <header className="landing-head">
-        <CircuitTitle />
-        <p className="tagline">
-          {TAGLINE.map((phrase, i) => (
-            <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>
-              {`${phrase} `}
-            </span>
-          ))}
-        </p>
-        <div className="agent-team">
-          <p>A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
-          <ol aria-label="The agents behind every build">
-            {TEAM.map((agent) => (
-              <li key={agent.name} title={`${agent.name} (${agent.engine}) ${agent.does}`}>
-                <span className="agent-pill" data-engine={agent.engine === 'Swarms' ? 'swarms' : undefined}>
-                  <b>{agent.name}</b>
-                  <small>{agent.engine}</small>
+      <section className="hero" id="top">
+        <div className="stage-copy">
+          <h1 className="hero-title">
+            Describe a system.
+            <br />
+            Watch it run.
+          </h1>
+          <p className="hero-lede">Every scene here is a real design, running live and checked by the simulator.</p>
+        </div>
+        <LiveReadout hero={hero} />
+        <div className="stage-prompt">
+          <Refusal />
+          {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
+          <PromptForm id="describe" text={text} setText={setText} submit={submit} autoFocus />
+          <StageSwitch hero={hero} total={kinds.length} />
+        </div>
+      </section>
+
+      <Chapter index={0} />
+      <Chapter index={1} />
+
+      <section className="landing-section" id="how" aria-labelledby="how-title">
+        <div className="section-head">
+          <div>
+            <span className="eyebrow eyebrow-green">How it works</span>
+            <h2 id="how-title">
+              Six agents argue.
+              <br />
+              The simulator settles it.
+            </h2>
+          </div>
+          <p>Agents propose. Nothing ships until the simulator runs it and every check passes.</p>
+        </div>
+        <div className="relay">
+          <span className="relay-track" aria-hidden>
+            <span className="relay-token" />
+          </span>
+          <ol className="agent-cards">
+            {TEAM.map((agent, i) => (
+              <li key={agent.name} style={{ '--i': i } as CSSProperties}>
+                <span className="agent-top">
+                  <span className="agent-n">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="agent-engine" data-engine={agent.engine}>
+                    {agent.engine}
+                  </span>
                 </span>
+                <b>{agent.name}</b>
+                <span className="agent-does">{sentence(agent.does)}</span>
               </li>
             ))}
           </ol>
         </div>
-      </header>
-      <div className="landing-main">
-        <form
-          className="hero-input"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit(text);
-          }}
-        >
-          <textarea
-            ref={input}
-            aria-label="Describe a system"
-            autoFocus
-            rows={2}
-            value={text}
-            placeholder="Describe a system in your own words"
-            onChange={(e) => {
-              endIntro();
-              setText(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submit(text);
-              }
-            }}
-          />
-          <div className="hero-actions">
-            <button type="submit" disabled={!text.trim()}>
-              Build
-            </button>
-          </div>
-        </form>
-        <Refusal />
-        {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-        <section className="prompts" aria-labelledby="prompts-title">
-          <h2 id="prompts-title">Try</h2>
-          <ul className="prompt-list">
-            {featured.map((example, i) => (
-              <li key={example} style={{ '--i': i } as CSSProperties}>
-                <button onClick={() => use(example)}>{example}</button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-      <section className="landing-domains" aria-labelledby="domains-title" style={{ '--n': domainList().length } as CSSProperties}>
-        <h2 id="domains-title">What it can build · {domainList().length} kinds of system</h2>
-        <div className="domain-groups">
-          {grouped().map((group, i) =>
-            group.length ? (
-              <div className="domain-group" key={GROUPS[i]}>
-                <h3>{GROUPS[i]}</h3>
-                <ul className="domain-chips">
-                  {group.map((d) => (
-                    <li key={d.id} style={{ '--i': domainList().findIndex((x) => x.id === d.id) } as CSSProperties}>
-                      <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
-                        {d.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null,
-          )}
-        </div>
-        <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
-        {domain && (
-          // Keyed by domain so choosing another chip remounts the card and replays its reveal
-          <div key={domain.id} className="domain-detail">
-            <p>{domain.blurb}</p>
-            <ul className="prompt-list">
-              {examples.map((example, i) => (
-                <li key={example} style={{ '--i': i } as CSSProperties}>
-                  <button onClick={() => use(example)}>
-                    {example}
-                    {ready.includes(example) && (
-                      <span className="ready" title="Passed every check before: opens instantly with no model calls">
-                        verified
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </section>
+
+      <Chapter index={2} />
+
+      <section className="landing-section landing-kinds" id="systems" aria-labelledby="systems-title">
+        <div className="section-head">
+          <div>
+            <span className="eyebrow">What it can build</span>
+            <h2 id="systems-title">
+              {kinds.length === 13 ? 'Thirteen' : kinds.length} kinds of system.
+              <br />
+              <span className="hero-muted">From a breadboard to a power grid.</span>
+            </h2>
+          </div>
+        </div>
+        <ul className="kind-tiles">
+          {kinds.map((d) => (
+            <li key={d.id}>
+              <button onClick={() => use(exampleOf(d.id))}>
+                <span className="kind-top">
+                  <span className="kind-icon" data-group={groupOf(d.id)} aria-hidden>
+                    <svg width="24" height="24" viewBox="0 0 24 24">
+                      <path d={ICON[d.id]} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span className="kind-group">{GROUPS[groupOf(d.id)]}</span>
+                </span>
+                <b>{d.label}</b>
+                <span className="kind-example">{exampleOf(d.id)}</span>
+                {verified.some((v) => v.domain === d.id) && <span className="kind-ready">Opens instantly</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="landing-band" aria-labelledby="close-title">
+        <h2 id="close-title">Can it work? Find out.</h2>
+        <PromptForm id="describe-again" text={text} setText={setText} submit={submit} />
+        <p>If it can’t model what you describe, it says so instead of guessing.</p>
+      </section>
+
+      <footer className="landing-footer">
+        <Wordmark />
+        <span>Gemini · Swarms · TypeSafe Jev · Tiger Data · 3D models by Kenney (CC0)</span>
+      </footer>
     </div>
   );
 }

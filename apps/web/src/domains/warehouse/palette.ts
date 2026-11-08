@@ -6,11 +6,11 @@ export const ROBOT_COLORS = ['#2fd4c2', '#a58bff', '#ff7ac6', '#a3e635', '#4cc3f
 export const robotColor = (index: number) => ROBOT_COLORS[index % ROBOT_COLORS.length];
 
 export const COLORS = {
-  floor: '#172033',
-  steel: '#2a3650',
-  steelLight: '#3d4d6e',
+  floor: '#1a1c21',
+  steel: '#596170',
+  steelLight: '#7a8392',
   cargo: '#ffb347',
-  crate: '#7c5a3a',
+  crate: '#a47a50',
   danger: '#ff3b4e',
   energy: '#5dffb1',
   outside: '#0a0f19',

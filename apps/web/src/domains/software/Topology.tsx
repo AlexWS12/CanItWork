@@ -1,11 +1,11 @@
-import { Grid } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { edgeKey, topoOrder, type SystemNode, type SystemRun, type SystemSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Movable, Tag, useArranged } from '../shared';
+import { Box, Crowd, FINISH } from '../../scene/kit';
+import { ClaimPin, Floor, Movable, Tag, useArranged } from '../shared';
 
 const system = () => runner.run as SystemRun | null;
 const LAYER_GAP = 7;
@@ -92,7 +92,7 @@ function Rack({ replicas, light }: { replicas: number; light: (m: THREE.MeshBasi
         <group key={i} position={[0, 0.3 + i * 0.46, 0]}>
           <mesh castShadow>
             <boxGeometry args={[1.7, 0.38, 1.3]} />
-            <meshStandardMaterial color="#2b3750" metalness={0.65} roughness={0.35} />
+            <meshStandardMaterial color="#2e3239" metalness={0.6} roughness={0.35} />
           </mesh>
           <mesh position={[0, 0, 0.66]}>
             <boxGeometry args={[1.3, 0.07, 0.02]} />
@@ -122,20 +122,11 @@ function NodeBody({ node }: { node: SystemNode }) {
   });
   switch (node.kind) {
     case 'client':
+      // The people and devices sending requests
       return (
         <group>
-          {[
-            [-0.6, -0.4],
-            [0.5, -0.5],
-            [0, 0.45],
-            [-0.75, 0.55],
-            [0.8, 0.4],
-          ].map(([x, z], i) => (
-            <mesh key={i} position={[x, 0.4, z]} castShadow>
-              <capsuleGeometry args={[0.2, 0.35, 6, 12]} />
-              <meshStandardMaterial color="#9fb3d4" />
-            </mesh>
-          ))}
+          <Crowd count={5} radius={0.85} seed={2} />
+          <Box size={[0.5, 0.03, 0.34]} at={[0.15, 0.5, 0.15]} m={FINISH.screen()} />
         </group>
       );
     case 'gateway':
@@ -144,12 +135,12 @@ function NodeBody({ node }: { node: SystemNode }) {
           {[-1.1, 1.1].map((x) => (
             <mesh key={x} position={[x, 1, 0]} castShadow>
               <boxGeometry args={[0.4, 2, 0.9]} />
-              <meshStandardMaterial color="#3d4d6e" metalness={0.6} roughness={0.35} />
+              <meshStandardMaterial color="#3a3f47" metalness={0.6} roughness={0.35} />
             </mesh>
           ))}
           <mesh position={[0, 2.1, 0]} castShadow>
             <boxGeometry args={[2.9, 0.4, 0.9]} />
-            <meshStandardMaterial color="#3d4d6e" metalness={0.6} roughness={0.35} />
+            <meshStandardMaterial color="#3a3f47" metalness={0.6} roughness={0.35} />
           </mesh>
           <mesh position={[0, 1.85, 0.46]}>
             <boxGeometry args={[2, 0.08, 0.02]} />
@@ -163,7 +154,7 @@ function NodeBody({ node }: { node: SystemNode }) {
           {[0.42, 1.12, 1.82].map((y, i) => (
             <mesh key={y} position={[0, y, 0]} castShadow>
               <cylinderGeometry args={[1.05, 1.05, 0.6, 36]} />
-              <meshStandardMaterial color={i === 2 ? '#51648c' : '#3d4d6e'} metalness={0.6} roughness={0.3} />
+              <meshStandardMaterial color={i === 2 ? '#5a616c' : '#3a3f47'} metalness={0.6} roughness={0.3} />
             </mesh>
           ))}
           <mesh position={[0, 2.16, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -177,7 +168,7 @@ function NodeBody({ node }: { node: SystemNode }) {
         <group>
           <mesh position={[0, 0.6, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
             <torusGeometry args={[0.95, 0.26, 16, 44]} />
-            <meshStandardMaterial color="#3d4d6e" metalness={0.7} roughness={0.25} />
+            <meshStandardMaterial color="#3a3f47" metalness={0.7} roughness={0.25} />
           </mesh>
           <mesh position={[0, 0.6, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[0.55, 32]} />
@@ -190,7 +181,7 @@ function NodeBody({ node }: { node: SystemNode }) {
         <group position={[0, 0.65, 0]}>
           <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
             <capsuleGeometry args={[0.55, 2.6, 8, 24]} />
-            <meshStandardMaterial color="#51648c" metalness={0.5} roughness={0.2} transparent opacity={0.42} />
+            <meshStandardMaterial color="#8a96a8" metalness={0.3} roughness={0.15} transparent opacity={0.35} />
           </mesh>
           <mesh ref={fill} position={[-1.4, 0, 0]}>
             <boxGeometry args={[2.8, 0.55, 0.55]} />
@@ -294,13 +285,13 @@ export function Topology() {
   const zones = useMemo(() => [...new Set(spec?.nodes.flatMap((n) => n.zones ?? []) ?? [])], [spec]);
   const legendZ = useMemo(() => Math.max(0, ...[...positions.values()].map((p) => p.z)) + 4.5, [positions]);
   if (!spec) return null;
+  // The floor reaches a little past the outermost services
+  const xs = [...positions.values()].map((p) => p.x);
+  const zs = [...positions.values()].map((p) => p.z);
+  const [x0, x1, z0, z1] = [Math.min(0, ...xs), Math.max(0, ...xs), Math.min(0, ...zs), Math.max(0, ...zs)];
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[70, 44]} />
-        <meshStandardMaterial color="#121a29" roughness={0.6} metalness={0.3} />
-      </mesh>
-      <Grid args={[70, 44]} cellSize={1} cellThickness={0.4} cellColor="#1f2c44" sectionSize={LAYER_GAP} sectionThickness={0.8} sectionColor="#2d3f5f" fadeDistance={110} />
+      <Floor position={[(x0 + x1) / 2, 0, (z0 + z1) / 2]} width={Math.max(36, x1 - x0 + 22)} depth={Math.max(26, z1 - z0 + 20)} section={LAYER_GAP} />
       <Links spec={spec} positions={positions} />
       <ZoneLegend zones={zones} z={legendZ} />
       {spec.nodes.map((node) => {
@@ -308,7 +299,9 @@ export function Topology() {
         if (!at) return null;
         return (
           <Movable key={node.id} id={node.id} position={at}>
-            <NodeBody node={node} />
+            <group scale={1.35}>
+              <NodeBody node={node} />
+            </group>
             <Beacon node={node} />
             <ZoneChips node={node} zones={zones} />
             <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3} />

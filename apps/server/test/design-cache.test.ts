@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { StreamEvent } from '@tv/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { build } from '../src/agents';
+import { DOMAINS } from '@tv/core';
+import { build, showcaseEnvironment } from '../src/agents';
 import { normalize, resetStale } from '../src/design-cache';
 import { DEFAULT_SPEC, isolateEnv, json, mockFetch, openAiReply } from './helpers';
 
@@ -98,5 +99,17 @@ describe('verified design cache', () => {
     const { events, emit } = collect();
     await build('A warehouse', emit);
     expect(events.some((e) => e.type === 'step' && e.engine === 'cache')).toBe(false);
+  });
+
+  it('serves a replayable showcase design for every kind of system, and nothing for unknown ones', () => {
+    for (const id of Object.keys(DOMAINS)) {
+      const found = showcaseEnvironment(id);
+      expect(found, id).not.toBeNull();
+      expect(found!.environment.domain).toBe(id);
+      expect(
+        DOMAINS[id as keyof typeof DOMAINS].validate(DOMAINS[id as keyof typeof DOMAINS].compile(found!.environment.spec as never)).filter((i) => i.severity === 'error'),
+      ).toEqual([]);
+    }
+    expect(showcaseEnvironment('teleporter')).toBeNull();
   });
 });

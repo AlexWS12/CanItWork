@@ -6,7 +6,7 @@ import { config } from 'dotenv';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
-import { build, chat, describeFailure, edit, explain, recover, servedFromCache, type Emit } from './agents';
+import { build, chat, describeFailure, edit, explain, recover, servedFromCache, showcaseEnvironment, type Emit } from './agents';
 import { authConfig } from './auth';
 import { showcase } from './design-cache';
 import { admit } from './integrations/limit';
@@ -30,6 +30,12 @@ app.use('/api/*', async (_, next) => {
 app.get('/api/status', async (c) => c.json(await checkedStatus(300)));
 
 app.get('/api/examples', (c) => c.json({ examples: showcase() }));
+
+// One verified showcase design per kind of system, replayed as is: nothing is designed, so it costs nothing.
+app.get('/api/examples/:domain', (c) => {
+  const found = showcaseEnvironment(c.req.param('domain'));
+  return found ? c.json(found) : c.json({ error: 'No showcase design for that kind of system' }, 404);
+});
 
 app.get('/api/spend', (c) => c.json(summary(pruneBypass())));
 

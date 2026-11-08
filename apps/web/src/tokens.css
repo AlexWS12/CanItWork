@@ -1,45 +1,47 @@
-/* Hallmark · tokens · genre: atmospheric · paper: dark · accent: amber (warm) + teal (state)
- * The 3D scene mirrors --color-bg, --color-accent and --color-teal as hex in scene/Scene.tsx,
- * because THREE.Color can't parse oklch().
+/* Tokens · graphite, one accent. Amber is the only accent; green only ever means a good state.
+ * The 3D scene mirrors the surfaces and the accent as hex in scene/look.ts, because THREE.Color can't parse oklch().
  */
 :root {
   /* Surfaces */
-  --color-bg: oklch(13.9% 0.015 261);
-  --color-bg-scrim: oklch(13.9% 0.015 261 / 0.75);
-  --color-sunken: oklch(9% 0.012 261 / 0.6);
-  --color-surface: oklch(17.8% 0.022 264 / 0.78);
-  --color-surface-faint: oklch(17.8% 0.022 264 / 0.6);
-  --color-surface-opaque: oklch(16.4% 0.02 266 / 0.94);
-  --color-surface-solid: oklch(17.8% 0.022 264);
+  --color-bg: oklch(14.6% 0.004 265);
+  --color-bg-scrim: oklch(14.6% 0.004 265 / 0.78);
+  --color-sunken: oklch(10% 0.003 265 / 0.6);
+  --color-surface: oklch(18.6% 0.005 265 / 0.82);
+  --color-surface-faint: oklch(18.6% 0.005 265 / 0.62);
+  --color-surface-opaque: oklch(17.4% 0.005 265 / 0.95);
+  --color-surface-solid: oklch(18.6% 0.005 265);
 
-  /* Neutral fills and rules, all one cool grey at different strengths */
-  --color-fill-subtle: oklch(73.7% 0.069 264 / 0.05);
-  --color-fill: oklch(73.7% 0.069 264 / 0.08);
-  --color-fill-hover: oklch(73.7% 0.069 264 / 0.16);
-  --color-line: oklch(73.7% 0.069 264 / 0.14);
-  --color-line-strong: oklch(73.7% 0.069 264 / 0.3);
+  /* Neutral fills and rules, one graphite grey at different strengths */
+  --color-fill-subtle: oklch(85% 0.005 265 / 0.04);
+  --color-fill: oklch(85% 0.005 265 / 0.07);
+  --color-fill-hover: oklch(85% 0.005 265 / 0.13);
+  --color-line: oklch(85% 0.005 265 / 0.11);
+  --color-line-strong: oklch(85% 0.005 265 / 0.22);
 
   /* Ink */
-  --color-text: oklch(94.5% 0.013 262);
-  --color-muted: oklch(68.4% 0.038 263);
+  --color-text: oklch(95% 0.003 265);
+  --color-muted: oklch(71% 0.008 265);
 
   /* Accent: amber marks attention (running, incidents, the primary action) */
   --color-accent: oklch(82.1% 0.149 72);
   --color-accent-hover: oklch(85.6% 0.124 75);
   --color-accent-line: oklch(82.1% 0.149 72 / 0.45);
+  /* The logo's blueprint faces, the same blue as drafts on the build stage */
+  --color-blueprint: #8fb3ec;
   --color-accent-fill: oklch(82.1% 0.149 72 / 0.12);
   --color-accent-tint: oklch(82.1% 0.149 72 / 0.06);
   --color-accent-halo: oklch(82.1% 0.149 72 / 0.6);
   --color-on-accent: oklch(19% 0.027 74);
 
-  /* Teal marks a good state (done, winner, connected) and focus */
-  --color-teal: oklch(78.6% 0.131 184);
-  --color-teal-fill: oklch(78.6% 0.131 184 / 0.12);
-  --color-teal-line: oklch(78.6% 0.131 184 / 0.55);
-  --color-teal-band: oklch(78.6% 0.131 184 / 0.1);
-  --color-teal-glow: oklch(78.6% 0.131 184 / 0.35);
-  --color-on-teal: oklch(22.1% 0.035 182);
-  --color-focus: var(--color-teal);
+  /* "Teal" is kept as a name, but it is now a muted green that only marks a good state (done, winner, connected).
+     It never decorates, and it never glows. */
+  --color-teal: oklch(76% 0.1 158);
+  --color-teal-fill: oklch(76% 0.1 158 / 0.1);
+  --color-teal-line: oklch(76% 0.1 158 / 0.4);
+  --color-teal-band: oklch(76% 0.1 158 / 0.08);
+  --color-teal-glow: transparent;
+  --color-on-teal: oklch(20% 0.03 158);
+  --color-focus: var(--color-accent);
 
   /* Danger */
   --color-danger: oklch(69.1% 0.2 19);
@@ -54,17 +56,18 @@
   --color-screen: oklch(26.6% 0.063 153);
 
   /* Build screen backdrop, a lit patch of the scene's clear colour */
-  --color-stage-glow: #0e1524;
-  --color-stage: #06090f;
+  --color-stage-glow: #121317;
+  --color-stage: #0b0c0f;
 
   /* Type */
   --font-sans: 'Space Grotesk Variable', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-md: 13px;
-  --text-base: 14px;
-  --text-lg: 16px;
+  /* A step larger than before: the panels read at arm's length, not up close */
+  --text-xs: 11.5px;
+  --text-sm: 12.5px;
+  --text-md: 13.5px;
+  --text-base: 14.5px;
+  --text-lg: 16.5px;
   --text-xl: 19px;
   --text-2xl: 26px;
   --text-hero: clamp(32px, 3.6vw, 52px);
@@ -92,12 +95,13 @@
   --radius-pill: 999px;
   --rule: 1px solid var(--color-line);
   --rule-strong: 1px solid var(--color-line-strong);
-  --shadow-sheet: 0 -20px 60px oklch(9% 0.012 261 / 0.6);
+  --shadow-sheet: 0 -20px 60px oklch(8% 0.003 265 / 0.6);
+  --shadow-float: 0 18px 50px oklch(6% 0.003 265 / 0.55);
 
   /* Layout */
   --gutter: var(--space-3);
-  --panel-left-w: 280px;
-  --panel-right-w: 300px;
+  --panel-left-w: 340px;
+  --panel-right-w: 360px;
   --bar-h: 52px;
   /* Everything below the top bar starts here */
   --top-h: var(--bar-h);

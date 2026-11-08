@@ -177,6 +177,8 @@ export function PlacementLayer({ world }: { world: World }) {
 
   return (
     <mesh
+      // An invisible catch-plane, wider than the floor: marked as floor so the camera frames the warehouse, not this
+      userData={{ floor: true }}
       position={[0, 2.5, 0]}
       rotation={[-Math.PI / 2, 0, 0]}
       onPointerDown={(e) => e.stopPropagation()}

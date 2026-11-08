@@ -1,11 +1,12 @@
-import { Grid, Html } from '@react-three/drei';
+import { Html, RoundedBox } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import type { FleetRun, FleetSpec, FleetUnit } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Floor, Tag, pick } from '../shared';
+import { Box, Cyl, FINISH, Windows, mat } from '../../scene/kit';
 import './Fleet.css';
 
 // The field seen from above: units coloured by role over a coverage map that fills in as scouts sweep it, radio links between
@@ -89,6 +90,58 @@ function Base({ spec, s }: { spec: FleetSpec; s: number }) {
   );
 }
 
+// The spec only gives each obstacle a box, so its proportions decide what it is drawn as:
+// a slim or small one is a stand of trees, a low wide one is rocks, anything taller is a building.
+function Obstacle({ w, d, h }: { w: number; d: number; h: number }) {
+  const footprint = Math.max(w, d);
+  if (h < 0.7 && footprint > 1.2) {
+    return (
+      <group>
+        {[-0.3, 0.1, 0.35].map((f, i) => (
+          <mesh
+            key={i}
+            position={[f * w, h * 0.45, (i - 1) * 0.25 * d]}
+            scale={[w * (0.35 - i * 0.05), h, d * (0.4 - i * 0.06)]}
+            material={mat('#6a6458', { rough: 1 })}
+            castShadow
+            receiveShadow
+          >
+            <dodecahedronGeometry args={[1, 0]} />
+          </mesh>
+        ))}
+      </group>
+    );
+  }
+  if (footprint <= 1.6 || h > footprint * 2.5) {
+    const trees = Math.max(1, Math.min(5, Math.round((w * d) / 0.8)));
+    return (
+      <group>
+        {Array.from({ length: trees }, (_, i) => {
+          const a = (i / trees) * Math.PI * 2;
+          const r = trees > 1 ? Math.min(w, d) * 0.3 : 0;
+          const th = h * (0.8 + ((i * 37) % 5) * 0.06);
+          return (
+            <group key={i} position={[Math.cos(a) * r, 0, Math.sin(a) * r]}>
+              <Cyl r={0.06} h={th * 0.35} at={[0, th * 0.17, 0]} m={FINISH.wood()} seg={8} />
+              <mesh position={[0, th * 0.62, 0]} material={mat(i % 2 ? '#3f6b45' : '#355c3b', { rough: 0.9 })} castShadow>
+                <coneGeometry args={[Math.max(0.25, Math.min(w, d) * 0.32), th * 0.75, 10]} />
+              </mesh>
+            </group>
+          );
+        })}
+      </group>
+    );
+  }
+  const floors = Math.max(1, Math.min(8, Math.round(h / 0.45)));
+  return (
+    <group>
+      <Box size={[w, h, d]} at={[0, h / 2, 0]} m={FINISH.concrete()} />
+      <Box size={[w * 1.02, 0.08, d * 1.02]} at={[0, h + 0.04, 0]} m={FINISH.roof()} />
+      <Windows w={w * 0.85} rows={floors} cols={Math.max(2, Math.round(w / 0.45))} at={[0, 0.3, d / 2 + 0.01]} gap={(h - 0.4) / floors} />
+    </group>
+  );
+}
+
 function Obstacles({ spec, s }: { spec: FleetSpec; s: number }) {
   return (
     <group>
@@ -96,10 +149,9 @@ function Obstacles({ spec, s }: { spec: FleetSpec; s: number }) {
         const c = toScene(spec, o.x + o.width / 2, o.y + o.depth / 2, s);
         const h = Math.max(0.4, Math.min(6, o.height * s));
         return (
-          <mesh key={i} position={[c.x, h / 2, c.z]} castShadow receiveShadow>
-            <boxGeometry args={[o.width * s, h, o.depth * s]} />
-            <meshStandardMaterial color="#475569" roughness={0.8} />
-          </mesh>
+          <group key={i} position={[c.x, 0, c.z]}>
+            <Obstacle w={o.width * s} d={o.depth * s} h={h} />
+          </group>
         );
       })}
     </group>
@@ -148,28 +200,48 @@ function UnitBody({ unit, color }: { unit: FleetUnit; color: string }) {
     for (const r of rotors.current) if (r) r.rotation.y += flying ? dt * 40 : 0;
   });
   if (unit.role.ground) {
+    // A six-wheeled rover with a sensor mast, in its role's colour
     return (
       <group>
-        <mesh position={[0, 0.3, 0]} castShadow>
-          <boxGeometry args={[0.8, 0.35, 0.55]} />
+        <RoundedBox args={[0.9, 0.28, 0.6]} radius={0.05} smoothness={2} position={[0, 0.32, 0]} castShadow>
           <meshStandardMaterial color={color} roughness={0.5} />
+        </RoundedBox>
+        <mesh position={[0, 0.47, 0]} castShadow>
+          <boxGeometry args={[0.6, 0.06, 0.45]} />
+          <meshStandardMaterial color="#2b2f36" roughness={0.5} />
         </mesh>
-        {[-0.3, 0.3]
-          .flatMap((x) => [-0.3, 0.3].map((z) => [x, z]))
+        <mesh position={[0.3, 0.68, 0]} castShadow>
+          <cylinderGeometry args={[0.025, 0.025, 0.4, 8]} />
+          <meshStandardMaterial color="#9aa3ad" metalness={0.6} roughness={0.4} />
+        </mesh>
+        <mesh position={[0.3, 0.9, 0]}>
+          <boxGeometry args={[0.14, 0.08, 0.2]} />
+          <meshStandardMaterial color="#16181c" roughness={0.3} />
+        </mesh>
+        {[-0.32, 0, 0.32]
+          .flatMap((x) => [-0.33, 0.33].map((z) => [x, z]))
           .map(([x, z], i) => (
-            <mesh key={i} position={[x, 0.13, z]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.13, 0.13, 0.1, 12]} />
-              <meshStandardMaterial color="#111827" />
+            <mesh key={i} position={[x, 0.13, z]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+              <cylinderGeometry args={[0.13, 0.13, 0.1, 14]} />
+              <meshStandardMaterial color="#16181c" roughness={0.9} />
             </mesh>
           ))}
       </group>
     );
   }
+  // A quadcopter: dark body with its role's colour on top, four arms, motor pods and blurred spinning props
   return (
     <group>
-      <mesh castShadow>
-        <boxGeometry args={[0.36, 0.14, 0.36]} />
-        <meshStandardMaterial color={color} roughness={0.4} emissive={color} emissiveIntensity={0.25} />
+      <RoundedBox args={[0.38, 0.12, 0.38]} radius={0.04} smoothness={2} castShadow>
+        <meshStandardMaterial color="#23272e" roughness={0.4} />
+      </RoundedBox>
+      <mesh position={[0, 0.07, 0]}>
+        <boxGeometry args={[0.28, 0.03, 0.28]} />
+        <meshStandardMaterial color={color} roughness={0.4} emissive={color} emissiveIntensity={0.3} />
+      </mesh>
+      <mesh position={[0, -0.09, 0]}>
+        <sphereGeometry args={[0.06, 12, 8]} />
+        <meshStandardMaterial color="#10151c" metalness={0.4} roughness={0.15} />
       </mesh>
       {[
         [0.32, 0.32],
@@ -177,15 +249,21 @@ function UnitBody({ unit, color }: { unit: FleetUnit; color: string }) {
         [0.32, -0.32],
         [-0.32, -0.32],
       ].map(([x, z], i) => (
-        <group key={i} position={[x, 0.06, z]}>
-          <mesh rotation={[0, Math.PI / 4, 0]}>
-            <boxGeometry args={[0.5, 0.03, 0.05]} />
-            <meshStandardMaterial color="#cbd5e1" />
+        <group key={i}>
+          <mesh position={[x / 2, 0, z / 2]} rotation={[0, Math.atan2(x, z), 0]}>
+            <boxGeometry args={[0.04, 0.03, 0.46]} />
+            <meshStandardMaterial color="#3a3f47" roughness={0.5} />
           </mesh>
-          <mesh ref={(m) => (rotors.current[i] = m)} position={[0, 0.04, 0]}>
-            <cylinderGeometry args={[0.2, 0.2, 0.01, 16]} />
-            <meshStandardMaterial color="#e2e8f0" transparent opacity={0.45} />
-          </mesh>
+          <group position={[x, 0.03, z]}>
+            <mesh>
+              <cylinderGeometry args={[0.05, 0.05, 0.08, 12]} />
+              <meshStandardMaterial color="#3a3f47" metalness={0.5} roughness={0.4} />
+            </mesh>
+            <mesh ref={(m) => (rotors.current[i] = m)} position={[0, 0.05, 0]}>
+              <cylinderGeometry args={[0.22, 0.22, 0.008, 20]} />
+              <meshStandardMaterial color="#d8dde4" transparent opacity={0.35} depthWrite={false} />
+            </mesh>
+          </group>
         </group>
       ))}
     </group>
@@ -225,7 +303,10 @@ function Units({ spec, s }: { spec: FleetSpec; s: number }) {
           }}
           onClick={pick(u.id)}
         >
-          <UnitBody unit={u} color={u.status === 'lost' ? '#4b5563' : roleColor(spec, u.role.id)} />
+          {/* Units draw about twice life size: at the scale of a search area they would otherwise be specks */}
+          <group scale={1.9}>
+            <UnitBody unit={u} color={u.status === 'lost' ? '#4b5563' : roleColor(spec, u.role.id)} />
+          </group>
           <mesh
             ref={(m) => {
               if (m) rings.current.set(u.id, m);
@@ -308,11 +389,7 @@ export function Fleet() {
   const d = spec.area.depth * s;
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[w + 6, d + 6]} />
-        <meshStandardMaterial color="#0f1622" roughness={0.8} />
-      </mesh>
-      <Grid args={[w, d]} cellSize={1} cellThickness={0.3} cellColor="#1c2638" sectionSize={5} sectionThickness={0.6} sectionColor="#273449" fadeDistance={120} />
+      <Floor width={w + 6} depth={d + 6} fade={120} />
       <Coverage spec={spec} s={s} />
       <Obstacles spec={spec} s={s} />
       <Base spec={spec} s={s} />

@@ -1,11 +1,10 @@
-import { Grid } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { isIndexed, type DatabaseSpec, type SchemaRun, type Table } from '@tv/core';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Movable, useArranged } from '../shared';
+import { ClaimPin, Floor, Movable, useArranged } from '../shared';
 
 const engine = () => runner.run as SchemaRun | null;
 const WIDTH = 5.6;
@@ -260,11 +259,7 @@ export function Schema() {
   if (!spec) return null;
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[80, 60]} />
-        <meshStandardMaterial color="#0f1725" roughness={0.7} />
-      </mesh>
-      <Grid args={[80, 60]} cellSize={1} cellThickness={0.3} cellColor="#1c2940" sectionSize={5} sectionThickness={0.6} sectionColor="#27384f" fadeDistance={110} />
+      <Floor width={80} depth={60} />
       <Relations spec={spec} positions={positions} />
       {spec.tables.map((table) => {
         const at = positions.get(table.name);

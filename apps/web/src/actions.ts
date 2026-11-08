@@ -75,7 +75,7 @@ function loadEnvironment(environment: Environment) {
   // A new design starts over, so it leaves any live session around the old one.
   if (useLive.getState().id) leaveLive();
   runner.load(environment);
-  store().set({ environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null, explanation: null });
+  store().set({ environment, showcase: null, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null, explanation: null });
 }
 
 const FRESH_MS = 6000;
@@ -180,7 +180,7 @@ export async function saveRun(run: SharedRun, visibility: Visibility, people: st
 
 function replayShared(shared: SharedRun, from: string) {
   runner.replay(shared.environment, shared.seed, shared.tick, shared.events);
-  store().set({ environment: shared.environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
+  store().set({ environment: shared.environment, showcase: null, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
   const replayed = runHash(shared.environment, shared.seed, shared.tick, shared.events);
   store().addMessage({
     role: 'app',
@@ -189,6 +189,45 @@ function replayShared(shared: SharedRun, from: string) {
         ? `Replayed ${from} exactly: ${shared.tick} ticks and ${shared.events.length} event${shared.events.length === 1 ? '' : 's'}. Its provenance hash ${shortHash(replayed)} matches.`
         : `This run doesn't replay to its own provenance hash (${shortHash(shared.hash)} saved, ${shortHash(replayed)} replayed), so something in it was changed.`,
   });
+}
+
+// Opens a showcase design straight away: it already passed every check, so no agent runs and nothing is spent.
+export async function openShowcase(domain: string) {
+  const res = await fetch(`/api/examples/${encodeURIComponent(domain)}`).catch(() => null);
+  if (!res?.ok) return null;
+  const { prompt, environment } = (await res.json()) as { prompt: string; environment: Environment };
+  runner.replay(environment, 1, 0, []);
+  store().set({
+    environment,
+    prompt,
+    showcase: null,
+    environmentKey: store().environmentKey + 1,
+    report: null,
+    appliedId: null,
+    selected: null,
+    refusal: null,
+    steps: [],
+    findings: [],
+  });
+  return environment;
+}
+
+// The landing page's live hero: a showcase design running behind the page. It never becomes the user's system, so the landing
+// stays up, and anything the user starts replaces it.
+const heroDesigns = new Map<string, Environment>();
+export async function showHero(domain: string) {
+  let environment = heroDesigns.get(domain);
+  if (!environment) {
+    const res = await fetch(`/api/examples/${encodeURIComponent(domain)}`).catch(() => null);
+    if (!res?.ok) return;
+    environment = ((await res.json()) as { environment: Environment }).environment;
+    heroDesigns.set(domain, environment);
+  }
+  // The user may have started something while the design loaded
+  const s = store();
+  if (s.building || (s.environment && !s.showcase)) return;
+  runner.load(environment);
+  s.set({ environment, showcase: domain as Environment['domain'], environmentKey: s.environmentKey + 1, selected: null });
 }
 
 // Opens a run from a shared link and checks it replays to the hash the link carries.
@@ -244,23 +283,64 @@ export async function fetchSpend() {
   }
 }
 
+// A draft is loaded so its view can draw it, but held still: it hasn't passed the checks, so nothing it does would mean anything yet.
+function loadDraft(environment: Environment) {
+  try {
+    runner.load(environment);
+  } catch {
+    return; // A draft too broken to compile simply isn't drawn; the next round may be
+  }
+  runner.running = false;
+  store().set({ environment, blueprint: true, environmentKey: store().environmentKey + 1, selected: null });
+}
+
+// Takes a draft off screen when the build ends without a design to run.
+function dropBlueprint() {
+  if (!store().blueprint) return;
+  runner.clear();
+  store().set({ environment: null, blueprint: false });
+}
+
 export async function buildEnvironment(prompt: string) {
-  store().set({ building: true, prompt, entities: [], domainOdds: null, steps: [], findings: [], report: null, appliedId: null, refusal: null });
+  // A new request starts on an empty stage: the last design no longer sits behind the build
+  if (useLive.getState().id) leaveLive();
+  runner.clear();
+  store().set({
+    building: true,
+    prompt,
+    environment: null,
+    stage: null,
+    blueprint: false,
+    showcase: null,
+    entities: [],
+    domainOdds: null,
+    steps: [],
+    findings: [],
+    report: null,
+    appliedId: null,
+    refusal: null,
+  });
   store().addMessage({ role: 'user', text: prompt });
   try {
     await stream('/api/build', { prompt }, (event) => {
       common(event);
+      if (event.type === 'domain') store().set({ stage: event.domain });
+      if (event.type === 'draft') loadDraft(event.environment);
       if (event.type === 'environment') {
-        store().set({ entities: matchEntities(prompt, event.environment.spec) });
+        store().set({ entities: matchEntities(prompt, event.environment.spec), blueprint: false });
         loadEnvironment(event.environment);
       }
-      if (event.type === 'refusal') store().set({ refusal: event.refusal });
+      if (event.type === 'refusal') {
+        dropBlueprint();
+        store().set({ refusal: event.refusal });
+      }
       if (event.type === 'reply') reply(event.text);
     });
   } catch (error) {
     store().addMessage({ role: 'app', text: String(error) });
   }
-  store().set({ building: false });
+  dropBlueprint();
+  store().set({ building: false, stage: null });
   if (store().environment && !store().refusal) void explainRun(prompt);
 }
 

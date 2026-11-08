@@ -1,11 +1,12 @@
 import type { World } from '@tv/core';
-import { Grid } from '@react-three/drei';
+
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { runner } from '../../runner';
 import { select } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Floor, Tag, pick } from '../shared';
 import { FloorEditMarks, PlacementLayer, useFloorDrag } from './drag';
 import { COLORS, ZONE_TINTS, robotColor, toScene, warehouseSim } from './palette';
 
@@ -13,6 +14,22 @@ const dummy = new THREE.Object3D();
 const color = new THREE.Color();
 
 const easeOut = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+
+// An open steel rack, one unit square and 1.1 tall around its centre: four posts and four boards the crates sit on.
+// Merged into one geometry, so every rack in the building is still a single instanced draw.
+const rackGeometry = (() => {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const [x, z] of [
+    [-0.46, -0.46],
+    [0.46, -0.46],
+    [-0.46, 0.46],
+    [0.46, 0.46],
+  ]) {
+    parts.push(new THREE.BoxGeometry(0.06, 1.1, 0.06).translate(x, 0, z));
+  }
+  for (const y of [-0.5, -0.16, 0.18, 0.52]) parts.push(new THREE.BoxGeometry(0.98, 0.035, 0.98).translate(0, y, 0));
+  return mergeGeometries(parts)!;
+})();
 
 function Shelves({ world }: { world: World }) {
   const frames = useRef<THREE.InstancedMesh>(null!);
@@ -99,7 +116,7 @@ function Shelves({ world }: { world: World }) {
     <group>
       <instancedMesh
         ref={frames}
-        args={[undefined, undefined, count]}
+        args={[rackGeometry, undefined, count]}
         castShadow
         receiveShadow
         onPointerDown={(e) => drag.onPointerDown(e, grabShelf(e))}
@@ -107,8 +124,7 @@ function Shelves({ world }: { world: World }) {
         onPointerUp={drag.onPointerUp}
         onClick={pickShelf}
       >
-        <boxGeometry args={[1, 1.1, 1]} />
-        <meshStandardMaterial color={COLORS.steel} metalness={0.7} roughness={0.45} transparent opacity={0.55} />
+        <meshStandardMaterial color={COLORS.steel} metalness={0.6} roughness={0.4} />
       </instancedMesh>
       <instancedMesh ref={crates} args={[undefined, undefined, count * CRATES_PER_SHELF]} castShadow>
         <boxGeometry args={[1, 1, 1]} />
@@ -367,21 +383,7 @@ export function Facility({ world }: { world: World }) {
   const size = useMemo(() => [world.cols + 1, world.rows + 1] as const, [world]);
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={size as unknown as [number, number]} />
-        <meshStandardMaterial color={COLORS.floor} metalness={0.4} roughness={0.55} />
-      </mesh>
-      <Grid
-        position={[0, 0, 0]}
-        args={size as unknown as [number, number]}
-        cellSize={1}
-        cellThickness={0.5}
-        cellColor="#2a3852"
-        sectionSize={5}
-        sectionThickness={0.9}
-        sectionColor="#3c4f74"
-        fadeDistance={80}
-      />
+      <Floor width={size[0]} depth={size[1]} color={COLORS.floor} metalness={0.4} roughness={0.55} fade={80} />
       <Outline world={world} />
       <Zones world={world} />
       <Shelves world={world} />
