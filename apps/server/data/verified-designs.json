@@ -1121,7 +1121,19 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "Three times the normal traffic overloads the busiest service.",
+        "incident": {
+          "type": "traffic_spike",
+          "value": 3
+        },
+        "verdict": "confirmed",
+        "evidence": "Traffic spike: 100 → 69.3 % of requests succeeding (-30.7%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "a university database with students, courses and enrollments": {
     "domain": "database",
@@ -1428,7 +1440,38 @@
         ],
         "replicas": 2
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "get_product_reviews relies on the index on reviews.product_id: without it, it falls to a full scan.",
+        "incident": {
+          "type": "drop_index",
+          "target": "reviews.product_id"
+        },
+        "verdict": "confirmed",
+        "evidence": "Drop index: reviews.product_id: 100 → 82.6 % of queries within 100 ms (-17.4%)"
+      },
+      {
+        "claim": "reviews doesn't scale: ten times the rows pushes queries over budget.",
+        "incident": {
+          "type": "row_surge",
+          "target": "reviews",
+          "value": 10
+        },
+        "verdict": "refuted",
+        "evidence": "Row surge: reviews: 100 → 100 % of queries within 100 ms (0%)"
+      },
+      {
+        "claim": "A long lock on products stops the busiest query outright.",
+        "incident": {
+          "type": "lock_table",
+          "target": "products"
+        },
+        "verdict": "confirmed",
+        "evidence": "Lock table: products: 100 → 30.4 % of queries within 100 ms (-69.6%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "an orders table with 5 million rows that is slow to query by customer": {
     "domain": "database",
@@ -1538,7 +1581,28 @@
         "dispatch": "pooled",
         "shape": "rect"
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "The single conveyor is a choke point: if it blocks, deliveries stop.",
+        "incident": {
+          "type": "block_conveyor",
+          "target": "C1"
+        },
+        "verdict": "confirmed",
+        "evidence": "Block conveyor: C1: 284.7 → 53.7 packages delivered (-81.1%)"
+      },
+      {
+        "claim": "Double the normal demand outruns the fleet.",
+        "incident": {
+          "type": "surge",
+          "value": 2
+        },
+        "verdict": "confirmed",
+        "evidence": "Surge: Backlog 16 → 259"
+      }
+    ],
+    "findingsVersion": 1
   },
   "a fulfilment centre under heavy demand with two chargers": {
     "domain": "warehouse",
@@ -3864,7 +3928,38 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "In \"0 + 3 = 3\", if xor1 burns out, ledS0 and ledS1 go dark.",
+        "incident": {
+          "type": "burn_part",
+          "target": "xor1"
+        },
+        "verdict": "confirmed",
+        "evidence": "With swA1 at 0, swA0 at 0, swB1 at 1, swB0 at 1: Burn part: xor1: 100 → 49.1 % of outputs working (-50.9%)"
+      },
+      {
+        "claim": "In \"0 + 3 = 3\", ledS0 depends on W15: one loose wire takes it out.",
+        "incident": {
+          "type": "loose_wire",
+          "target": "W15"
+        },
+        "verdict": "confirmed",
+        "evidence": "With swA1 at 0, swA0 at 0, swB1 at 1, swB0 at 1: Loose wire: W15: 100 → 74.6 % of outputs working (-25.4%)"
+      },
+      {
+        "claim": "In \"0 + 3 = 3\", a sagging batt drops the logic below its threshold and the result is lost.",
+        "incident": {
+          "type": "low_supply",
+          "target": "batt",
+          "value": 1.6666666666666667
+        },
+        "verdict": "confirmed",
+        "evidence": "With swA1 at 0, swA0 at 0, swB1 at 1, swB0 at 1: Low supply: batt: 100 → 49.1 % of outputs working (-50.9%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "an er with 3 triage nurses, 30 beds and one ct scanner": {
     "domain": "hospital",
@@ -4804,7 +4899,37 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "LED_RED depends on W23: one loose wire takes it out.",
+        "incident": {
+          "type": "loose_wire",
+          "target": "W23"
+        },
+        "verdict": "confirmed",
+        "evidence": "Loose wire: W23: 100 → 81.9 % of outputs working (-18.1%)"
+      },
+      {
+        "claim": "LED_YEL depends on W26: one loose wire takes it out.",
+        "incident": {
+          "type": "loose_wire",
+          "target": "W26"
+        },
+        "verdict": "confirmed",
+        "evidence": "Loose wire: W26: 100 → 91 % of outputs working (-9%)"
+      },
+      {
+        "claim": "If RA shorts, nothing limits the current through its LED and pin.",
+        "incident": {
+          "type": "short_part",
+          "target": "RA"
+        },
+        "verdict": "confirmed",
+        "evidence": "Short part: RA: 100 → 64 % of outputs working (-36%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "a push button that toggles an led on and off using a d flip-flop": {
     "domain": "electronics",
@@ -5313,7 +5438,29 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "In \"Above threshold (45C)\", buzzer depends on W4: one loose wire takes it out.",
+        "incident": {
+          "type": "loose_wire",
+          "target": "W4"
+        },
+        "verdict": "refuted",
+        "evidence": "With temp at 45: Loose wire: W4: 100 → 97 % of outputs working (-3%)"
+      },
+      {
+        "claim": "In \"Above threshold (45C)\", a sagging batt drops the logic below its threshold and the result is lost.",
+        "incident": {
+          "type": "low_supply",
+          "target": "batt",
+          "value": 3
+        },
+        "verdict": "refuted",
+        "evidence": "With temp at 45: Low supply: batt: 100 → 100 % of outputs working (0%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "an arduino counting from 0 to 9 on a 7-segment display, one digit per second": {
     "domain": "electronics",
@@ -5495,7 +5642,28 @@
         },
         "layout": "breadboard"
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "DISP1 depends on W2: one loose wire takes it out.",
+        "incident": {
+          "type": "loose_wire",
+          "target": "W2"
+        },
+        "verdict": "refuted",
+        "evidence": "Loose wire: W2: 100 → 100 % of outputs working (0%)"
+      },
+      {
+        "claim": "If R_A shorts, nothing limits the current through its LED and pin.",
+        "incident": {
+          "type": "short_part",
+          "target": "R_A"
+        },
+        "verdict": "confirmed",
+        "evidence": "Short part: R_A: 100 → 20 % of outputs working (-80%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "an esp32 reading a dht22 and showing temperature on an oled": {
     "domain": "electronics",
@@ -9149,7 +9317,37 @@
         "wind": 3,
         "reserve": 20
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "If repeater-1 goes down, units far from base lose contact and their finds stop reaching the base.",
+        "incident": {
+          "type": "lose_unit",
+          "target": "repeater-1"
+        },
+        "verdict": "confirmed",
+        "evidence": "Lose unit: repeater-1: 79.3 → 74.7 out of 100 for mission progress over time (-5.8%)"
+      },
+      {
+        "claim": "Jamming cuts radio range to 30%, so most of the fleet works blind and reports nothing.",
+        "incident": {
+          "type": "jam_comms",
+          "value": 0.3
+        },
+        "verdict": "refuted",
+        "evidence": "Jam comms: 79.3 → 79.3 out of 100 for mission progress over time (0%)"
+      },
+      {
+        "claim": "A 14 m/s wind drains batteries faster, so units turn back early and the mission falls behind.",
+        "incident": {
+          "type": "wind",
+          "value": 14
+        },
+        "verdict": "refuted",
+        "evidence": "Wind: 79.3 → 79 out of 100 for mission progress over time (-0.4%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "sidewalk delivery robots bringing parcels from a hub to 12 houses": {
     "domain": "fleet",
@@ -9933,7 +10131,37 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "Triage Desk is the only route to Discharge / Exit: losing it cuts them off.",
+        "incident": {
+          "type": "node_down",
+          "target": "triage_desk"
+        },
+        "verdict": "confirmed",
+        "evidence": "Node down: triage_desk: 99.8 → 23.1 % of patients treated (-76.9%)"
+      },
+      {
+        "claim": "Emergency Department Beds handles more than any other step: losing it starves everything after it.",
+        "incident": {
+          "type": "node_down",
+          "target": "er_beds"
+        },
+        "verdict": "confirmed",
+        "evidence": "Node down: er_beds: 99.8 → 23.1 % of patients treated (-76.9%)"
+      },
+      {
+        "claim": "A mass-casualty event that doubles arrivals fills the ER, and ambulances start being diverted.",
+        "incident": {
+          "type": "surge",
+          "value": 2
+        },
+        "verdict": "confirmed",
+        "evidence": "Surge: 99.8 → 69.4 % of patients treated (-30.5%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "a restaurant kitchen during the dinner rush": {
     "domain": "factory",
@@ -10072,7 +10300,37 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "Local Substation is the only route to Neighbourhood Demand: losing it cuts them off.",
+        "incident": {
+          "type": "node_down",
+          "target": "sub1"
+        },
+        "verdict": "confirmed",
+        "evidence": "Node down: sub1: 100 → 20 % of demand served (-80%)"
+      },
+      {
+        "claim": "Losing the Local Substation → Neighbourhood Demand line pushes its load onto the others, which trip in turn.",
+        "incident": {
+          "type": "link_down",
+          "target": "sub1->neighbourhood1"
+        },
+        "verdict": "confirmed",
+        "evidence": "Link down: sub1->neighbourhood1: 100 → 20 % of demand served (-80%)"
+      },
+      {
+        "claim": "A heat wave that lifts demand 40% overloads the lines, and they trip one after another.",
+        "incident": {
+          "type": "surge",
+          "value": 1.4
+        },
+        "verdict": "refuted",
+        "evidence": "Surge: 100 → 100 % of demand served (0%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "online orders flowing from suppliers through a fulfilment centre to customers": {
     "domain": "supply",
@@ -10689,7 +10947,28 @@
         "wind": 3,
         "reserve": 20
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "Jamming cuts radio range to 30%, so most of the fleet works blind and reports nothing.",
+        "incident": {
+          "type": "jam_comms",
+          "value": 0.3
+        },
+        "verdict": "refuted",
+        "evidence": "Jam comms: 72 → 69.7 out of 100 for mission progress over time (-3.2%)"
+      },
+      {
+        "claim": "A 14 m/s wind drains batteries faster, so units turn back early and the mission falls behind.",
+        "incident": {
+          "type": "wind",
+          "value": 14
+        },
+        "verdict": "refuted",
+        "evidence": "Wind: 72 → 71.8 out of 100 for mission progress over time (-0.3%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "autonomous boats searching a bay for an oil spill, with a mothership as base": {
     "domain": "fleet",
@@ -11222,7 +11501,38 @@
           }
         ]
       }
-    }
+    },
+    "findings": [
+      {
+        "claim": "Checkouts handles more than any other step: losing it starves everything after it.",
+        "incident": {
+          "type": "node_down",
+          "target": "checkouts"
+        },
+        "verdict": "confirmed",
+        "evidence": "Node down: checkouts: 100 → 89.7 % of arrivals served (-10.3%)"
+      },
+      {
+        "claim": "A rush that doubles arrivals fills the lines and people start giving up.",
+        "incident": {
+          "type": "surge",
+          "value": 2
+        },
+        "verdict": "refuted",
+        "evidence": "Surge: 100 → 99.9 % of arrivals served (-0.1%)"
+      },
+      {
+        "claim": "Customer Service Desk already runs at 77% load: if it slows down, everything behind it backs up.",
+        "incident": {
+          "type": "node_slow",
+          "target": "customer_service",
+          "value": 2.5
+        },
+        "verdict": "refuted",
+        "evidence": "Node slow: customer_service: 100 → 99.8 % of arrivals served (-0.2%)"
+      }
+    ],
+    "findingsVersion": 1
   },
   "a fast food drive-thru with an order window and a pickup window": {
     "domain": "queues",

@@ -1,10 +1,10 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { StreamEvent } from '@tv/core';
+import type { Finding, StreamEvent } from '@tv/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { build } from '../src/agents';
-import { normalize, resetStale } from '../src/design-cache';
+import { FINDINGS_VERSION, normalize, resetStale } from '../src/design-cache';
 import { DEFAULT_SPEC, isolateEnv, json, mockFetch, openAiReply } from './helpers';
 
 describe('verified design cache', () => {
@@ -45,6 +45,16 @@ describe('verified design cache', () => {
     const environment = events.find((e) => e.type === 'environment');
     expect(environment?.type === 'environment' && (environment.environment.spec as { robots: number }).robots).toBe(6);
     expect(events.some((e) => e.type === 'step' && e.engine === 'cache' && e.status === 'done')).toBe(true);
+  });
+
+  it('reuses the tested claims stored with a cached design instead of simulating them again', async () => {
+    const findings: Finding[] = [{ claim: 'The belt stops', incident: { type: 'node_down', target: 'belt' }, verdict: 'confirmed', evidence: 'Block conveyor: Conveyor C1' }];
+    writeFileSync(file, JSON.stringify({ [normalize('A warehouse with six robots')]: { domain: 'warehouse', draft, findings, findingsVersion: FINDINGS_VERSION } }));
+    const { events, emit } = collect();
+    await build('A warehouse with six robots', emit);
+    const event = events.find((e) => e.type === 'findings');
+    expect(event?.type === 'findings' && event.findings).toEqual(findings);
+    expect(events.some((e) => e.type === 'step' && e.title === 'Testing each claim')).toBe(false);
   });
 
   it('ignores a cached entry that no longer fits the schema and asks the Architect', async () => {

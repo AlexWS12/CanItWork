@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DOMAINS, type DomainId } from '@tv/core';
+import { DOMAINS, type DomainId, type Finding } from '@tv/core';
 
 // Designs that passed every check, keyed by the exact prompt (case and spacing aside). Asking again rebuilds instantly with no model calls.
 // Matching is exact on purpose: a semantic cache returned five robots when nine were asked for, so near misses always go to the Architect.
@@ -10,7 +10,13 @@ import { DOMAINS, type DomainId } from '@tv/core';
 export interface CachedDesign {
   domain: DomainId;
   draft: { name: string; summary: string; unmodelled: string[]; spec: unknown };
+  // The claims tested against this draft. They are deterministic, so a hit reuses them instead of simulating every claim again.
+  findings?: Finding[];
+  findingsVersion?: number;
 }
+
+// Bump when a simulator or claim change makes stored verdicts unsafe to reuse.
+export const FINDINGS_VERSION = 1;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Seeds verified ahead of time ship with the repo; designs verified while running are kept beside them, out of git.
@@ -73,6 +79,23 @@ export function remember(prompt: string, design: CachedDesign) {
     stale.delete(normalize(prompt));
   } catch {
     // Best effort: a read-only disk only costs the next build a model call.
+  }
+}
+
+// Attaches the tested claims to an existing entry, so the next hit skips the claim simulations.
+export function rememberFindings(prompt: string, findings: Finding[]) {
+  if (!cacheOn()) return;
+  try {
+    const file = runtimeFile();
+    const key = normalize(prompt);
+    const all = read(file);
+    const hit = all[key] ?? read(SEEDS)[key];
+    if (!hit) return;
+    all[key] = { ...hit, findings, findingsVersion: FINDINGS_VERSION };
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify(all));
+  } catch {
+    // Best effort: a read-only disk only costs the next build a few seconds.
   }
 }
 

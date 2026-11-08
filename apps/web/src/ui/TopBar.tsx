@@ -1,7 +1,7 @@
 import { DOMAINS, type KeyCheck, type ProviderStatus } from '@tv/core';
 import { startOver } from '../actions';
 import { useStore } from '../store';
-import { ticks } from './labels';
+import { simulated, ticks } from './labels';
 import { PrunePill } from './PruneSavings';
 import { ShareButton } from './SharePanel';
 import { Wordmark } from './Wordmark';
@@ -50,20 +50,33 @@ function StatePill() {
   const speed = useStore((s) => s.telemetry.speed);
   const report = useStore((s) => s.report);
   const open = useStore((s) => s.reportOpen);
+  const recovering = useStore((s) => s.recovering);
+  const pending = useStore((s) => s.pendingIncident);
+  const domain = useStore((s) => s.environment?.domain);
+  const perSecond = domain ? DOMAINS[domain].ticksPerSecond : null;
+  const clock = (t: number) => (perSecond ? simulated(t, perSecond) : `t ${ticks(t)}`);
   if (report && open) {
     return (
       <span className="state-pill" data-state="incident">
         <span className="pill-short">Incident</span>
-        <span className="pill-long">
-          Incident · {report.incident} · t {ticks(report.tick)}
-        </span>
+        <span className="pill-long">Incident · {report.incident}</span>
+      </span>
+    );
+  }
+  // The incident exists before the council's report does: say so straight away
+  if (recovering) {
+    return (
+      <span className="state-pill" data-state="incident">
+        <span className="pill-short">Fixing</span>
+        <span className="pill-long">Recovering{pending?.label ? ` · ${pending.label}` : ''}…</span>
       </span>
     );
   }
   return (
     <span className="state-pill" data-state={running ? 'running' : 'paused'}>
       {running && <span className="pulse" aria-hidden />}
-      {running ? `Running · t ${ticks(tick)} · ${speed}x` : `Paused · t ${ticks(tick)}`}
+      <span className="pill-short">{running ? 'Running' : 'Paused'}</span>
+      <span className="pill-long">{running ? `Running · ${clock(tick)} · ${speed}x` : `Paused · ${clock(tick)}`}</span>
     </span>
   );
 }

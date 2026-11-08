@@ -13,16 +13,25 @@ export function Transport() {
   const environment = useStore((s) => s.environment);
   const explanation = useStore((s) => s.explanation);
   const report = useStore((s) => s.report);
+  const recovering = useStore((s) => s.recovering);
+  const pending = useStore((s) => s.pendingIncident);
   if (!environment) return null;
   // While an incident runs, the headline gives way to the recovery panel's own
   const summary = headline(t.stats, explanation, !report);
   return (
     <footer className="transport" style={{ ['--stats' as string]: t.stats.length }}>
-      {summary.text && (
-        <p className="dock-headline" data-health={summary.health} aria-live="polite">
+      {recovering && !report ? (
+        <p className="dock-headline" data-health="problem" aria-live="polite">
           <span className="health-dot" aria-hidden />
-          {summary.text}
+          {pending?.label ? `${pending.label} has stopped` : 'An incident is running'} — finding a fix…
         </p>
+      ) : (
+        summary.text && (
+          <p className="dock-headline" data-health={summary.health} aria-live="polite">
+            <span className="health-dot" aria-hidden />
+            {summary.text}
+          </p>
+        )
       )}
       <div className="controls">
         <button className="play" onClick={() => runner.toggle()}>
@@ -75,7 +84,11 @@ export function Transport() {
       <div className="breakers">
         <span className="breakers-head">Try a problem</span>
         {t.breakables.map((option) => (
-          <button key={option.label} title={`${option.label}: see what happens, then let the agents find and test a fix`} onClick={() => void breakThing(option.incident)}>
+          <button
+            key={option.label}
+            title={`${option.label}: see what happens, then let the agents find and test a fix`}
+            onClick={() => void breakThing(option.incident, option.label)}
+          >
             {option.label}
           </button>
         ))}

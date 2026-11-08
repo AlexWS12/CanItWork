@@ -261,20 +261,20 @@ export async function sendChat(message: string) {
   store().set({ chatting: false });
 }
 
-export async function breakThing(incident: Incident) {
+export async function breakThing(incident: Incident, label?: string) {
   const { environment } = store();
   if (!environment || !runner.inject(incident)) return;
   const history = runner.history()!;
-  store().set({ recovering: true, report: null, appliedId: null, tab: 'agents' });
+  store().set({ recovering: true, report: null, appliedId: null, tab: 'agents', pendingIncident: { label } });
   try {
     await stream('/api/recover', { environment, ...history }, (e) => {
       common(e);
-      if (e.type === 'recovery') store().set({ report: e.report, reportOpen: true });
+      if (e.type === 'recovery') store().set({ report: e.report, reportOpen: true, pendingIncident: null });
     });
   } catch (error) {
     store().addMessage({ role: 'app', text: String(error) });
   }
-  store().set({ recovering: false });
+  store().set({ recovering: false, pendingIncident: null });
 }
 
 export function applyCandidate(candidate: Candidate) {

@@ -25,5 +25,8 @@ export const seconds = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).
 
 export const ticks = (t: number) => t.toLocaleString('en-US');
 
+// "t 70" at 10 ticks a second is 7 seconds of simulated time
+export const simulated = (t: number, ticksPerSecond: number) => `${(t / ticksPerSecond).toFixed(1)}s simulated`;
+
 // "Simulator · 38 ms", or just the engine while the step is still running
 export const engineLine = (step: StepEvent) => `${ENGINE_LABEL[step.engine]}${step.ms !== undefined ? ` · ${seconds(step.ms)}` : ''}`;

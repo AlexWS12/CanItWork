@@ -59,6 +59,8 @@ interface State {
   messages: Message[];
   report: RecoveryReport | null;
   reportOpen: boolean;
+  // Set the moment an incident is injected, so the status reads as broken before the council answers
+  pendingIncident: { label?: string } | null;
   appliedId: string | null;
   selected: string | null;
   tab: 'agents' | 'usage' | 'build';
@@ -95,6 +97,7 @@ export const useStore = create<State>((set) => ({
   messages: [],
   report: null,
   reportOpen: true,
+  pendingIncident: null,
   appliedId: null,
   selected: null,
   tab: 'agents',
@@ -121,6 +124,7 @@ export const useStore = create<State>((set) => ({
       explanation: null,
       messages: [],
       report: null,
+      pendingIncident: null,
       appliedId: null,
       selected: null,
       entities: [],

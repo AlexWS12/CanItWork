@@ -30,7 +30,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
-import { forget, lookup, markStale, remember } from './design-cache';
+import { FINDINGS_VERSION, forget, lookup, markStale, remember, rememberFindings } from './design-cache';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -393,7 +393,7 @@ Use only ids that exist in the system.`,
 
 // A cached design for this exact prompt that still parses and still passes every check, or null.
 // One that no longer does is marked stale, so this request and later ones go to the Architect instead of repairing it.
-export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } | null {
+export function servedFromCache(prompt: string): { id: DomainId; draft: Draft; findings?: Finding[] } | null {
   const hit = lookup(prompt);
   if (!hit) return null;
   const domain = DOMAINS[hit.domain];
@@ -408,10 +408,11 @@ export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } 
     markStale(prompt);
     return null;
   }
-  return { id: hit.domain, draft: parsed.data as Draft };
+  const findings = hit.findingsVersion === FINDINGS_VERSION ? hit.findings : undefined;
+  return { id: hit.domain, draft: parsed.data as Draft, findings };
 }
 
-async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft } | null> {
+async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft; findings?: Finding[] } | null> {
   const served = servedFromCache(prompt);
   if (!served) return null;
   const { draft } = served;
@@ -490,24 +491,29 @@ export async function build(prompt: string, emit: Emit) {
   emit({ type: 'environment', environment });
   const model = domain.compile(draft.spec);
 
-  const baseline = await step('simulator', 'simulator', 'Running the baseline', async (detail) => {
-    const result = baselineOf(domain, model, domain.horizon, []);
-    detail(`${result.score} ${result.scoreLabel}`);
-    return result;
-  });
-  const claims = await hypotheses(
-    domain,
-    model,
-    baseline,
-    issues.map((i) => i.message),
-    emit,
-    step,
-  );
-  const findings = await step('simulator', 'simulator', 'Testing each claim', async (detail) => {
-    const tested = claims.map((c) => testClaim(domain, model, baseline, c));
-    detail(`${tested.filter((f) => f.verdict === 'confirmed').length} of ${tested.length} confirmed`);
-    return tested;
-  });
+  // A verified design carries the claims already tested against it, so opening it again skips the simulations
+  let findings = cached?.findings;
+  if (!findings) {
+    const baseline = await step('simulator', 'simulator', 'Running the baseline', async (detail) => {
+      const result = baselineOf(domain, model, domain.horizon, []);
+      detail(`${result.score} ${result.scoreLabel}`);
+      return result;
+    });
+    const claims = await hypotheses(
+      domain,
+      model,
+      baseline,
+      issues.map((i) => i.message),
+      emit,
+      step,
+    );
+    findings = await step('simulator', 'simulator', 'Testing each claim', async (detail) => {
+      const tested = claims.map((c) => testClaim(domain, model, baseline, c));
+      detail(`${tested.filter((f) => f.verdict === 'confirmed').length} of ${tested.length} confirmed`);
+      return tested;
+    });
+    rememberFindings(prompt, findings);
+  }
   emit({ type: 'findings', findings });
 }
 
