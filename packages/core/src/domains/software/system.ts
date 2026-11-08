@@ -8,8 +8,28 @@ const CACHE_WARMUP = 40;
 const SERIES_STEP = 5;
 /** A queue keeps about 15 s (at 8 ticks a second) of its traffic; older messages expire and their requests count as failed. */
 const RETENTION_TICKS = 120;
+// A breaker opens when its callee succeeds less than this, stays open this long (5 s), then lets a share through as a trial.
+const BREAKER_TRIP = 0.5;
+const BREAKER_COOLDOWN = 40;
+const BREAKER_PROBE = 0.1;
+const BREAKER_CLOSE = 0.9;
+// Autoscaling adds replicas past 70% load, aiming for 60%; they take 3 s to boot. Below 30% it removes them, more slowly.
+const SCALE_UP_AT = 0.7;
+const SCALE_DOWN_AT = 0.3;
+const SCALE_TARGET = 0.6;
+const BOOT_TICKS = 24;
+
+interface Breaker {
+  open: boolean;
+  probing: boolean;
+  until: number;
+}
 
 export interface NodeState {
+  /** What it admits past its rate limit; the rest of its inflow was turned away at once. */
+  admitted: number;
+  /** Share of its inflow it admitted last tick, which callers read to tell a 429 from a failure. */
+  share: number;
   inflow: number;
   served: number;
   capacity: number;
@@ -77,7 +97,7 @@ export class SystemRun implements Run {
   }
 
   private blank(): NodeState {
-    return { inflow: 0, served: 0, capacity: 0, utilization: 0, success: 1, latency: 0, backlog: 0, down: false, degraded: 1, alive: 1 };
+    return { admitted: 0, share: 1, inflow: 0, served: 0, capacity: 0, utilization: 0, success: 1, latency: 0, backlog: 0, down: false, degraded: 1, alive: 1 };
   }
 
   private refreshZones() {
@@ -109,12 +129,73 @@ export class SystemRun implements Run {
     return CACHE_HIT * (1 - (cold - this.tick) / CACHE_WARMUP);
   }
 
+  /** Circuit breakers by call, and the counts the scoreboard shows. */
+  readonly breakers = new Map<string, Breaker>();
+  trips = 0;
+  rejected = 0;
+  scaledUp = 0;
+  /** Replicas booting for an autoscaled node, and when they're ready; and the replicas each autoscaled node started with. */
+  private booting = new Map<string, { replicas: number; at: number }>();
+  private floor = new Map<string, number>();
+
+  private breakerOf(e: SystemEdge) {
+    if (!e.breaker) return null;
+    const key = edgeKey(e);
+    if (!this.breakers.has(key)) this.breakers.set(key, { open: false, probing: false, until: 0 });
+    return this.breakers.get(key)!;
+  }
+
+  // Each tick an autoscaled node finishes booting what it asked for, or asks for more (or fewer) from last tick's load.
+  private autoscale() {
+    for (const node of this.spec.nodes) {
+      if (!node.autoscale) continue;
+      const state = this.states.get(node.id)!;
+      if (!this.floor.has(node.id)) this.floor.set(node.id, node.replicas ?? 1);
+      const replicas = node.replicas ?? 1;
+      const pending = this.booting.get(node.id);
+      if (pending) {
+        if (this.tick >= pending.at) {
+          if (pending.replicas > replicas) this.scaledUp += pending.replicas - replicas;
+          node.replicas = pending.replicas;
+          this.booting.delete(node.id);
+        }
+        continue;
+      }
+      if (isOut(state)) continue;
+      const max = Math.max(node.autoscale.max, this.floor.get(node.id)!);
+      const wanted = Math.ceil((replicas * state.utilization) / SCALE_TARGET);
+      if (state.utilization > SCALE_UP_AT && replicas < max) this.booting.set(node.id, { replicas: Math.min(max, wanted), at: this.tick + BOOT_TICKS });
+      else if (state.utilization < SCALE_DOWN_AT && replicas > this.floor.get(node.id)!)
+        this.booting.set(node.id, { replicas: Math.max(this.floor.get(node.id)!, wanted), at: this.tick + BOOT_TICKS * 2 });
+    }
+  }
+
+  // After a tick, each breaker looks at how its callee did: trip on failures, wait out the pause, then close on a good trial.
+  private updateBreakers() {
+    for (const e of this.spec.edges) {
+      const breaker = this.breakerOf(e);
+      if (!breaker) continue;
+      const success = this.states.get(e.to)?.success ?? 1;
+      if (!breaker.open) {
+        if (success < BREAKER_TRIP) {
+          Object.assign(breaker, { open: true, probing: false, until: this.tick + BREAKER_COOLDOWN });
+          this.trips++;
+        }
+      } else if (!breaker.probing) {
+        if (this.tick >= breaker.until) breaker.probing = true;
+      } else if (success >= BREAKER_CLOSE) Object.assign(breaker, { open: false, probing: false });
+      else Object.assign(breaker, { probing: false, until: this.tick + BREAKER_COOLDOWN });
+    }
+  }
+
   step() {
+    this.autoscale();
     for (const state of this.states.values()) state.inflow = 0;
     this.flows.clear();
     const jitter = 0.97 + this.rng.next() * 0.06;
     let total = 0;
     let expiredNow = 0;
+    let rejectedNow = 0;
 
     for (const id of this.order) {
       const node = this.node(id);
@@ -150,7 +231,11 @@ export class SystemRun implements Run {
         continue;
       }
 
-      state.served = Math.min(state.inflow, state.capacity);
+      // A rate limit turns the excess away before it costs anything, so what it admits is all the node and those behind it see.
+      state.admitted = node.rateLimit ? Math.min(state.inflow, node.rateLimit) : state.inflow;
+      rejectedNow += state.inflow - state.admitted;
+      state.share = state.inflow > 0 ? state.admitted / state.inflow : 1;
+      state.served = Math.min(state.admitted, state.capacity);
       const pass = 1 - this.hitRatio(node);
       for (const e of out) {
         if (this.cut.has(edgeKey(e))) {
@@ -159,8 +244,13 @@ export class SystemRun implements Run {
         }
         const base = state.served * (e.calls ?? 1) * pass;
         const sync = (e.mode ?? 'sync') === 'sync';
-        const lastSuccess = this.states.get(e.to)?.success ?? 1;
-        const flow = base + (sync ? base * this.spec.retries * (1 - lastSuccess) : 0);
+        // Callers back off from a 429, so only the callee's other failures are retried, not what its rate limit turned away.
+        const callee = this.states.get(e.to);
+        const admittedShare = callee?.share ?? 1;
+        const lastSuccess = callee ? Math.min(1, admittedShare > 0 ? callee.success / admittedShare : 1) : 1;
+        // An open breaker sends nothing (a trial share while it probes) and nothing is retried through it.
+        const breaker = this.breakerOf(e);
+        const flow = breaker?.open ? (breaker.probing ? base * BREAKER_PROBE : 0) : base + (sync ? base * this.spec.retries * (1 - lastSuccess) : 0);
         this.flows.set(edgeKey(e), flow);
         const target = this.states.get(e.to);
         if (target) target.inflow += flow;
@@ -173,7 +263,8 @@ export class SystemRun implements Run {
       if (!node || !state) continue;
       const base = (node.latency ?? DEFAULT_LATENCY[node.kind]) / state.degraded;
       const out = isOut(state);
-      state.utilization = state.capacity === Infinity || !state.capacity ? (out ? 1 : 0) : state.inflow / state.capacity;
+      const load = node.kind === 'queue' ? state.inflow : state.admitted;
+      state.utilization = state.capacity === Infinity || !state.capacity ? (out ? 1 : 0) : load / state.capacity;
       if (node.kind === 'queue') {
         state.success = out ? 0 : 1;
         state.latency = out ? TIMEOUT_MS : base;
@@ -190,6 +281,12 @@ export class SystemRun implements Run {
       let latency = base / (1 - Math.min(state.utilization, 0.95));
       for (const e of this.spec.edges.filter((edge) => edge.from === id)) {
         if ((e.mode ?? 'sync') !== 'sync') continue;
+        // Behind an open breaker the call fails at once: no waiting on the callee, though a required call still fails.
+        const breaker = this.breakerOf(e);
+        if (breaker?.open && !breaker.probing) {
+          if (!e.optional) downstream = 0;
+          continue;
+        }
         const dep = this.cut.has(edgeKey(e)) ? 0 : (this.states.get(e.to)?.success ?? 1);
         // A cache's failures are misses its own retries to the store behind it already covered;
         // retrying the cache misses again, so callers' retries add load but not success.
@@ -211,6 +308,8 @@ export class SystemRun implements Run {
     const offered = clients.reduce((sum, s) => sum + s.inflow, 0) || 1;
     // Requests whose queued work expired failed too, even though the caller got an answer at the time.
     this.expired += expiredNow;
+    this.rejected += rejectedNow;
+    this.updateBreakers();
     this.success = Math.max(0, clients.reduce((sum, s) => sum + s.success * s.inflow, 0) / offered - expiredNow / offered);
     this.latency = clients.reduce((sum, s) => sum + s.latency * s.inflow, 0) / offered;
     this.amplification = total / offered / Math.max(1, this.spec.nodes.length - 1);
@@ -312,6 +411,21 @@ export class SystemRun implements Run {
         node.replicas = Math.max(node.replicas ?? 1, node.zones.length);
         break;
       }
+      case 'add_breaker': {
+        const edge = this.spec.edges.find((e) => e.from === patch.from && e.to === patch.to);
+        if (edge) edge.breaker = true;
+        break;
+      }
+      case 'rate_limit': {
+        const node = this.node(patch.node);
+        if (node && node.kind !== 'client') node.rateLimit = patch.rps;
+        break;
+      }
+      case 'autoscale': {
+        const node = this.node(patch.node);
+        if (node && node.kind !== 'client') node.autoscale = { max: patch.max };
+        break;
+      }
     }
   }
 
@@ -325,6 +439,9 @@ export class SystemRun implements Run {
         { label: 'latency', value: `${Math.round(this.latency)} ms` },
         { label: 'queue backlog', value: Math.round(backlog) },
         ...(this.expired >= 0.5 ? [{ label: 'messages expired', value: Math.round(this.expired) }] : []),
+        ...(this.rejected >= 0.5 ? [{ label: 'requests rate-limited', value: Math.round(this.rejected) }] : []),
+        ...(this.trips ? [{ label: 'breaker trips', value: this.trips }] : []),
+        ...(this.scaledUp ? [{ label: 'replicas autoscaled', value: this.scaledUp }] : []),
       ],
       series: this.series,
     };
@@ -339,7 +456,27 @@ export class SystemRun implements Run {
       { label: 'latency', value: `${Math.round(this.latency)} ms`, tone: this.latency > 500 ? 'warn' : undefined },
       { label: 'queue backlog', value: Math.round(backlog), tone: backlog > 1000 ? 'warn' : undefined },
       { label: 'services down', value: down, tone: down ? 'danger' : undefined },
+      ...this.resilience(),
     ];
+  }
+
+  /** Breakers, rate limits and autoscaling, shown only for a design that has them. */
+  private resilience(): Metric[] {
+    const out: Metric[] = [];
+    if (this.spec.edges.some((e) => e.breaker)) {
+      const open = [...this.breakers.values()].filter((b) => b.open).length;
+      out.push({ label: 'breakers open', value: open, tone: open ? 'warn' : undefined });
+    }
+    if (this.spec.nodes.some((n) => n.rateLimit)) {
+      const now = [...this.states.values()].reduce((sum, s) => sum + Math.max(0, s.inflow - s.admitted), 0);
+      out.push({ label: 'rate-limited', value: `${Math.round(now)} rps`, tone: now >= 1 ? 'warn' : undefined });
+    }
+    const scaled = this.spec.nodes.filter((n) => n.autoscale);
+    if (scaled.length) {
+      const extra = scaled.reduce((sum, n) => sum + (n.replicas ?? 1) - (this.floor.get(n.id) ?? n.replicas ?? 1), 0);
+      out.push({ label: 'autoscaled replicas', value: `+${extra}${this.booting.size ? ' (booting)' : ''}` });
+    }
+    return out;
   }
 
   breakables(): Breakable[] {

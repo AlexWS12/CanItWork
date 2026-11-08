@@ -47,15 +47,25 @@ function randomSystem(r: Rand): SystemSpec {
       capacity: chance(r, 0.4) ? int(r, 20, 3000) : undefined,
       latency: chance(r, 0.3) ? int(r, ...LATENCY[kind]) : undefined,
       zones: zones.length && chance(r, 0.7) ? zones.slice(0, int(r, 1, zones.length)) : undefined,
+      rateLimit: kind === 'gateway' && chance(r, 0.3) ? int(r, 50, 20000) : undefined,
+      autoscale: kind === 'service' && chance(r, 0.3) ? { max: int(r, 1, 20) } : undefined,
     });
   }
   const edges: SystemSpec['edges'] = [];
   // Mostly forward edges, so most designs are valid; a few backward ones make loops.
-  for (let i = 1; i < nodes.length; i++) edges.push({ from: nodes[int(r, 0, i - 1)].id, to: nodes[i].id, mode: nodes[i].kind === 'queue' ? 'async' : undefined });
+  for (let i = 1; i < nodes.length; i++)
+    edges.push({ from: nodes[int(r, 0, i - 1)].id, to: nodes[i].id, mode: nodes[i].kind === 'queue' ? 'async' : undefined, breaker: chance(r, 0.15) || undefined });
   for (let k = int(r, 0, 4); k > 0; k--) {
     const a = int(r, 0, nodes.length - 1);
     const b = int(r, 0, nodes.length - 1);
-    if (a !== b) edges.push({ from: nodes[a].id, to: nodes[b].id, calls: chance(r, 0.2) ? int(r, 1, 3) : undefined, optional: chance(r, 0.2) || undefined });
+    if (a !== b)
+      edges.push({
+        from: nodes[a].id,
+        to: nodes[b].id,
+        calls: chance(r, 0.2) ? int(r, 1, 3) : undefined,
+        optional: chance(r, 0.2) || undefined,
+        breaker: chance(r, 0.25) || undefined,
+      });
   }
   return { traffic: int(r, 1, 30000), retries: int(r, 0, 3), nodes, edges };
 }
