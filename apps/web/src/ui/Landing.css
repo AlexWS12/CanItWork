@@ -1,5 +1,5 @@
-/* Landing, after the Living Blueprint design: the real scene fills the first screen behind huge type and the prompt;
-   below it the agents, the kinds of system and the promise scroll over solid graphite. */
+/* Landing, after the Full Stage design: a real system runs edge to edge on the first screen, with a short headline above it
+   and the prompt below; the agents, the kinds of system and the promise scroll over solid graphite underneath. */
 .landing {
   position: fixed;
   inset: 0;
@@ -26,145 +26,59 @@
   color: var(--color-accent);
 }
 
-/* The first screen: a soft shade on the left keeps the type legible over the scene */
+/* The first screen: the scene fills it, shaded only at the top for the headline and at the bottom for the prompt */
 .hero {
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  padding: 96px var(--side) 120px;
-  background: linear-gradient(90deg, var(--color-bg) 0%, var(--color-bg-scrim) 32%, transparent 58%), linear-gradient(0deg, var(--color-bg) 0%, transparent 18%);
+  padding: 0 var(--side);
+  background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-scrim) 9%, transparent 28%, transparent 62%, var(--color-bg-scrim) 84%, var(--color-bg) 100%);
 }
 
-.landing-copy {
-  width: min(660px, 100%);
+.stage-copy {
+  position: absolute;
+  left: var(--side);
+  top: 104px;
+  max-width: 680px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--space-3);
 }
 
 .hero-title {
   margin: 0;
-  /* Each phrase keeps to one line: three short lines read faster than five broken ones */
-  font-size: clamp(42px, 5vw, 72px);
+  font-size: clamp(38px, 4.2vw, 60px);
   font-weight: 600;
-  line-height: 0.98;
-  letter-spacing: -0.035em;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
 }
 
 .hero-lede {
   margin: 0;
   max-width: 34em;
-  font-size: clamp(var(--text-lg), 1.5vw, 20px);
+  font-size: var(--text-lg);
   line-height: 1.5;
   color: var(--color-muted);
 }
 
-.hero-input {
-  display: flex;
-  flex-direction: column;
-  border-radius: 20px;
-  border: 1px solid var(--color-line-strong);
-  background: var(--color-surface-opaque);
-  backdrop-filter: blur(18px);
-  box-shadow: var(--shadow-float);
-  transition: border-color var(--dur-short) var(--ease-out);
-}
-
-.hero-input:focus-within {
-  border-color: var(--color-accent-line);
-}
-
-.hero-input textarea {
-  resize: none;
-  background: none;
-  border: 0;
-  outline: none;
-  padding: 20px 22px 6px;
-  font-size: clamp(var(--text-lg), 1.4vw, 20px);
-  line-height: 1.45;
-}
-
-.hero-input textarea::placeholder {
-  color: var(--color-muted);
-}
-
-.hero-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: 10px 10px 10px 22px;
-}
-
-.hero-hint {
-  flex: 1;
-  font: var(--text-xs) var(--font-mono);
-  color: var(--color-muted);
-}
-
-.hero-actions button {
-  min-height: 48px;
-  padding: 0 26px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  font-weight: 600;
-  font-size: var(--text-lg);
-}
-
-.hero-actions button:hover:not(:disabled) {
-  background: var(--color-accent-hover);
-}
-
-.hero-try {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.hero-try > span {
-  margin-right: var(--space-1);
-  font: var(--text-xs) var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-}
-
-.hero-try button {
-  min-height: 40px;
-  max-width: 100%;
-  padding: var(--space-2) var(--space-3);
-  white-space: normal;
-  text-align: left;
-  border-radius: 12px;
-  background: var(--color-surface);
-  backdrop-filter: blur(10px);
-  color: var(--color-text);
-}
-
-/* What is running behind the page, and the tabs to pick another */
-.now-modelling {
+/* What is running, top right */
+.stage-live {
   position: absolute;
   right: var(--side);
-  bottom: 36px;
-  width: min(380px, 40vw);
+  top: 112px;
+  max-width: 320px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-muted);
 }
 
-.now-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-4) var(--space-5);
-  border-radius: var(--radius-lg);
-  border: var(--rule);
-  background: var(--color-surface);
-  backdrop-filter: blur(14px);
+.stage-live b {
+  font: 600 var(--text-lg) var(--font-sans);
+  color: var(--color-text);
 }
 
 .now-kicker {
@@ -181,82 +95,118 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--color-accent);
+  background: var(--color-teal);
   animation: now-pulse 1.8s ease-in-out infinite;
 }
 
-.now-card b {
+/* The prompt and the systems to watch, centred at the bottom */
+.stage-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  width: min(780px, calc(100% - 2 * var(--side)));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+.hero-input {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: 10px 10px 10px 22px;
+  border-radius: 18px;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-surface-opaque);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--shadow-float);
+  transition: border-color var(--dur-short) var(--ease-out);
+}
+
+.hero-input:focus-within {
+  border-color: var(--color-accent-line);
+}
+
+.hero-input textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  field-sizing: content;
+  max-height: 7.5em;
+  background: none;
+  border: 0;
+  outline: none;
+  padding: 12px 0;
   font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-accent);
-}
-
-.now-name {
-  font-size: var(--text-base);
-}
-
-.now-summary {
-  font-size: var(--text-sm);
-  color: var(--color-muted);
   line-height: 1.45;
 }
 
-.now-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.now-tabs button {
-  position: relative;
-  overflow: hidden;
-  min-height: 36px;
-  padding: 0 var(--space-3);
-  background: var(--color-surface);
-  border-color: var(--color-line);
+.hero-input textarea::placeholder {
   color: var(--color-muted);
-  backdrop-filter: blur(10px);
 }
 
-.now-tabs button[aria-selected='true'] {
+.hero-input button {
+  flex: none;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+  font-size: var(--text-lg);
+}
+
+.hero-input button:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.stage-switch {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+}
+
+.stage-switch button,
+.stage-switch a {
+  position: relative;
+  min-height: 40px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--color-muted);
+  font-size: var(--text-base);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.stage-switch button:hover,
+.stage-switch a:hover {
   color: var(--color-text);
-  border-color: var(--color-line-strong);
 }
 
-/* The running scene's tab fills as its turn runs out */
-.now-tabs button[data-run='true']::after {
+.stage-switch button[aria-pressed='true'] {
+  color: var(--color-text);
+}
+
+.stage-switch button[aria-pressed='true']::after {
   content: '';
   position: absolute;
   left: 0;
-  bottom: 0;
-  width: 100%;
+  right: 0;
+  bottom: 4px;
   height: 2px;
   background: var(--color-accent);
+}
+
+/* The running scene's underline fills as its turn runs out */
+.stage-switch button[data-run='true']::after {
   transform-origin: left;
   animation: now-progress var(--hero) linear forwards;
-}
-
-.scroll-cue {
-  position: absolute;
-  left: 50%;
-  bottom: 28px;
-  transform: translateX(-50%);
-  font: var(--text-xs) var(--font-mono);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-  text-decoration: none;
-}
-
-.scroll-cue::after {
-  content: '';
-  display: block;
-  width: 8px;
-  height: 8px;
-  margin: 6px auto 0;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(45deg);
 }
 
 @keyframes now-progress {
@@ -594,17 +544,35 @@
   color: var(--color-muted);
 }
 
-/* A phone: the copy fills the first screen with the scene behind it; the card and the cue step aside */
+/* A phone: the headline at the top, the prompt at the bottom, the scene between; the readout steps aside and the systems scroll sideways */
 @media (max-width: 900px) {
-  .hero {
-    align-items: flex-start;
-    padding-top: 84px;
-    background: linear-gradient(180deg, var(--color-bg-scrim) 0%, var(--color-bg-scrim) 55%, transparent 100%);
+  .stage-copy {
+    top: 76px;
+    right: var(--side);
   }
 
-  .now-modelling,
-  .scroll-cue {
+  .hero-lede {
+    font-size: var(--text-base);
+  }
+
+  .stage-live {
     display: none;
+  }
+
+  .stage-prompt {
+    bottom: 16px;
+  }
+
+  .stage-switch {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .stage-switch button,
+  .stage-switch a {
+    flex: none;
   }
 
   .landing-section,
@@ -612,29 +580,13 @@
     padding-top: 80px;
     padding-bottom: 80px;
   }
-
-  .hero-hint {
-    display: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .now-dot,
-  .now-tabs button[data-run='true']::after,
+  .stage-switch button[data-run='true']::after,
   .relay-token,
   .agent-cards li {
     animation: none;
-  }
-}
-
-/* Between a phone and a wide screen the copy takes most of the width, so the shade behind it reaches further and the scene
-   shows mostly to its right */
-@media (min-width: 901px) and (max-width: 1280px) {
-  .hero {
-    background: linear-gradient(90deg, var(--color-bg) 0%, var(--color-bg-scrim) 52%, transparent 88%), linear-gradient(0deg, var(--color-bg) 0%, transparent 18%);
-  }
-
-  .landing-copy {
-    width: min(560px, 100%);
   }
 }

@@ -15,7 +15,7 @@
 }
 
 .wordmark {
-  letter-spacing: 0.03em;
+  letter-spacing: -0.01em;
   font-weight: 600;
   white-space: nowrap;
 }

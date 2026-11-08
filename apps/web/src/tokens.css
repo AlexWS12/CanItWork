@@ -26,6 +26,8 @@
   --color-accent: oklch(82.1% 0.149 72);
   --color-accent-hover: oklch(85.6% 0.124 75);
   --color-accent-line: oklch(82.1% 0.149 72 / 0.45);
+  /* The logo's blueprint faces, the same blue as drafts on the build stage */
+  --color-blueprint: #8fb3ec;
   --color-accent-fill: oklch(82.1% 0.149 72 / 0.12);
   --color-accent-tint: oklch(82.1% 0.149 72 / 0.06);
   --color-accent-halo: oklch(82.1% 0.149 72 / 0.6);

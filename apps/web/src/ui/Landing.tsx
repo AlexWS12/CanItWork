@@ -7,8 +7,6 @@ import { useStore } from '../store';
 import { Building } from './Building';
 import './Landing.css';
 
-const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
-
 type Verified = { prompt: string; domain: DomainId };
 
 const GROUPS = ['Hardware', 'Software', 'Operations', 'Robots and drones'] as const;
@@ -23,47 +21,24 @@ const TEAM = [
   { name: 'Recovery Council', engine: 'Swarms', does: 'proposes fixes after a failure; the simulator ranks them by what they actually do' },
 ];
 const groupOf = (id: DomainId) => (id === 'electronics' ? 0 : id === 'software' || id === 'database' ? 1 : id === 'fleet' ? 3 : 2);
-const grouped = () => {
-  const groups: Array<ReturnType<typeof domainList>> = GROUPS.map(() => []);
-  for (const d of domainList()) groups[groupOf(d.id)].push(d);
-  return groups;
-};
 
-// One example from each group, so four prompts still show the whole range
-function featuredExamples() {
-  return grouped()
-    .filter((group) => group.length)
-    .map((group) => pick(pick(group).examples));
-}
-
-// The server lists prompts it can rebuild from verified designs: they open instantly and cost no model calls, so they are featured when there is one for each group.
-function useFeatured() {
-  const [featured, setFeatured] = useState(featuredExamples);
+// The server lists prompts it can rebuild from verified designs: they open instantly and cost no model calls
+function useVerified() {
   const [verified, setVerified] = useState<Verified[]>([]);
   useEffect(() => {
     let live = true;
     fetch('/api/examples')
-      .then((res) => (res.ok ? (res.json() as Promise<{ examples?: Array<{ prompt: string; domain: DomainId }> }>) : null))
+      .then((res) => (res.ok ? (res.json() as Promise<{ examples?: Verified[] }>) : null))
       .then((body) => {
-        const verified = (body?.examples ?? []).filter((v) => v.domain in DOMAINS);
-        if (!live || !verified.length) return;
-        setVerified(verified);
-        const fallback = featuredExamples();
-        setFeatured(
-          GROUPS.map((_, group) => group)
-            .map((group, i) => {
-              const options = verified.filter((v) => v.domain in DOMAINS && groupOf(v.domain) === group);
-              return options.length ? pick(options).prompt : fallback[i];
-            })
-            .filter(Boolean),
-        );
+        const found = (body?.examples ?? []).filter((v) => v.domain in DOMAINS);
+        if (live && found.length) setVerified(found);
       })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, []);
-  return { featured, verified };
+  return verified;
 }
 
 // The live hero: real showcase designs take turns behind the page, each a simulation running, not a picture
@@ -142,36 +117,38 @@ function useHero() {
   return { current, held, choose };
 }
 
-/** The card naming the system running behind the page, and the tabs that pick another. */
-function NowModelling({ hero }: { hero: ReturnType<typeof useHero> }) {
+/** What is running behind the page, in the top right corner. */
+function LiveReadout({ hero }: { hero: ReturnType<typeof useHero> }) {
   const name = useStore((s) => (s.showcase ? s.environment?.name : null));
-  const prompt = useStore((s) => (s.showcase ? s.environment?.summary : null));
   return (
-    <aside className="now-modelling" aria-label="Live simulation">
-      <div className="now-card">
-        <span className="now-kicker">
-          <span className="now-dot" aria-hidden />
-          Now modelling
-        </span>
-        <b>{DOMAINS[hero.current.id].label}</b>
-        <span className="now-name">{name ?? 'Loading the scene'}</span>
-        {prompt ? <span className="now-summary">{prompt}</span> : null}
-      </div>
-      <div className="now-tabs" role="tablist" aria-label="Pick a system to watch">
-        {HERO.map((h, i) => (
-          <button
-            key={h.id}
-            role="tab"
-            aria-selected={hero.current.id === h.id}
-            data-run={!hero.held && hero.current.id === h.id}
-            style={{ '--hero': `${HERO_SECONDS}s` } as CSSProperties}
-            onClick={() => hero.choose(i)}
-          >
-            {h.label}
-          </button>
-        ))}
-      </div>
+    <aside className="stage-live" aria-label="Live simulation" aria-live="polite">
+      <span className="now-kicker">
+        <span className="now-dot" aria-hidden />
+        Running live
+      </span>
+      <b>{name ?? 'Loading the scene'}</b>
+      <span>{DOMAINS[hero.current.id].label} · every check passes</span>
     </aside>
+  );
+}
+
+/** The row under the prompt that picks which system runs behind the page; the running one's underline fills as its turn runs out. */
+function StageSwitch({ hero, total }: { hero: ReturnType<typeof useHero>; total: number }) {
+  return (
+    <nav className="stage-switch" aria-label="Pick a system to watch">
+      {HERO.map((h, i) => (
+        <button
+          key={h.id}
+          aria-pressed={hero.current.id === h.id}
+          data-run={!hero.held && hero.current.id === h.id}
+          style={{ '--hero': `${HERO_SECONDS}s` } as CSSProperties}
+          onClick={() => hero.choose(i)}
+        >
+          {h.label}
+        </button>
+      ))}
+      <a href="#systems">All {total} →</a>
+    </nav>
   );
 }
 
@@ -194,7 +171,7 @@ function Refusal() {
 
 export function Landing() {
   const [text, setText] = useState('');
-  const { featured, verified } = useFeatured();
+  const verified = useVerified();
   const hero = useHero();
   const building = useStore((s) => s.building);
   const messages = useStore((s) => s.messages);
@@ -214,16 +191,18 @@ export function Landing() {
   return (
     <div className="landing">
       <section className="hero" id="top">
-        <div className="landing-copy">
-          <span className="eyebrow">Simulate anything · {kinds.length} kinds of system</span>
+        <div className="stage-copy">
           <h1 className="hero-title">
             Describe a system.
             <br />
-            <span className="hero-muted">Run it.</span> <span className="hero-accent">Break it.</span>
-            <br />
-            Fix it.
+            Watch it run.
           </h1>
-          <p className="hero-lede">A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
+          <p className="hero-lede">Every scene here is a real design, running live and checked by the simulator.</p>
+        </div>
+        <LiveReadout hero={hero} />
+        <div className="stage-prompt">
+          <Refusal />
+          {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
           <form
             className="hero-input"
             onSubmit={(e) => {
@@ -237,9 +216,9 @@ export function Landing() {
             <textarea
               id="describe"
               autoFocus
-              rows={3}
+              rows={1}
               value={text}
-              placeholder="Describe a system in your own words. A circuit, a warehouse, an app, a hospital…"
+              placeholder="Describe a circuit, a warehouse, an app…"
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
@@ -248,28 +227,12 @@ export function Landing() {
                 }
               }}
             />
-            <div className="hero-actions">
-              <span className="hero-hint">Enter to build · Shift+Enter for a new line</span>
-              <button type="submit" disabled={!text.trim()}>
-                Build it
-              </button>
-            </div>
+            <button type="submit" disabled={!text.trim()}>
+              Build it
+            </button>
           </form>
-          <Refusal />
-          {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-          <div className="hero-try">
-            <span>Try</span>
-            {featured.slice(0, 3).map((example) => (
-              <button key={example} onClick={() => use(example)}>
-                {example}
-              </button>
-            ))}
-          </div>
+          <StageSwitch hero={hero} total={kinds.length} />
         </div>
-        <NowModelling hero={hero} />
-        <a className="scroll-cue" href="#how">
-          Scroll
-        </a>
       </section>
 
       <section className="landing-section" id="how" aria-labelledby="how-title">

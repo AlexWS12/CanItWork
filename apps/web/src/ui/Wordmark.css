@@ -1,46 +1,37 @@
 /* Type (weight, letter-spacing) comes from .wordmark in TopBar.css; the size is inherited */
-.wordmark-circuit {
+.wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.45em;
 }
 
-.wordmark-dot {
+.logo-mark {
   flex: none;
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-pill);
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.logo-draft {
+  stroke: var(--color-blueprint, #8fb3ec);
+}
+
+.logo-solid {
+  fill: var(--color-accent);
   transition:
-    background-color var(--dur-short) var(--ease-out),
+    fill var(--dur-short) var(--ease-out),
     opacity var(--dur-short) var(--ease-out);
 }
 
-.wordmark-power {
-  background: var(--color-accent);
+.wordmark-light {
+  font-weight: 400;
+  color: var(--color-muted);
 }
 
-.wordmark-end {
-  background: var(--color-accent);
+/* Paused: the design is still valid, just stopped, so the solid face only dims */
+.wordmark[data-state='paused'] .logo-solid {
+  opacity: 0.55;
 }
 
-.wordmark-it {
-  color: var(--color-accent);
-  transition: color var(--dur-short) var(--ease-out);
-}
-
-/* Paused: the design is still valid, just stopped, so "It" stays teal; the end dot greys and the power dot dims */
-.wordmark-circuit[data-state='paused'] .wordmark-power {
-  opacity: 0.5;
-}
-
-.wordmark-circuit[data-state='paused'] .wordmark-end {
-  background: var(--color-muted);
-}
-
-.wordmark-circuit[data-state='incident'] .wordmark-it {
-  color: var(--color-danger);
-}
-
-.wordmark-circuit[data-state='incident'] .wordmark-end {
-  background: var(--color-danger);
+.wordmark[data-state='incident'] .logo-solid {
+  fill: var(--color-danger);
 }

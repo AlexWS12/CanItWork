@@ -43,12 +43,12 @@ export function contentBounds(root: THREE.Object3D) {
 function clearArea(width: number, height: number) {
   const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
   const visible = (r: DOMRect | undefined) => r && r.width > 0 && r.height > 0;
-  // On the landing page the copy column covers the left of the screen
-  const left = rect('.panel.left') ?? rect('.landing-copy');
+  const left = rect('.panel.left');
   // While building, the agents rail covers the right of the screen instead of the right panel
   const right = rect('.panel.right') ?? rect('.build-agents');
-  const top = rect('.topbar');
-  const dock = rect('.transport');
+  // On the landing page the scene runs full width, between the header and the prompt at the bottom
+  const top = rect('.topbar') ?? rect('.stage-copy') ?? rect('.status');
+  const dock = rect('.transport') ?? rect('.stage-prompt');
   const x0 = visible(left) && left!.right < width * 0.85 ? left!.right : 0;
   const x1 = visible(right) && right!.left > width / 2 ? right!.left : width;
   const y0 = visible(top) ? top!.bottom : 0;
