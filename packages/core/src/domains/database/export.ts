@@ -37,15 +37,17 @@ const RESERVED = new Set(
   ),
 );
 
-/** A name as Postgres needs it: bare when it is a plain lowercase word, quoted otherwise. */
-export function ident(name: string): string {
+/** A name as Postgres needs it: bare when it is a plain lowercase word, quoted otherwise, always on one line. */
+export function ident(raw: string): string {
+  const name = raw.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ');
   return /^[a-z_][a-z0-9_]*$/.test(name) && !RESERVED.has(name) ? name : `"${name.replace(/"/g, '""')}"`;
 }
 
 /** Postgres limits names to 63 bytes. */
 const short = (name: string) => (name.length > 63 ? name.slice(0, 63) : name);
 
-const plain = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+/** Text flattened onto one line with no control characters, so a name inside a "--" comment can never end it early. */
+const plain = (text: string) => text.replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]+/g, ' ').trim();
 
 const count = (n: number) => (n >= 1e9 ? `${+(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : String(n));
 
@@ -105,13 +107,13 @@ function createTable(table: Table, tables: Table[], deferred: Set<Column>) {
     return `  ${parts.join(' ')}`;
   });
   if (primaries.length > 1) lines.push(`  PRIMARY KEY (${primaries.map((c) => ident(c.name)).join(', ')})`);
-  const notes = [`-- ${table.name}: about ${count(table.rows)} rows in the simulation`];
+  const notes = [`-- ${plain(table.name)}: about ${count(table.rows)} rows in the simulation`];
   if (table.partitions && table.partitions > 1)
-    notes.push(`-- Sharded ${table.partitions} ways${table.partitionBy ? ` by ${table.partitionBy}` : ''} across database nodes in the simulation`);
+    notes.push(`-- Sharded ${table.partitions} ways${table.partitionBy ? ` by ${plain(table.partitionBy)}` : ''} across database nodes in the simulation`);
   for (const c of table.columns)
     if (c.references && !resolvable(tables, c))
-      notes.push(`-- ${c.name} points at ${c.references.table}.${c.references.column}, which is not a key of the same type there, so it has no foreign key`);
-  return `${notes.join('\n')}\nCREATE TABLE ${ident(table.name)} (\n${lines.join(',\n')}\n);`;
+      notes.push(`-- ${plain(c.name)} points at ${plain(c.references.table)}.${plain(c.references.column)}, which is not a key of the same type there, so it has no foreign key`);
+  return { notes, statement: `CREATE TABLE ${ident(table.name)} (\n${lines.join(',\n')}\n);` };
 }
 
 /** Indexes worth creating: not one a primary key or unique column already gives, and each set of columns once. */
@@ -134,10 +136,29 @@ function indexes(table: Table) {
   return out;
 }
 
-/** The design as a Postgres SQL file. */
-export function toSql(spec: DatabaseSpec, options: SqlExportOptions = {}): string {
+/** The statements that build the design, in an order Postgres accepts, without any comments. */
+function build(spec: DatabaseSpec) {
   const { tables, later } = ordered(spec.tables);
   const deferred = new Set(later.map((l) => l.column));
+  const created = tables.map((table) => createTable(table, spec.tables, deferred));
+  const keys = later
+    .filter(({ column }) => resolvable(spec.tables, column))
+    .map(({ table, column }) => `ALTER TABLE ${ident(table.name)} ADD FOREIGN KEY (${ident(column.name)}) ${foreignKey(column)};`);
+  return { created, keys, indexes: tables.flatMap(indexes) };
+}
+
+/**
+ * Only the statements, one per entry, for running the design somewhere: every name in them is quoted by ident() and every
+ * type and action comes from a fixed list, so nothing in a design can add a statement of its own.
+ */
+export function sqlStatements(spec: DatabaseSpec): string[] {
+  const { created, keys, indexes: idx } = build(spec);
+  return [...created.map((c) => c.statement), ...keys, ...idx];
+}
+
+/** The design as a Postgres SQL file. */
+export function toSql(spec: DatabaseSpec, options: SqlExportOptions = {}): string {
+  const { created: tablesSql, keys, indexes: createdIndexes } = build(spec);
   const header = [
     `-- ${plain(options.name ?? 'Database')}, exported from CanItWork`,
     '-- Written from the design the simulator tested, including any fixes applied. Runs on Postgres 13 or newer.',
@@ -148,17 +169,15 @@ export function toSql(spec: DatabaseSpec, options: SqlExportOptions = {}): strin
     header.push(`-- Connection pool: ${options.pool ?? spec.pool} connections per node${options.pooler ? ', behind a connection pooler such as PgBouncer' : ''}.`);
   else if (options.pooler) header.push('-- A connection pooler such as PgBouncer sits in front of the database.');
   const body: string[] = [header.join('\n')];
-  for (const table of tables) body.push(createTable(table, spec.tables, deferred));
-  for (const { table, column } of later)
-    if (resolvable(spec.tables, column)) body.push(`ALTER TABLE ${ident(table.name)} ADD FOREIGN KEY (${ident(column.name)}) ${foreignKey(column)};`);
-  const created = tables.flatMap(indexes);
-  if (created.length) body.push(created.join('\n'));
+  for (const { notes, statement } of tablesSql) body.push(`${notes.join('\n')}\n${statement}`);
+  body.push(...keys);
+  if (createdIndexes.length) body.push(createdIndexes.join('\n'));
   if (spec.workload.length) {
     const lines = spec.workload.map((q) => {
-      const where = q.where.length ? ` by ${q.where.join(', ')}` : '';
-      const joins = q.joins.length ? `, joining ${q.joins.map((j) => j.table).join(', ')}` : '';
+      const where = q.where.length ? ` by ${plain(q.where.join(', '))}` : '';
+      const joins = q.joins.length ? `, joining ${plain(q.joins.map((j) => j.table).join(', '))}` : '';
       const loop = (q.repeats ?? 1) > 1 ? `, ${q.repeats} times per request` : '';
-      return `--   ${plain(q.name)}: ${q.kind} ${q.table}${where}${joins}, ${q.perSecond} a second${loop}`;
+      return `--   ${plain(q.name)}: ${q.kind} ${plain(q.table)}${where}${joins}, ${q.perSecond} a second${loop}`;
     });
     body.push(`-- The workload the simulation ran:\n${lines.join('\n')}`);
   }

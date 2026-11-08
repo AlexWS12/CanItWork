@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DOMAINS, ident, toSql } from '../src';
+import { DOMAINS, ident, sqlStatements, toSql } from '../src';
 import type { SchemaRun } from '../src/domains/database/engine';
 import type { DatabaseSpec } from '../src/domains/database/schema';
 
@@ -141,6 +141,43 @@ describe('exporting a database design as SQL', () => {
     const sql = run.toSql('Shop');
     expect(sql).toContain('CREATE INDEX users_note_idx ON users (note);');
     expect(sql).toContain('2 read replicas beside the primary');
+  });
+
+  it('keeps every name inside its quotes or its comment, so a name can never add a statement', () => {
+    const evil = 'x\n; DROP TABLE runs; --';
+    const hostile = spec({
+      tables: [
+        {
+          name: evil,
+          rows: 1,
+          columns: [
+            { name: 'id', type: 'int', primary: true },
+            { name: 'a"b\r\nDROP', type: 'text' },
+          ],
+        },
+        {
+          name: 'b',
+          rows: 1,
+          partitions: 2,
+          partitionBy: 'k\nDROP TABLE runs;',
+          columns: [
+            { name: 'id', type: 'int', primary: true },
+            { name: 'k', type: 'int', references: { table: 'nope\nDROP TABLE runs;', column: 'id' } },
+          ],
+        },
+      ],
+      workload: [{ name: 'q\u2028DROP TABLE runs;', kind: 'read', table: 'b\nDROP', where: [], perSecond: 1 }],
+    });
+    const file = toSql(hostile, { name: 'n\nDROP TABLE runs;' });
+    // Outside comments, the only lines are the statements themselves
+    const code = file.split('\n').filter((line) => line.trim() && !line.trim().startsWith('--'));
+    expect(code.some((line) => /^\s*DROP\b/i.test(line))).toBe(false);
+    for (const statement of sqlStatements(hostile)) {
+      expect(statement).not.toMatch(/^\s*DROP\b/im);
+      expect(statement.trim().endsWith(';')).toBe(true);
+    }
+    expect(sqlStatements(hostile)[0]).toContain('"x');
+    expect(file).not.toMatch(/\u2028/);
   });
 
   it('exports every shipped example and verified-style design without throwing', () => {

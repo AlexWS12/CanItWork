@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { download, exportable, exportFile, type ExportFile } from '../exporting';
+import { checkOnPostgres, download, exportable, exportFile, type ExportFile, type PostgresCheck } from '../exporting';
 import { useStore } from '../store';
 import './SharePanel.css';
 import './ExportPanel.css';
@@ -73,6 +73,7 @@ export function ExportButton() {
               <p className="share-title">Export as {file.format}</p>
               <p className="share-note">Written from the design the simulator tested, with every fix you applied. {file.runsOn}</p>
               <p className="export-summary">{file.summary}</p>
+              {file.database && <TigerCheck file={file} />}
               <pre className="export-preview" aria-label={`${file.filename} preview`}>
                 {file.text}
               </pre>
@@ -89,5 +90,50 @@ export function ExportButton() {
         </div>
       )}
     </div>
+  );
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : word.endsWith('x') ? 'es' : 's'}`;
+
+// Tiger Data's Postgres runs the file before it is downloaded: a real database saying the SQL works
+function TigerCheck({ file }: { file: ExportFile }) {
+  const [state, setState] = useState<{ check?: PostgresCheck; skipped?: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    setState(null);
+    void checkOnPostgres(file.database!).then((r) => live && setState('skipped' in r ? { skipped: r.skipped } : { check: r }));
+    return () => {
+      live = false;
+    };
+  }, [file]);
+  if (!state)
+    return (
+      <p className="tiger-check" data-state="running">
+        <span className="tiger-dot" aria-hidden />
+        Checking on Tiger Data's Postgres…
+      </p>
+    );
+  if (state.skipped)
+    return (
+      <p className="tiger-check" data-state="skipped">
+        Not checked on Postgres: {state.skipped.replace(/\.$/, '')}.
+      </p>
+    );
+  const c = state.check!;
+  if (!c.ok)
+    return (
+      <p className="tiger-check" data-state="refused">
+        <b>Postgres refused it:</b> {c.error}
+      </p>
+    );
+  return (
+    <p className="tiger-check" data-state="ok" title="Run in a scratch schema on Tiger Data's Postgres, in a transaction that was rolled back, so nothing was kept">
+      <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden>
+        <path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span>
+        Tiger Data's Postgres {c.version} built {plural(c.tables ?? 0, 'table')}, {plural(c.foreignKeys ?? 0, 'foreign key')} and {plural(c.indexes ?? 0, 'index')}
+      </span>
+    </p>
   );
 }

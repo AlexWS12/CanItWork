@@ -8,6 +8,54 @@
   color: var(--color-teal);
 }
 
+/* Tiger Data's verdict on the SQL, above the file */
+.tiger-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.tiger-check svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.tiger-check[data-state='ok'] {
+  color: var(--color-teal);
+}
+
+.tiger-check[data-state='refused'] {
+  color: var(--color-danger-soft);
+}
+
+.tiger-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--color-teal);
+  animation: tiger-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes tiger-pulse {
+  from {
+    opacity: 0.3;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tiger-dot {
+    animation: none;
+  }
+}
+
 .export-preview {
   max-height: 260px;
   margin: 0;
