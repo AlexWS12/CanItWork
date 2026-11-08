@@ -48,7 +48,7 @@ function clearArea(width: number, height: number) {
   const right = rect('.panel.right') ?? rect('.build-agents');
   const top = rect('.topbar');
   const dock = rect('.transport');
-  const x0 = visible(left) && left!.right < width * 0.6 ? left!.right : 0;
+  const x0 = visible(left) && left!.right < width * 0.85 ? left!.right : 0;
   const x1 = visible(right) && right!.left > width / 2 ? right!.left : width;
   const y0 = visible(top) ? top!.bottom : 0;
   const y1 = visible(dock) && dock!.top > height / 2 ? dock!.top : height;

@@ -626,3 +626,15 @@
     animation: none;
   }
 }
+
+/* Between a phone and a wide screen the copy takes most of the width, so the shade behind it reaches further and the scene
+   shows mostly to its right */
+@media (min-width: 901px) and (max-width: 1280px) {
+  .hero {
+    background: linear-gradient(90deg, var(--color-bg) 0%, var(--color-bg-scrim) 52%, transparent 88%), linear-gradient(0deg, var(--color-bg) 0%, transparent 18%);
+  }
+
+  .landing-copy {
+    width: min(560px, 100%);
+  }
+}
