@@ -1,0 +1,42 @@
+/* A pasted file: the person's own words, then a chip that opens to the file */
+.attachment {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 4px var(--space-2);
+  border: 1px solid var(--color-teal-line);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-opaque);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.attachment-chip span {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+}
+
+button.attachment-chip:hover {
+  border-color: var(--color-teal);
+}
+
+.attachment-body {
+  max-width: 100%;
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-opaque);
+  font: var(--text-xs) / 1.45 var(--font-mono);
+  white-space: pre;
+}

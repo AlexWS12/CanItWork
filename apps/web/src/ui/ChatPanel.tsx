@@ -4,6 +4,7 @@ import { sendChat } from '../actions';
 import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
 import { SignInButton } from './Account';
+import { Attachment, pastedFile } from './Attachment';
 import { DrillBack } from './DrillBack';
 import './ChatPanel.css';
 import { AGENT_LABEL, ENGINE_LABEL } from './labels';
@@ -31,7 +32,7 @@ export function ChatPanel() {
         {messages.map((m, i) =>
           m.role === 'user' ? (
             <div key={i} className="message" data-role="user">
-              {m.text}
+              {pastedFile(m.text) ? <Attachment file={pastedFile(m.text)!} /> : m.text}
             </div>
           ) : (
             <div key={i} className="app-message">
