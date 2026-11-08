@@ -1,6 +1,7 @@
 import { componentIds, isEditable, settingPatch, type Setting } from '@tv/core';
 import { useEffect, useState } from 'react';
 import { breakThing, editComponent, editFloor } from '../actions';
+import { drillInto } from '../drill';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import './Inspector.css';
@@ -15,6 +16,7 @@ export function Inspector() {
   const set = useStore((s) => s.set);
   const environment = useStore((s) => s.environment);
   const busy = useStore((s) => s.editing || s.chatting);
+  const building = useStore((s) => s.building);
   // Why the last hand edit from here was refused, until something else is selected
   const [refusal, setRefusal] = useState<string | null>(null);
   useEffect(() => setRefusal(null), [selected]);
@@ -56,6 +58,16 @@ export function Inspector() {
           </div>
         ))}
       </dl>
+      {view.drill && (
+        <button
+          className="action drill"
+          disabled={busy || building}
+          onClick={() => void drillInto(view.drill!)}
+          title={`Build it as a design of its own, carrying the ${view.drill.rps} rps it gets here`}
+        >
+          {view.drill.label}
+        </button>
+      )}
       {view.actions.map((action) => (
         <button
           key={action.label}

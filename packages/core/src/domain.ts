@@ -62,6 +62,12 @@ export interface Inspection {
   editHint?: string;
   /** Settings the design runs with, changed by hand mid-run like any fix */
   settings?: Setting[];
+  /**
+   * A way into this part as a system of its own in another domain, such as a software design's database opened as a schema.
+   * `prompt` builds it, `rps` is the load this part carries, which the inner design is sized to, and `node` is where the
+   * result links back.
+   */
+  drill?: { label: string; prompt: string; node: string; rps: number };
 }
 
 /**

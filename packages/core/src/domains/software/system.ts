@@ -558,6 +558,27 @@ export class SystemRun implements Run {
     return zones.reduce((best, z) => (count(z) > count(best) ? z : best));
   }
 
+  /**
+   * A database opened as a schema of its own: the request names the services that call it, so the tables fit what they
+   * store, and the load it carries now, so the schema's workload matches the traffic this design sends it.
+   */
+  private schemaDrill(node: SystemNode, state: NodeState): NonNullable<Inspection['drill']> {
+    const name = node.label ?? node.id;
+    const callers = this.spec.edges
+      .filter((e) => e.to === node.id)
+      .map((e) => this.node(e.from))
+      .filter((n): n is SystemNode => Boolean(n) && n!.kind !== 'client')
+      .map((n) => n.label ?? n.id);
+    const rps = Math.max(1, Math.round(state.inflow || state.served || 1));
+    const used = callers.length ? `, used by ${callers.slice(0, 4).join(', ')},` : '';
+    return {
+      label: 'Open its schema',
+      prompt: `The database schema behind ${name}${used} with tables, keys and indexes for what those services store, and a query workload of about ${rps} queries per second in total`,
+      node: node.id,
+      rps,
+    };
+  }
+
   inspect(target: string): Inspection | null {
     if (target === SYSTEM) {
       return {
@@ -630,6 +651,7 @@ export class SystemRun implements Run {
         },
       ],
       edits: cacheable ? [{ label: 'Put a cache in front', patches: [{ op: 'add_cache', before: node.id }] }] : [],
+      ...(node.kind === 'database' ? { drill: this.schemaDrill(node, state) } : {}),
       actions: broken
         ? [{ label: 'Restore', incident: { type: 'recover', target }, destructive: false }, ...restoreZones]
         : [
