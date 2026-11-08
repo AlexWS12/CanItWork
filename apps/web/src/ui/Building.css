@@ -135,6 +135,51 @@
   color: var(--color-teal);
 }
 
+/* The collapsed odds: one line naming the best match */
+.odds-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill-subtle);
+  text-align: left;
+}
+
+.odds-summary:hover:not(:disabled) {
+  background: var(--color-fill);
+}
+
+.odds-top {
+  display: grid;
+  grid-template-columns: auto minmax(60px, 1fr) auto auto;
+  gap: var(--space-3);
+  align-items: center;
+  font-size: var(--text-base);
+}
+
+.odds-top .odds-track > div {
+  background: var(--color-teal);
+}
+
+.odds-top .num {
+  color: var(--color-teal);
+  font-size: var(--text-sm);
+}
+
+.odds-toggle {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.odds[data-open='true'] .odds-grid {
+  padding: 0 var(--space-3);
+}
+
 /* Agents */
 .build-agents {
   padding: 72px 56px var(--space-12) 40px;

@@ -1,4 +1,19 @@
-import type { AgentId, Breakable, DomainId, Engine, Environment, Finding, Metric, ProviderStatus, RecoveryReport, Refusal, StepEvent, Usage } from '@tv/core';
+import type {
+  AgentId,
+  Breakable,
+  DomainId,
+  Engine,
+  Environment,
+  Explanation,
+  Finding,
+  Metric,
+  ProviderStatus,
+  RecoveryReport,
+  Refusal,
+  SpendSummary,
+  StepEvent,
+  Usage,
+} from '@tv/core';
 import { create } from 'zustand';
 
 export interface Message {
@@ -21,7 +36,12 @@ const EMPTY_TELEMETRY: Telemetry = { tick: 0, stats: [], breakables: [], running
 interface State {
   environment: Environment | null;
   environmentKey: number;
+  // Bumped when a design is rebuilt in place, which remounts the scene but keeps the camera
+  rebuilds: number;
   structure: number;
+  // Components just added by an edit or from chat, highlighted for a moment
+  fresh: string[];
+  editing: boolean;
   refusal: Refusal | null;
   building: boolean;
   prompt: string;
@@ -33,7 +53,9 @@ interface State {
   status: ProviderStatus | null | undefined;
   steps: StepEvent[];
   findings: Finding[];
+  explanation: Explanation | null;
   usage: Usage[];
+  spend: SpendSummary | null;
   messages: Message[];
   report: RecoveryReport | null;
   reportOpen: boolean;
@@ -53,7 +75,10 @@ interface State {
 export const useStore = create<State>((set) => ({
   environment: null,
   environmentKey: 0,
+  rebuilds: 0,
   structure: 0,
+  fresh: [],
+  editing: false,
   refusal: null,
   building: false,
   prompt: '',
@@ -64,7 +89,9 @@ export const useStore = create<State>((set) => ({
   status: undefined,
   steps: [],
   findings: [],
+  explanation: null,
   usage: [],
+  spend: null,
   messages: [],
   report: null,
   reportOpen: true,
@@ -91,12 +118,14 @@ export const useStore = create<State>((set) => ({
       refusal: null,
       steps: [],
       findings: [],
+      explanation: null,
       messages: [],
       report: null,
       appliedId: null,
       selected: null,
       entities: [],
       domainOdds: null,
+      fresh: [],
       telemetry: EMPTY_TELEMETRY,
     }),
 }));

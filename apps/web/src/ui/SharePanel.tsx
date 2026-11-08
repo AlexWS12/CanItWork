@@ -43,7 +43,7 @@ export function ShareButton() {
     setSaved(null);
     setSaveError(null);
     setQr(null);
-    setShowQr(false);
+    setShowQr(true);
     setCopied(false);
     setOpen(true);
   };

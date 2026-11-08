@@ -19,6 +19,7 @@ export const AGENT_LABEL: Record<StepEvent['agent'], string> = {
   council: 'Recovery Council',
   editor: 'Editor',
   analyst: 'Analyst',
+  explainer: 'Explainer',
 };
 
 export const seconds = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);

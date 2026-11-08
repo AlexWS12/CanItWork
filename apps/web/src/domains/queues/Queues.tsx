@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Movable, Tag, pick, useArranged } from '../shared';
 import './Queues.css';
 import { Tower, floorsOf, towerHeight } from './Tower';
 
@@ -319,7 +319,7 @@ export function Queues() {
   const run = net();
   const structure = useStore.getState().structure;
   const spec = useMemo(() => (run ? ({ ...run.spec, edges: [...run.spec.edges] } as NetSpec) : null), [run, structure]);
-  const positions = useMemo(() => (spec ? queuesLayout(spec) : new Map<string, THREE.Vector3>()), [spec]);
+  const positions = useArranged(useMemo(() => (spec ? queuesLayout(spec) : new Map<string, THREE.Vector3>()), [spec]));
   if (!spec || !run) return null;
   const { width, depth } = queuesExtent(spec);
   // An exit fed only by elevators is the building's upper floors, which the tower already shows, so it isn't drawn again on the ground.
@@ -343,7 +343,7 @@ export function Queues() {
         const kind = role(run, node);
         const cars = node.kind === 'lane';
         return (
-          <group key={node.id} position={at} onClick={pick(node.id)}>
+          <Movable key={node.id} id={node.id} position={at}>
             {kind === 'source' || kind === 'sink' ? (
               <Entrance exit={kind === 'sink'} />
             ) : node.kind === 'lane' ? (
@@ -361,7 +361,7 @@ export function Queues() {
             )}
             <StationLabel node={node} {...(node.kind === 'elevator' ? { x: -3.4, y: 2.2 } : {})} />
             <ClaimPin id={node.id} position={[0, 1.2, 0]} />
-          </group>
+          </Movable>
         );
       })}
     </group>

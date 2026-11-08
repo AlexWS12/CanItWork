@@ -37,6 +37,52 @@ describe('warehouse layout', () => {
     }
   });
 
+  it('parks every robot on its own open cell, even a full fleet on a one-aisle floor', () => {
+    for (const shape of SHAPES) {
+      for (const aisles of [1, 2, 3, 6]) {
+        for (const shelvesPerAisle of [3, 12]) {
+          for (const conveyors of [1, 2] as const) {
+            const spec: WorldSpec = { ...DEFAULT_SPEC, shape, aisles, robots: 12, chargers: 4, shelvesPerAisle, conveyors };
+            const world = compileWorld(spec);
+            const sim = new Sim(world, 1);
+            const label = `${shape}, ${aisles} aisles, ${shelvesPerAisle} shelves, ${conveyors} belts`;
+            expect(world.robots, label).toHaveLength(12);
+            const homes = new Set<string>();
+            for (const r of world.robots) {
+              expect(r.home.x >= 0 && r.home.x < world.cols && r.home.y >= 0 && r.home.y < world.rows, `${label}: ${r.id} starts off the floor`).toBe(true);
+              expect(sim.grid.blocked[sim.grid.idx(r.home.x, r.home.y)], `${label}: ${r.id} starts inside an obstacle`).toBe(0);
+              homes.add(`${r.home.x},${r.home.y}`);
+            }
+            expect(homes.size, `${label}: robots share a home`).toBe(12);
+            expect(errors(spec), label).toEqual([]);
+          }
+        }
+      }
+    }
+  });
+
+  it('keeps a twelve-robot, one-aisle floor moving with nobody stuck inside a shelf', () => {
+    for (const shape of SHAPES) {
+      const spec = { ...warehouse.rules.spec('a small warehouse with twelve robots and one aisle'), shape };
+      const sim = new Sim(compileWorld(spec), 3);
+      for (let t = 0; t < 600; t++) {
+        sim.step();
+        for (const r of sim.robots) expect(sim.grid.blocked[sim.grid.idx(r.x, r.y)], `${shape}: ${r.id} inside an obstacle at tick ${t}`).toBe(0);
+      }
+      expect(sim.delivered, `${shape} delivered nothing`).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps a removed robot out of service, even when someone tries to repair it', () => {
+    const run = warehouse.createRun(compileWorld(DEFAULT_SPEC), 1) as InstanceType<typeof import('../src/domains/warehouse').WarehouseRun>;
+    run.apply([{ op: 'remove_robot', robotId: 'R2' }]);
+    run.step();
+    run.inject({ type: 'repair_robot', target: 'R2' });
+    run.step();
+    expect(run.sim.robots.find((r) => r.id === 'R2')?.mode).toBe('failed');
+    expect(run.inspect('R2')?.actions).toEqual([]);
+  });
+
   it('cuts the outline each shape names', () => {
     const wallsAt = (shape: WorldSpec['shape'], x: number, y: number) => compileWorld({ ...DEFAULT_SPEC, aisles: 4, shape }).walls.some((w) => w.x === x && w.y === y);
     // Aisle blocks 0-3 span x 3-6, 7-10, 11-14 and 15-18; the sort hall starts at x 19.

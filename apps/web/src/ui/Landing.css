@@ -108,6 +108,271 @@
   max-width: 32ch;
 }
 
+/* Wordmark on a circuit trace (see Wordmark in Landing.tsx). At rest: the word with a teal "It",
+   the trace fully drawn, and no "?". --w is the width of "CanIt", --tw of the whole word. */
+.wm {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: fit-content;
+  align-self: flex-start;
+}
+
+.wm-title {
+  position: relative;
+}
+
+.wm-q {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wm-amber {
+  color: var(--color-accent);
+}
+
+.wm-word {
+  display: inline-flex;
+}
+
+.wm-canit,
+.wm-work {
+  display: inline-block;
+}
+
+.wm-it {
+  color: var(--color-teal);
+}
+
+/* At the start of the merge, "Work" (and the "?") sit where "Work?" was and "CanIt" a further 0.25em (28px at 112px) to its left */
+.wm-canit {
+  --from: calc(-1 * var(--w) - 0.25em);
+}
+
+.wm-work,
+.wm-qm {
+  --from: calc(-1 * var(--w));
+}
+
+.wm-qm {
+  position: absolute;
+  left: calc(var(--tw) + 4px);
+  top: 0;
+  color: var(--color-accent);
+  pointer-events: none;
+}
+
+.wm-qm-glyph {
+  display: inline-block;
+  opacity: 0;
+  transform-origin: 30% 80%;
+}
+
+.wm-trace {
+  display: block;
+  overflow: visible;
+}
+
+/* pathLength=1, so a dash offset of 1 hides a segment and 0 draws it whatever its length in pixels */
+.wm-seg {
+  stroke-width: 2;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.wm-seg-a {
+  stroke: var(--color-accent);
+}
+
+.wm-seg-b {
+  stroke: var(--color-teal);
+}
+
+.wm-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.wm-d0 {
+  fill: var(--color-accent);
+}
+
+.wm-d1 {
+  fill: var(--color-stage);
+  stroke: var(--color-teal);
+  stroke-width: 2;
+}
+
+.wm-d2 {
+  fill: var(--color-teal);
+}
+
+.tagline .phrase {
+  display: inline-block;
+  white-space: pre;
+}
+
+/* Intro timeline: the 4a handoff's, with the holds on "Can it?" and "Work?" shortened, so every step
+   from the merge on runs 0.6 s earlier than in the handoff. The title settles at 3.5 s. */
+:root[data-intro='playing'] .wm-q1 {
+  animation:
+    intro-in 250ms var(--ease-out) 50ms both,
+    intro-out 150ms var(--ease-out) 950ms forwards;
+}
+
+:root[data-intro='playing'] .wm-q2 {
+  animation:
+    intro-in 300ms var(--ease-out) 1000ms both,
+    intro-out 1ms linear 1850ms forwards;
+}
+
+:root[data-intro='playing'] .wm-word {
+  animation: intro-in 1ms linear 1850ms both;
+}
+
+:root[data-intro='playing'] .wm-canit,
+:root[data-intro='playing'] .wm-work,
+:root[data-intro='playing'] .wm-qm {
+  animation: intro-slide 360ms var(--ease-out) 1850ms both;
+}
+
+:root[data-intro='playing'] .wm-qm-glyph {
+  animation:
+    intro-in 1ms linear 1850ms both,
+    intro-q-out 300ms var(--ease-out) 3200ms forwards;
+}
+
+:root[data-intro='playing'] .wm-d0 {
+  animation: intro-pop 150ms var(--ease-out) 2250ms both;
+}
+
+/* The trace draws linearly, so the current reads as moving at a constant speed */
+:root[data-intro='playing'] .wm-seg-a {
+  animation: intro-draw 400ms linear 2300ms both;
+}
+
+:root[data-intro='playing'] .wm-d1 {
+  animation: intro-pop 150ms var(--ease-out) 2650ms both;
+}
+
+:root[data-intro='playing'] .wm-it {
+  animation: intro-teal 250ms var(--ease-out) 2700ms both;
+}
+
+:root[data-intro='playing'] .wm-seg-b {
+  animation: intro-draw 500ms linear 2700ms both;
+}
+
+:root[data-intro='playing'] .wm-d2 {
+  animation: intro-pop 150ms var(--ease-out) 3200ms both;
+}
+
+/* The Try rows fade on their own stagger, so only the input and the headings fade here */
+:root[data-intro='playing'] .hero-input,
+:root[data-intro='playing'] .prompts h2,
+:root[data-intro='playing'] .landing-domains h2 {
+  animation: intro-in 400ms var(--ease-out) 2350ms both;
+}
+
+:root[data-intro='playing'] .tagline .phrase {
+  animation: intro-rise 600ms var(--ease-out) calc(2500ms + var(--i) * 240ms) both;
+}
+
+:root[data-intro='playing'] .prompts .prompt-list li {
+  animation: intro-in 350ms var(--ease-out) calc(2650ms + var(--i) * 100ms) both;
+}
+
+:root[data-intro='playing'] .domain-chips li {
+  animation: intro-in 500ms var(--ease-out) calc(2650ms + var(--i) * 90ms) both;
+}
+
+/* Starts as the last chip starts: --n is the number of domains */
+:root[data-intro='playing'] .landing-honest {
+  animation: intro-in 500ms var(--ease-out) calc(2650ms + var(--n) * 90ms) both;
+}
+
+/* Both ends are explicit, so a fade-out starts from the visible state rather than the hidden base */
+@keyframes intro-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes intro-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes intro-slide {
+  from {
+    transform: translateX(var(--from));
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes intro-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes intro-pop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes intro-teal {
+  from {
+    color: var(--color-text);
+  }
+  to {
+    color: var(--color-teal);
+  }
+}
+
+@keyframes intro-q-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.4);
+  }
+}
+
+@keyframes intro-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .hero-input {
   display: flex;
   gap: var(--space-3);
@@ -282,6 +547,39 @@
 .domain-detail > p {
   font-size: var(--text-md);
   margin-bottom: var(--space-2);
+}
+
+/* Reveal: the card slides down into place, then the description and examples cascade in */
+.domain-detail {
+  animation: detail-drop 220ms var(--ease-out) both;
+}
+
+.domain-detail > p {
+  animation: intro-rise 260ms var(--ease-out) 80ms both;
+}
+
+.domain-detail .prompt-list li {
+  animation: intro-rise 260ms var(--ease-out) calc(130ms + var(--i) * 50ms) both;
+}
+
+@keyframes detail-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* styles.css zeroes durations under reduced motion, but delays would still hold items hidden */
+@media (prefers-reduced-motion: reduce) {
+  .domain-detail,
+  .domain-detail > p,
+  .domain-detail .prompt-list li {
+    animation: none;
+  }
 }
 
 .landing-honest {

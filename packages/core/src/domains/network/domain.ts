@@ -67,6 +67,7 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
     lostLabel: def.lostLabel,
     surge: def.surge,
     downVerb: def.downVerb,
+    tick: def.tick,
   };
   const kindNames = Object.keys(def.kinds) as [string, ...string[]];
   const role = (n: NetNode) => def.kinds[n.kind]?.role ?? 'stage';
@@ -129,10 +130,21 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
           });
       }
     }
+    // An overload message carries the numbers that fix it, so a repair doesn't have to work them out: what the station can serve,
+    // the load that would run it at 90%, and the other way out, more units.
+    const ends = spec.nodes.filter((n) => role(n) === (def.mode === 'demand' ? 'sink' : 'source'));
+    const load = ends.reduce((sum, n) => sum + run.rateOf(n), 0);
     for (const node of spec.nodes) {
       const state = run.states.get(node.id)!;
       if (role(node) === 'stage' && state.utilization > 1.05) {
-        issues.push({ severity: 'warning', repair: true, target: node.id, message: `${name(node)} is over capacity at ${Math.round(state.utilization * 100)}% load` });
+        const capacity = run.capacityOf(node);
+        const units = node.count ?? 1;
+        const target = Math.round(((load * 0.9) / state.utilization) * 10) / 10;
+        const fix =
+          load > 0 && Number.isFinite(capacity)
+            ? `: it can serve ${Math.round(capacity * 10) / 10} ${def.unit} per tick with ${units} unit${units === 1 ? '' : 's'}. Either give it about ${Math.ceil((units * state.utilization) / 0.9)} units, if the user didn't state how many, or bring ${def.mode === 'demand' ? 'demand at the end points' : 'arrivals'} from ${Math.round(load * 10) / 10} to about ${target} ${def.unit} per tick in total, which runs it at 90% and still busy`
+            : '';
+        issues.push({ severity: 'warning', repair: true, target: node.id, message: `${name(node)} is over capacity at ${Math.round(state.utilization * 100)}% load${fix}` });
       }
     }
     if (def.trips) {

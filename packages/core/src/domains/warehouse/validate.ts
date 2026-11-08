@@ -34,6 +34,25 @@ export function validateWorld(world: World): Issue[] {
   const start = grid.idx(world.robots[0].home.x, world.robots[0].home.y);
   const reach = (x: number, y: number) => grid.reachable(start, grid.idx(x, y));
 
+  // Every robot, not just the first, must start on an open cell joined to the rest of the floor.
+  const onFloor = (x: number, y: number) => x >= 0 && y >= 0 && x < world.cols && y < world.rows;
+  const stuck = world.robots.filter((r) => !onFloor(r.home.x, r.home.y) || grid.blocked[grid.idx(r.home.x, r.home.y)] || !reach(r.home.x, r.home.y));
+  // Both go back to the Architect, worded as what to change, like the Reviewer's shortfalls: a fleet that can't park or move is a smaller warehouse than was asked for.
+  if (stuck.length) {
+    issues.push({
+      severity: 'error',
+      repair: true,
+      message: `${stuck.map((r) => r.id).join(', ')} start${stuck.length === 1 ? 's' : ''} somewhere it can't move from; add aisles or use a rectangular floor so every robot has an open place to park`,
+    });
+  }
+  if (world.robots.length < world.spec.robots) {
+    issues.push({
+      severity: 'warning',
+      repair: true,
+      message: `Only ${world.robots.length} of the ${world.spec.robots} robots asked for fit on this floor; add aisles so the whole fleet has room`,
+    });
+  }
+
   const unreachableShelves = world.shelves.filter((s) => !reach(s.access.x, s.access.y));
   if (unreachableShelves.length) {
     issues.push({ severity: 'error', message: `${unreachableShelves.length} shelves can't be reached` });
