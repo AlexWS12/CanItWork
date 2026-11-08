@@ -78,11 +78,11 @@
 }
 
 .agent-pill[data-engine='swarms'] {
-  border-color: var(--color-teal-line);
+  border-color: var(--color-line-strong);
 }
 
 .agent-pill[data-engine='swarms'] small {
-  color: var(--color-teal);
+  color: var(--color-muted);
 }
 
 .landing-main {
@@ -144,7 +144,7 @@
 }
 
 .wm-it {
-  color: var(--color-teal);
+  color: var(--color-accent);
 }
 
 /* At the start of the merge, "Work" (and the "?") sit where "Work?" was and "CanIt" a further 0.25em (28px at 112px) to its left */
@@ -188,7 +188,7 @@
 }
 
 .wm-seg-b {
-  stroke: var(--color-teal);
+  stroke: var(--color-accent);
 }
 
 .wm-dot {
@@ -202,12 +202,12 @@
 
 .wm-d1 {
   fill: var(--color-stage);
-  stroke: var(--color-teal);
+  stroke: var(--color-accent);
   stroke-width: 2;
 }
 
 .wm-d2 {
-  fill: var(--color-teal);
+  fill: var(--color-accent);
 }
 
 .tagline .phrase {
@@ -347,7 +347,7 @@
     color: var(--color-text);
   }
   to {
-    color: var(--color-teal);
+    color: var(--color-accent);
   }
 }
 
@@ -521,7 +521,7 @@
 }
 
 .domain-chips button {
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-3);
 }
 
@@ -628,5 +628,149 @@
 
   .hero-actions button[type='submit'] {
     flex: 1;
+  }
+}
+
+/* Live hero: the copy is a column on the left, and the rest of the screen is the real scene running behind the page.
+   The page lets drags through to the scene except over the copy and the caption. */
+.landing {
+  display: block;
+  padding: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--color-bg) 0%, var(--color-bg-scrim) 30%, transparent 60%);
+}
+
+.landing-copy {
+  pointer-events: auto;
+  width: min(640px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: 96px var(--space-8) var(--space-12) clamp(var(--space-4), 5vw, 72px);
+}
+
+.landing-copy > * {
+  grid-column: auto;
+}
+
+.hero-caption {
+  position: fixed;
+  right: clamp(var(--space-4), 3vw, 40px);
+  bottom: 28px;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.hero-now {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-muted);
+}
+
+.hero-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: hero-pulse 1.8s ease-in-out infinite;
+}
+
+.hero-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.hero-tabs button {
+  position: relative;
+  overflow: hidden;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  border-color: var(--color-line);
+  color: var(--color-muted);
+  backdrop-filter: blur(10px);
+}
+
+.hero-tabs button[aria-selected='true'] {
+  color: var(--color-text);
+  border-color: var(--color-line-strong);
+}
+
+/* The running scene's tab fills as its turn runs out */
+.hero-tabs button[data-run='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--color-accent);
+  transform-origin: left;
+  animation: hero-progress var(--hero) linear forwards;
+}
+
+@keyframes hero-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes hero-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The agents and the kinds of system read as text, not pills */
+.agent-pill,
+.agent-pill[data-engine='swarms'] {
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .landing {
+    background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-scrim) 60%, transparent 100%);
+  }
+
+  .landing-copy {
+    width: 100%;
+    padding-top: 72px;
+  }
+
+  .hero-caption {
+    left: var(--space-4);
+    right: var(--space-4);
+    align-items: flex-start;
+  }
+
+  .hero-tabs {
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-live,
+  .hero-tabs button[data-run='true']::after {
+    animation: none;
+  }
+}
+
+/* On a phone the copy fills the screen, so the scene shows behind it without a caption over the list */
+@media (max-width: 900px) {
+  .hero-caption {
+    display: none;
   }
 }

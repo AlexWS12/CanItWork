@@ -42,7 +42,8 @@ export function contentBounds(root: THREE.Object3D) {
 function clearArea(width: number, height: number) {
   const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
   const visible = (r: DOMRect | undefined) => r && r.width > 0 && r.height > 0;
-  const left = rect('.panel.left');
+  // On the landing page the copy column covers the left of the screen
+  const left = rect('.panel.left') ?? rect('.landing-copy');
   // While building, the agents rail covers the right of the screen instead of the right panel
   const right = rect('.panel.right') ?? rect('.build-agents');
   const top = rect('.topbar');

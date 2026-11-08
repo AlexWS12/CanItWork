@@ -1,6 +1,7 @@
 import { DOMAINS, domainList, type DomainId } from '@tv/core';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { buildEnvironment } from '../actions';
+import { buildEnvironment, showHero } from '../actions';
+import { reducedMotion } from '../motion';
 import { useStore } from '../store';
 import { Building } from './Building';
 import './Landing.css';
@@ -133,6 +134,58 @@ function CircuitTitle() {
   );
 }
 
+// The live hero: real showcase designs taking turns behind the page, each a simulation running, not a picture
+const HERO: Array<{ id: DomainId; label: string }> = [
+  { id: 'electronics', label: 'Breadboard' },
+  { id: 'warehouse', label: 'Warehouse' },
+  { id: 'supply', label: 'Supply chain' },
+  { id: 'airport', label: 'Airport' },
+  { id: 'queues', label: 'Supermarket' },
+];
+const HERO_SECONDS = 14;
+
+function Hero() {
+  const showcase = useStore((s) => s.showcase);
+  const name = useStore((s) => (s.showcase ? s.environment?.name : null));
+  const [turn, setTurn] = useState(0);
+  const [held, setHeld] = useState(false);
+  const current = HERO[turn % HERO.length];
+  useEffect(() => {
+    void showHero(current.id);
+  }, [current.id]);
+  // Moves on by itself unless someone picked a scene or asked for less motion
+  useEffect(() => {
+    if (held || reducedMotion()) return;
+    const timer = setTimeout(() => setTurn((t) => t + 1), HERO_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [turn, held]);
+  return (
+    <aside className="hero-caption" aria-label="Live scene">
+      <p className="hero-now">
+        <span className="hero-live" aria-hidden />
+        Live simulation{showcase && name ? ` · ${name}` : ''}
+      </p>
+      <div className="hero-tabs" role="tablist" aria-label="Kinds of system">
+        {HERO.map((h, i) => (
+          <button
+            key={h.id}
+            role="tab"
+            aria-selected={current.id === h.id}
+            data-run={!held && current.id === h.id}
+            style={{ '--hero': `${HERO_SECONDS}s` } as CSSProperties}
+            onClick={() => {
+              setHeld(true);
+              setTurn(i);
+            }}
+          >
+            {h.label}
+          </button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 function Refusal() {
   const refusal = useStore((s) => s.refusal);
   if (!refusal) return null;
@@ -174,116 +227,119 @@ export function Landing() {
   if (building) return <Building />;
   return (
     <div className="landing">
-      <header className="landing-head">
-        <CircuitTitle />
-        <p className="tagline">
-          {TAGLINE.map((phrase, i) => (
-            <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>
-              {`${phrase} `}
-            </span>
-          ))}
-        </p>
-        <div className="agent-team">
-          <p>A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
-          <ol aria-label="The agents behind every build">
-            {TEAM.map((agent) => (
-              <li key={agent.name} title={`${agent.name} (${agent.engine}) ${agent.does}`}>
-                <span className="agent-pill" data-engine={agent.engine === 'Swarms' ? 'swarms' : undefined}>
-                  <b>{agent.name}</b>
-                  <small>{agent.engine}</small>
-                </span>
-              </li>
+      <div className="landing-copy">
+        <header className="landing-head">
+          <CircuitTitle />
+          <p className="tagline">
+            {TAGLINE.map((phrase, i) => (
+              <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>
+                {`${phrase} `}
+              </span>
             ))}
-          </ol>
-        </div>
-      </header>
-      <div className="landing-main">
-        <form
-          className="hero-input"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit(text);
-          }}
-        >
-          <textarea
-            ref={input}
-            aria-label="Describe a system"
-            autoFocus
-            rows={2}
-            value={text}
-            placeholder="Describe a system in your own words"
-            onChange={(e) => {
-              endIntro();
-              setText(e.target.value);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submit(text);
-              }
-            }}
-          />
-          <div className="hero-actions">
-            <button type="submit" disabled={!text.trim()}>
-              Build
-            </button>
+          </p>
+          <div className="agent-team">
+            <p>A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
+            <ol aria-label="The agents behind every build">
+              {TEAM.map((agent) => (
+                <li key={agent.name} title={`${agent.name} (${agent.engine}) ${agent.does}`}>
+                  <span className="agent-pill" data-engine={agent.engine === 'Swarms' ? 'swarms' : undefined}>
+                    <b>{agent.name}</b>
+                    <small>{agent.engine}</small>
+                  </span>
+                </li>
+              ))}
+            </ol>
           </div>
-        </form>
-        <Refusal />
-        {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-        <section className="prompts" aria-labelledby="prompts-title">
-          <h2 id="prompts-title">Try</h2>
-          <ul className="prompt-list">
-            {featured.map((example, i) => (
-              <li key={example} style={{ '--i': i } as CSSProperties}>
-                <button onClick={() => use(example)}>{example}</button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-      <section className="landing-domains" aria-labelledby="domains-title" style={{ '--n': domainList().length } as CSSProperties}>
-        <h2 id="domains-title">What it can build · {domainList().length} kinds of system</h2>
-        <div className="domain-groups">
-          {grouped().map((group, i) =>
-            group.length ? (
-              <div className="domain-group" key={GROUPS[i]}>
-                <h3>{GROUPS[i]}</h3>
-                <ul className="domain-chips">
-                  {group.map((d) => (
-                    <li key={d.id} style={{ '--i': domainList().findIndex((x) => x.id === d.id) } as CSSProperties}>
-                      <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
-                        {d.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null,
-          )}
-        </div>
-        <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
-        {domain && (
-          // Keyed by domain so choosing another chip remounts the card and replays its reveal
-          <div key={domain.id} className="domain-detail">
-            <p>{domain.blurb}</p>
+        </header>
+        <div className="landing-main">
+          <form
+            className="hero-input"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit(text);
+            }}
+          >
+            <textarea
+              ref={input}
+              aria-label="Describe a system"
+              autoFocus
+              rows={2}
+              value={text}
+              placeholder="Describe a system in your own words"
+              onChange={(e) => {
+                endIntro();
+                setText(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submit(text);
+                }
+              }}
+            />
+            <div className="hero-actions">
+              <button type="submit" disabled={!text.trim()}>
+                Build
+              </button>
+            </div>
+          </form>
+          <Refusal />
+          {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
+          <section className="prompts" aria-labelledby="prompts-title">
+            <h2 id="prompts-title">Try</h2>
             <ul className="prompt-list">
-              {examples.map((example, i) => (
+              {featured.map((example, i) => (
                 <li key={example} style={{ '--i': i } as CSSProperties}>
-                  <button onClick={() => use(example)}>
-                    {example}
-                    {ready.includes(example) && (
-                      <span className="ready" title="Passed every check before: opens instantly with no model calls">
-                        verified
-                      </span>
-                    )}
-                  </button>
+                  <button onClick={() => use(example)}>{example}</button>
                 </li>
               ))}
             </ul>
+          </section>
+        </div>
+        <section className="landing-domains" aria-labelledby="domains-title" style={{ '--n': domainList().length } as CSSProperties}>
+          <h2 id="domains-title">What it can build · {domainList().length} kinds of system</h2>
+          <div className="domain-groups">
+            {grouped().map((group, i) =>
+              group.length ? (
+                <div className="domain-group" key={GROUPS[i]}>
+                  <h3>{GROUPS[i]}</h3>
+                  <ul className="domain-chips">
+                    {group.map((d) => (
+                      <li key={d.id} style={{ '--i': domainList().findIndex((x) => x.id === d.id) } as CSSProperties}>
+                        <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
+                          {d.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null,
+            )}
           </div>
-        )}
-      </section>
+          <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
+          {domain && (
+            // Keyed by domain so choosing another chip remounts the card and replays its reveal
+            <div key={domain.id} className="domain-detail">
+              <p>{domain.blurb}</p>
+              <ul className="prompt-list">
+                {examples.map((example, i) => (
+                  <li key={example} style={{ '--i': i } as CSSProperties}>
+                    <button onClick={() => use(example)}>
+                      {example}
+                      {ready.includes(example) && (
+                        <span className="ready" title="Passed every check before: opens instantly with no model calls">
+                          verified
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      </div>
+      <Hero />
     </div>
   );
 }

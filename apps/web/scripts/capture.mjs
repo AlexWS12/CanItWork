@@ -26,6 +26,17 @@ await page.goto(url);
 await page.waitForFunction(() => 'shoot' in (window.__tv ?? {}), null, { timeout: 30000 });
 
 const stats = {};
+// --landing: the landing page with its live hero, at desktop and phone width, then stop
+if (flag('landing')) {
+  await page.waitForTimeout(9000);
+  await page.screenshot({ path: path.join(out, 'landing.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(3000);
+  await page.screenshot({ path: path.join(out, 'landing-phone.png') });
+  await browser.close();
+  console.log(`Saved the landing page to ${out}`);
+  process.exit(0);
+}
 // --gallery: every pack model side by side, then stop
 if (flag('gallery')) {
   await page.goto(`${url}/#gallery`);

@@ -110,11 +110,13 @@ function StatePill() {
 export function TopBar() {
   const environment = useStore((s) => s.environment);
   const building = useStore((s) => s.building);
+  // The landing's live hero is a showcase, not the user's system: the landing strip stays
+  const showcase = useStore((s) => s.showcase);
   const incident = useStore((s) => Boolean(s.report) && s.reportOpen);
   const running = useStore((s) => s.telemetry.running);
   // The build screen has its own wordmark and nothing else belongs over it
   if (building) return null;
-  if (!environment) {
+  if (!environment || showcase) {
     return (
       <div className="status">
         <Wordmark />

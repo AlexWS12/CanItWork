@@ -34,6 +34,8 @@ function App() {
   // The build screen stays up until the Red Team's claims are tested
   const building = useStore((s) => s.building);
   const view = useStore((s) => s.view);
+  // The landing's live hero runs a showcase design behind the page; the workspace is for the user's own system
+  const showcase = useStore((s) => s.showcase);
   useEffect(() => {
     document.documentElement.dataset.view = view;
   }, [view]);
@@ -56,7 +58,7 @@ function App() {
         <Scene />
       </Suspense>
       <TopBar />
-      {environment && !building ? (
+      {environment && !building && !showcase ? (
         <>
           <MobileNav />
           <ChatPanel />

@@ -20,11 +20,11 @@
 }
 
 .wordmark-end {
-  background: var(--color-teal);
+  background: var(--color-accent);
 }
 
 .wordmark-it {
-  color: var(--color-teal);
+  color: var(--color-accent);
   transition: color var(--dur-short) var(--ease-out);
 }
 
