@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import type { FleetRun, FleetSpec, FleetUnit } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Floor, Tag, pick } from '../shared';
 import { Box, Cyl, FINISH, Windows, mat } from '../../scene/kit';
@@ -12,7 +12,7 @@ import './Fleet.css';
 // The field seen from above: units coloured by role over a coverage map that fills in as scouts sweep it, radio links between
 // units in contact, and targets that change as they are found, reported and served.
 
-const fleet = () => runner.run as FleetRun | null;
+const fleet = () => runFor<FleetRun>('fleet');
 const SIDE = 40;
 const ROLE_COLORS = ['#38bdf8', '#f59e0b', '#a78bfa', '#34d399', '#f472b6', '#facc15', '#fb7185', '#2dd4bf'];
 const AIR = 2.4;

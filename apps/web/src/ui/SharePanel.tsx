@@ -8,6 +8,7 @@ import './SharePanel.css';
 
 const SAVED_NOTE: Record<Visibility, string> = {
   public: 'Anyone with this short link can open it.',
+  listed: 'Anyone can open it, and it is listed on the landing page with the other systems of its kind.',
   private: 'Only you can open this short link.',
   people: 'Only you and the people you named can open this short link, once signed in.',
 };

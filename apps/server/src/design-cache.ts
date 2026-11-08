@@ -62,6 +62,15 @@ export function lookup(prompt: string): CachedDesign | null {
   return hit && hit.domain in DOMAINS ? hit : null;
 }
 
+/** Every verified design for a kind of system, seeds and runtime alike, as the prompt it answers with its name and summary. */
+export function verifiedFor(domain: string) {
+  if (!cacheOn()) return [];
+  const all = { ...read(SEEDS), ...read(runtimeFile()) };
+  return Object.entries(all)
+    .filter(([key, hit]) => hit.domain === domain && !stale.has(key))
+    .map(([prompt, hit]) => ({ prompt, name: hit.draft.name, summary: hit.draft.summary }));
+}
+
 export function remember(prompt: string, design: CachedDesign) {
   if (!cacheOn()) return;
   try {

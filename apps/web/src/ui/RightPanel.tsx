@@ -5,7 +5,7 @@ import { scrollBehavior } from '../motion';
 import { breakThing } from '../actions';
 import { plainFinding } from '../explain';
 import { useStore } from '../store';
-import { AGENT_LABEL, ENGINE_LABEL, engineLine } from './labels';
+import { AGENT_LABEL, ENGINE_LABEL, engineLine, featureLabel, stepTitle } from './labels';
 import { PruneShowcase, compact, usd } from './PruneSavings';
 import './RightPanel.css';
 
@@ -21,7 +21,7 @@ function StressTests({ findings }: { findings: Finding[] }) {
     <section className="stress" aria-labelledby="stress-title">
       <header className="stress-head">
         <span className="kicker" id="stress-title">
-          Stress tests · Red Team
+          Weak-spot check
         </span>
         <button className="stress-about" aria-expanded={about} onClick={() => setAbout(!about)}>
           {about ? 'Close' : 'What is this?'}
@@ -72,7 +72,7 @@ function TraceLine({ step }: { step: StepEvent }) {
   return (
     <li>
       <button className="trace-line" data-status={step.status} aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="trace-title">{step.title}</span>
+        <span className="trace-title">{stepTitle(step.title)}</span>
         <span className="trace-engine" data-engine={step.engine}>
           {step.status === 'running' ? `${ENGINE_LABEL[step.engine]} · running` : engineLine(step)}
         </span>
@@ -85,7 +85,7 @@ function TraceLine({ step }: { step: StepEvent }) {
               {ENGINE_LABEL[step.engine]}
             </span>
           </div>
-          <p>{step.title}</p>
+          <p>{stepTitle(step.title)}</p>
           {step.detail && <small>{step.detail}</small>}
         </div>
       )}
@@ -103,6 +103,12 @@ function Agents() {
   return (
     <div className="agents">
       {findings.length > 0 && <StressTests findings={findings} />}
+      {steps.every((s) => s.agent === 'explainer') && (
+        <p className="steps-empty">
+          This design passed every test when it was first built, so it opened as it was, with no agents needed. Change something in the chat, or try a problem below, and each step
+          will show here.
+        </p>
+      )}
       <ol className="trace" aria-label="Agent steps">
         {steps.map((step) => (
           <TraceLine key={step.id} step={step} />
@@ -151,11 +157,8 @@ function UsageRow({ usage }: { usage: Usage }) {
   );
 }
 
-// "red-team" reads as "Red team"
-const featureName = (feature: string) => {
-  const words = feature.replace(/[-_]+/g, ' ').trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-};
+// "red-team" reads as "Looking for weak spots"
+const featureName = featureLabel;
 
 /** What this system has cost so far, in plain words and one bar per agent; the receipts are a click further down. */
 function CostSummary({ usage }: { usage: Usage[] }) {
@@ -244,7 +247,7 @@ export function RightPanel() {
     set({ tab: TABS[next] });
     refs.current[TABS[next]]?.focus();
   };
-  const label = { agents: 'Agents', build: 'Build it', usage: 'Cost' };
+  const label = { agents: 'Steps', build: 'Build it', usage: 'Cost' };
   return (
     <aside className="panel right">
       <div className="tabs" role="tablist" aria-label="Run details" onKeyDown={onKey}>

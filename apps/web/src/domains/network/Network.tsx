@@ -4,6 +4,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { LOOK } from '../../scene/look';
+import { CHARACTERS, Packed, useInstancedModel } from '../../scene/Model';
 import { Unknown } from '../../scene/Unknown';
 import { useStore } from '../../store';
 import { ClaimPin, Floor, Movable, Tag, pick, useArranged } from '../shared';
@@ -116,8 +117,30 @@ function CarrierGeometry({ carrier }: { carrier: Carrier }) {
   return <sphereGeometry args={[0.12, 10, 8]} />;
 }
 
-function Links({ spec, positions, flowTint, carrier }: { spec: NetSpec; positions: Map<string, THREE.Vector3>; flowTint: string; carrier: Carrier }) {
+// The people walking the paths (patients, passengers, callers): real characters, a few kinds mixed, each kind one draw
+const WALKERS = CHARACTERS.slice(2, 5);
+const WALKER_HEIGHT = 0.62;
+
+function PackedLinks(props: { spec: NetSpec; positions: Map<string, THREE.Vector3>; flowTint: string; carrier: Carrier }) {
+  const bodies = [useInstancedModel(WALKERS[0]), useInstancedModel(WALKERS[1]), useInstancedModel(WALKERS[2])];
+  return <Links {...props} bodies={bodies} />;
+}
+
+function Links({
+  spec,
+  positions,
+  flowTint,
+  carrier,
+  bodies,
+}: {
+  spec: NetSpec;
+  positions: Map<string, THREE.Vector3>;
+  flowTint: string;
+  carrier: Carrier;
+  bodies?: Array<ReturnType<typeof useInstancedModel>>;
+}) {
   const packets = useRef<THREE.InstancedMesh>(null!);
+  const walkers = useRef<Array<THREE.InstancedMesh | null>>([]);
   const tubes = useRef<Array<THREE.MeshStandardMaterial | null>>([]);
   const phase = useRef(0);
   const MAX = 480;
@@ -141,6 +164,7 @@ function Links({ spec, positions, flowTint, carrier }: { spec: NetSpec; position
     let peak = EPSILON;
     for (const link of run.links.values()) peak = Math.max(peak, link.flow);
     let n = 0;
+    const counts = bodies ? bodies.map(() => 0) : [];
     curves.forEach(({ curve, key }, i) => {
       const link = run.links.get(key);
       const tube = tubes.current[i];
@@ -151,6 +175,22 @@ function Links({ spec, positions, flowTint, carrier }: { spec: NetSpec; position
       for (let k = 0; k < count && n < MAX; k++) {
         const t = (phase.current + k / count) % 1;
         curve.getPoint(t, dummy.position);
+        if (bodies) {
+          // A character stands on the floor, facing the way it walks
+          const v = n % bodies.length;
+          const body = bodies[v];
+          const k = WALKER_HEIGHT / body.size.y;
+          dummy.position.y = WALKER_HEIGHT / 2;
+          const ahead = curve.getPoint(Math.min(1, t + 0.01));
+          ahead.y = dummy.position.y;
+          dummy.lookAt(ahead);
+          dummy.scale.set(body.size.x * k, body.size.y * k, body.size.z * k);
+          dummy.updateMatrix();
+          dummy.scale.set(1, 1, 1);
+          walkers.current[v]?.setMatrixAt(counts[v]++, dummy.matrix);
+          n++;
+          continue;
+        }
         if (carrier === 'person') dummy.position.y = 0.22;
         dummy.lookAt(curve.getPoint(Math.min(1, t + 0.01)));
         dummy.updateMatrix();
@@ -159,6 +199,14 @@ function Links({ spec, positions, flowTint, carrier }: { spec: NetSpec; position
         n++;
       }
     });
+    if (bodies) {
+      walkers.current.forEach((m, v) => {
+        if (!m) return;
+        m.count = counts[v];
+        m.instanceMatrix.needsUpdate = true;
+      });
+      return;
+    }
     packets.current.count = n;
     packets.current.instanceMatrix.needsUpdate = true;
     if (packets.current.instanceColor) packets.current.instanceColor.needsUpdate = true;
@@ -171,10 +219,14 @@ function Links({ spec, positions, flowTint, carrier }: { spec: NetSpec; position
           <meshStandardMaterial ref={(m) => void (tubes.current[i] = m)} color="#4a515c" roughness={0.9} />
         </mesh>
       ))}
-      <instancedMesh ref={packets} args={[undefined, undefined, MAX]} frustumCulled={false} castShadow={carrier !== 'bead'}>
-        <CarrierGeometry carrier={carrier} />
-        {carrier === 'bead' ? <meshBasicMaterial toneMapped={false} /> : <meshStandardMaterial roughness={0.6} />}
-      </instancedMesh>
+      {bodies ? (
+        bodies.map((body, v) => <instancedMesh key={v} ref={(m) => void (walkers.current[v] = m)} args={[body.geometry, body.material, MAX]} frustumCulled={false} castShadow />)
+      ) : (
+        <instancedMesh ref={packets} args={[undefined, undefined, MAX]} frustumCulled={false} castShadow={carrier !== 'bead'}>
+          <CarrierGeometry carrier={carrier} />
+          {carrier === 'bead' ? <meshBasicMaterial toneMapped={false} /> : <meshStandardMaterial roughness={0.6} />}
+        </instancedMesh>
+      )}
     </group>
   );
 }
@@ -196,7 +248,13 @@ export function Network() {
   return (
     <group>
       <Floor position={[(x0 + x1) / 2, 0, (z0 + z1) / 2]} width={Math.max(44, x1 - x0 + 26)} depth={Math.max(32, z1 - z0 + 22)} section={LAYER_GAP} />
-      <Links spec={spec} positions={positions} flowTint={style?.flow ?? '#5eead4'} carrier={style?.carrier ?? 'bead'} />
+      {style?.carrier === 'person' ? (
+        <Packed fallback={<Links spec={spec} positions={positions} flowTint={style.flow} carrier="person" />}>
+          <PackedLinks spec={spec} positions={positions} flowTint={style.flow} carrier="person" />
+        </Packed>
+      ) : (
+        <Links spec={spec} positions={positions} flowTint={style?.flow ?? '#5eead4'} carrier={style?.carrier ?? 'bead'} />
+      )}
       {spec.nodes.map((node) => {
         const at = positions.get(node.id);
         if (!at) return null;

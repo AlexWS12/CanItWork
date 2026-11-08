@@ -168,7 +168,7 @@ export async function shareRun() {
   return { ...shared, run: { ...run, hash: shared.hash } as SharedRun };
 }
 
-export type Visibility = 'public' | 'private' | 'people';
+export type Visibility = 'public' | 'listed' | 'private' | 'people';
 
 /** Saves the open run to the signed-in user's account and returns its short link. */
 export async function saveRun(run: SharedRun, visibility: Visibility, people: string[], name?: string) {
@@ -213,6 +213,29 @@ export async function openShowcase(domain: string) {
     findings: [],
   });
   return environment;
+}
+
+/** Opens one verified design by the prompt it answers, as it was verified: no agents, no model calls. */
+export async function openVerified(prompt: string) {
+  const res = await fetch(`/api/verified?prompt=${encodeURIComponent(prompt)}`).catch(() => null);
+  if (!res?.ok) {
+    // No longer verified (the simulator changed under it): build it fresh instead
+    return buildEnvironment(prompt);
+  }
+  const { environment } = (await res.json()) as { prompt: string; environment: Environment };
+  runner.replay(environment, 1, 0, []);
+  store().set({
+    environment,
+    prompt,
+    showcase: null,
+    environmentKey: store().environmentKey + 1,
+    report: null,
+    appliedId: null,
+    selected: null,
+    refusal: null,
+    steps: [],
+    findings: [],
+  });
 }
 
 // The landing page's live hero: a showcase design running behind the page. It never becomes the user's system, so the landing

@@ -2,12 +2,12 @@ import { useFrame } from '@react-three/fiber';
 import { edgeKey, topoOrder, type SystemNode, type SystemRun, type SystemSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { Box, Crowd, FINISH } from '../../scene/kit';
 import { ClaimPin, Floor, Movable, Tag, useArranged } from '../shared';
 
-const system = () => runner.run as SystemRun | null;
+const system = () => runFor<SystemRun>('software');
 const LAYER_GAP = 7;
 const ROW_GAP = 5;
 const dummy = new THREE.Object3D();

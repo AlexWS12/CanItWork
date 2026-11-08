@@ -5,7 +5,7 @@ import { reducedMotion } from '../motion';
 import { useStore } from '../store';
 import './Building.css';
 import { Wordmark } from './Wordmark';
-import { AGENT_LABEL, engineLine } from './labels';
+import { AGENT_LABEL, engineLine, stepTitle } from './labels';
 
 // The build pipeline in apps/server/src/agents.ts `build`, used to show the steps still to come.
 // Repairs repeat the Architect and Validator, so they never advance the pointer.
@@ -131,7 +131,7 @@ function Timeline() {
                       {row.simulator ? 'ground truth' : engineLine(row.step!)}
                     </span>
                   </div>
-                  <span className="tl-title">{row.title}</span>
+                  <span className="tl-title">{stepTitle(row.title)}</span>
                   {row.step?.progress !== undefined && (
                     <div className="tl-progress">
                       <div style={{ width: `${Math.round(row.step.progress * 100)}%` }} />
@@ -153,7 +153,7 @@ function Timeline() {
                   )}
                 </div>
                 <span className="tl-title">
-                  {row.title}
+                  {stepTitle(row.title)}
                   {row.step?.detail && ` · ${row.step.detail}`}
                 </span>
               </div>

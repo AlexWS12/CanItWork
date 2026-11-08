@@ -2,11 +2,11 @@ import { useFrame } from '@react-three/fiber';
 import { isIndexed, type DatabaseSpec, type SchemaRun, type Table } from '@tv/core';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Floor, Movable, useArranged } from '../shared';
 
-const engine = () => runner.run as SchemaRun | null;
+const engine = () => runFor<SchemaRun>('database');
 const WIDTH = 5.6;
 const HEADER = 0.85;
 const ROW = 0.42;

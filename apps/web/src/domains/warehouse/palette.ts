@@ -1,5 +1,5 @@
 import type { WarehouseRun, World } from '@tv/core';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 
 export const ROBOT_COLORS = ['#2fd4c2', '#a58bff', '#ff7ac6', '#a3e635', '#4cc3ff', '#e879f9', '#34d399', '#93c5fd', '#fda4af', '#bef264', '#67e8f9', '#c4b5fd'];
 
@@ -19,7 +19,7 @@ export const COLORS = {
 
 export const ZONE_TINTS = ['#4cc3ff', '#ff7ac6', '#a3e635', '#ffb347', '#a58bff', '#67e8f9'];
 
-export const warehouseSim = () => (runner.run as WarehouseRun | null)?.sim ?? null;
+export const warehouseSim = () => runFor<WarehouseRun>('warehouse')?.sim ?? null;
 
 export function toScene(world: World, cell: { x: number; y: number }, y = 0): [number, number, number] {
   return [cell.x - world.cols / 2 + 0.5, y, cell.y - world.rows / 2 + 0.5];

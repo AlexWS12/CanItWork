@@ -4,6 +4,8 @@ import { linkKey, netOrder, type Environment, type NetNode, type NetRun, type Ne
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
+import { CHARACTERS, Model, Packed, useInstancedModel, type ModelId } from '../../scene/Model';
+import { Person as Character } from '../../scene/kit';
 import { select, useStore } from '../../store';
 import { ClaimPin, Floor, Movable, Tag, pick, useArranged } from '../shared';
 import './Queues.css';
@@ -12,7 +14,11 @@ import { Tower, floorsOf, towerHeight } from './Tower';
 // Queues as you'd see them: a row of counters per station with staff behind them, people (or cars) waiting in snaking lines,
 // lanes with traffic lights, elevator cars in their shafts, and people walking between stations as they are served.
 
-const net = () => runner.run as NetRun | null;
+// The run, but only while it is a flow run: switching designs can briefly leave another kind of run in place
+const net = () => {
+  const run = runner.run as NetRun | null;
+  return run && 'links' in run && 'states' in run ? run : null;
+};
 const LAYER_GAP = 12;
 const ROW_GAP = 9;
 const SPACING = 1.1;
@@ -23,6 +29,26 @@ const tint = new THREE.Color();
 const CALM = new THREE.Color('#7dd3fc');
 const TENSE = new THREE.Color('#fb923c');
 const FULL = new THREE.Color('#ef4444');
+const WHITE = new THREE.Color('#ffffff');
+const soft = new THREE.Color();
+
+/** A pack model baked for instancing (see useInstancedModel). */
+type Instanced = ReturnType<typeof useInstancedModel>;
+// The few characters a crowd is drawn from: each is one instanced draw however many people it stands for
+const CROWD: ModelId[] = CHARACTERS.slice(0, 4);
+const PERSON_HEIGHT = 0.85;
+const CAR_LENGTH = 1;
+
+/** Places one instance of a pack model, standing on the floor and turned to face `heading` (radians, 0 = +z). */
+function stand(body: Instanced, x: number, z: number, heading: number, car: boolean) {
+  const k = car ? CAR_LENGTH / body.size.z : PERSON_HEIGHT / body.size.y;
+  dummy.rotation.set(0, heading, 0);
+  dummy.scale.set(body.size.x * k, body.size.y * k, body.size.z * k);
+  dummy.position.set(x, (body.size.y * k) / 2, z);
+  dummy.updateMatrix();
+  dummy.rotation.set(0, 0, 0);
+  dummy.scale.set(1, 1, 1);
+}
 
 export function queuesLayout(spec: NetSpec) {
   const depth = new Map<string, number>();
@@ -62,6 +88,7 @@ const servers = (node: NetNode) => Math.min(MAX_COUNTERS, Math.max(1, node.count
 // Counter positions along z for a station, and the spot in front of each where the person being served stands.
 const counterZ = (n: number, i: number) => (i - (n - 1) / 2) * SPACING;
 
+// The code-built figure, shown until the character models load and if they can't
 function Person({ color = '#cbd5e1' }: { color?: string }) {
   return (
     <group>
@@ -100,19 +127,33 @@ function Counters({ node }: { node: NetNode }) {
     <group>
       {Array.from({ length: n }, (_, i) => (
         <group key={i} position={[0, 0, counterZ(n, i)]}>
-          <mesh position={[0, 0.45, 0]} castShadow receiveShadow>
-            <boxGeometry args={[0.7, 0.9, 0.9]} />
-            <meshStandardMaterial color="#334155" roughness={0.7} />
-          </mesh>
+          <Model
+            id="furniture/desk"
+            width={0.95}
+            position={[0, 0, 0]}
+            rotation={Math.PI / 2}
+            fallback={
+              <mesh position={[0, 0.45, 0]} castShadow receiveShadow>
+                <boxGeometry args={[0.7, 0.9, 0.9]} />
+                <meshStandardMaterial color="#3a3e47" roughness={0.7} />
+              </mesh>
+            }
+          />
+          <Model id="furniture/computerScreen" height={0.32} position={[0.12, 0.55, 0]} rotation={-Math.PI / 2} />
           <mesh position={[0, 1.15, 0.38]}>
             <sphereGeometry args={[0.09, 10, 8]} />
             <meshStandardMaterial ref={(m) => (lights.current[i] = m)} color="#22c55e" emissive="#22c55e" emissiveIntensity={1.4} toneMapped={false} />
           </mesh>
-          <group ref={(g) => (staff.current[i] = g)} position={[0.6, 0, 0]}>
-            <Person color="#1d4ed8" />
+          {/* The cashier faces the customer across the counter */}
+          <group ref={(g) => (staff.current[i] = g)} position={[0.6, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+            <Packed fallback={<Person color="#1d4ed8" />}>
+              <Model id="characters/character-worker" height={PERSON_HEIGHT} play="idle" />
+            </Packed>
           </group>
-          <group ref={(g) => (customers.current[i] = g)} position={[-0.65, 0, 0]}>
-            <Person color="#e2e8f0" />
+          <group ref={(g) => (customers.current[i] = g)} position={[-0.65, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+            <Packed fallback={<Person color="#e2e8f0" />}>
+              <Model id={CROWD[(i + node.id.length) % CROWD.length]} height={PERSON_HEIGHT} play="idle" />
+            </Packed>
           </group>
         </group>
       ))}
@@ -135,7 +176,7 @@ function Lanes({ node }: { node: NetNode }) {
       {Array.from({ length: n }, (_, i) => (
         <mesh key={i} position={[-1.5, 0.02, counterZ(n, i) * 1.3]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
           <planeGeometry args={[5, 1.1]} />
-          <meshStandardMaterial color="#1f2937" />
+          <meshStandardMaterial color="#24272e" />
         </mesh>
       ))}
       <mesh position={[0.4, 1.2, -((n - 1) / 2) * SPACING * 1.3 - 0.9]} castShadow>
@@ -160,26 +201,38 @@ function Entrance({ exit }: { exit: boolean }) {
       {[-1.4, 1.4].map((z) => (
         <mesh key={z} position={[0, 1.2, z]} castShadow>
           <boxGeometry args={[0.3, 2.4, 0.3]} />
-          <meshStandardMaterial color={exit ? '#166534' : '#475569'} />
+          <meshStandardMaterial color={exit ? '#3f6b55' : '#5b616c'} metalness={0.4} roughness={0.5} />
         </mesh>
       ))}
       <mesh position={[0, 2.5, 0]} castShadow>
         <boxGeometry args={[0.35, 0.3, 3.1]} />
-        <meshStandardMaterial color={exit ? '#22c55e' : '#64748b'} emissive={exit ? '#22c55e' : '#000000'} emissiveIntensity={0.4} />
+        <meshStandardMaterial color={exit ? '#7fbf9a' : '#8b919c'} emissive={exit ? '#7fbf9a' : '#000000'} emissiveIntensity={0.35} />
       </mesh>
     </group>
   );
 }
 
 // The people (or cars) waiting at a station, laid out as a snaking line in front of it.
-function Line({ node, cars }: { node: NetNode; cars: boolean }) {
-  const mesh = useRef<THREE.InstancedMesh>(null!);
+function PackedPeopleLine({ node }: { node: NetNode }) {
+  const bodies = [useInstancedModel(CROWD[0]), useInstancedModel(CROWD[1]), useInstancedModel(CROWD[2]), useInstancedModel(CROWD[3])];
+  return <Line node={node} cars={false} bodies={bodies} />;
+}
+
+function PackedCarLine({ node }: { node: NetNode }) {
+  return <Line node={node} cars bodies={[useInstancedModel('vehicles/sedan')]} />;
+}
+
+// With `bodies` (pack models), the waiting are real characters or cars facing the counters; without, capsules or boxes.
+// Either way their tint shows how full the line is, from calm to tense to full.
+function Line({ node, cars, bodies }: { node: NetNode; cars: boolean; bodies?: Instanced[] }) {
+  const mesh = useRef<THREE.InstancedMesh>(null);
   const heads = useRef<THREE.InstancedMesh>(null);
+  const variants = useRef<Array<THREE.InstancedMesh | null>>([]);
   const shown = useRef(-1);
   useFrame(() => {
     const run = net();
     const state = run?.states.get(node.id);
-    if (!run || !state || !mesh.current) return;
+    if (!run || !state || (!bodies && !mesh.current)) return;
     const waiting = Math.min(MAX_PEOPLE, Math.round(state.queue + run.heldAt(node.id)));
     if (waiting === shown.current) return;
     shown.current = waiting;
@@ -188,6 +241,31 @@ function Line({ node, cars }: { node: NetNode; cars: boolean }) {
     tint.copy(CALM).lerp(pressure > 0.9 ? FULL : TENSE, Math.min(1, pressure * 1.1));
     const perRow = 7;
     const width = servers(node) * SPACING;
+    if (bodies) {
+      soft.copy(WHITE).lerp(tint, 0.45);
+      const counts = bodies.map(() => 0);
+      for (let i = 0; i < waiting; i++) {
+        const row = Math.floor(i / perRow);
+        const k = i % perRow;
+        const along = row % 2 === 0 ? k : perRow - 1 - k;
+        const z = (along / (perRow - 1) - 0.5) * Math.max(2.4, width);
+        const v = i % bodies.length;
+        const target = variants.current[v];
+        if (!target) continue;
+        stand(bodies[v], -1.6 - row * (cars ? 1.3 : 0.75), z, Math.PI / 2, cars);
+        target.setMatrixAt(counts[v], dummy.matrix);
+        target.setColorAt(counts[v], soft);
+        counts[v]++;
+      }
+      variants.current.forEach((m, v) => {
+        if (!m) return;
+        m.count = counts[v];
+        m.instanceMatrix.needsUpdate = true;
+        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      });
+      return;
+    }
+    if (!mesh.current) return;
     for (let i = 0; i < MAX_PEOPLE; i++) {
       if (i >= waiting) {
         dummy.position.set(0, -10, 0);
@@ -214,6 +292,21 @@ function Line({ node, cars }: { node: NetNode; cars: boolean }) {
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
     if (heads.current) heads.current.instanceMatrix.needsUpdate = true;
   });
+  if (bodies) {
+    return (
+      <group>
+        {bodies.map((body, v) => (
+          <instancedMesh
+            key={v}
+            ref={(m) => (variants.current[v] = m)}
+            args={[body.geometry, body.material, Math.ceil(MAX_PEOPLE / bodies.length)]}
+            castShadow
+            frustumCulled={false}
+          />
+        ))}
+      </group>
+    );
+  }
   return (
     <group>
       <instancedMesh ref={mesh} args={[undefined, undefined, MAX_PEOPLE]} castShadow frustumCulled={false}>
@@ -231,7 +324,11 @@ function Line({ node, cars }: { node: NetNode; cars: boolean }) {
 }
 
 // People walking from one station to the next, as many as the link carries.
-function Walkers({ spec, positions }: { spec: NetSpec; positions: Map<string, THREE.Vector3> }) {
+function PackedWalkers({ spec, positions }: { spec: NetSpec; positions: Map<string, THREE.Vector3> }) {
+  return <Walkers spec={spec} positions={positions} body={useInstancedModel(CHARACTERS[5])} />;
+}
+
+function Walkers({ spec, positions, body }: { spec: NetSpec; positions: Map<string, THREE.Vector3>; body?: Instanced }) {
   const mesh = useRef<THREE.InstancedMesh>(null!);
   const phase = useRef(0);
   const PER_LINK = 6;
@@ -248,8 +345,14 @@ function Walkers({ spec, positions }: { spec: NetSpec; positions: Map<string, TH
       const count = Math.min(PER_LINK, Math.max(1, Math.round(link.flow)));
       for (let k = 0; k < count; k++) {
         const t = (phase.current + k / count) % 1;
-        dummy.position.set(a.x + 1.2 + (b.x - 2.8 - (a.x + 1.2)) * t, 0.42, a.z + (b.z - a.z) * t);
-        dummy.updateMatrix();
+        const x = a.x + 1.2 + (b.x - 2.8 - (a.x + 1.2)) * t;
+        const z = a.z + (b.z - a.z) * t;
+        if (body) {
+          stand(body, x, z, Math.atan2(b.x - 2.8 - (a.x + 1.2), b.z - a.z), false);
+        } else {
+          dummy.position.set(x, 0.42, z);
+          dummy.updateMatrix();
+        }
         mesh.current.setMatrixAt(n++, dummy.matrix);
       }
     }
@@ -257,9 +360,9 @@ function Walkers({ spec, positions }: { spec: NetSpec; positions: Map<string, TH
     mesh.current.instanceMatrix.needsUpdate = true;
   });
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, Math.max(1, spec.edges.length * PER_LINK)]} frustumCulled={false}>
-      <capsuleGeometry args={[0.13, 0.36, 4, 8]} />
-      <meshStandardMaterial color="#a7f3d0" roughness={0.5} />
+    <instancedMesh ref={mesh} args={[body?.geometry, body?.material, Math.max(1, spec.edges.length * PER_LINK)]} castShadow={Boolean(body)} frustumCulled={false}>
+      {!body && <capsuleGeometry args={[0.13, 0.36, 4, 8]} />}
+      {!body && <meshStandardMaterial color="#a7f3d0" roughness={0.5} />}
     </instancedMesh>
   );
 }
@@ -279,7 +382,7 @@ function Paths({ spec, positions }: { spec: NetSpec; positions: Map<string, THRE
         return (
           <mesh key={i} position={mid} rotation={[-Math.PI / 2, 0, -angle]} receiveShadow onClick={pick(linkKey(e))}>
             <planeGeometry args={[length, 0.7]} />
-            <meshStandardMaterial color="#1e293b" roughness={0.9} />
+            <meshStandardMaterial color="#24272e" roughness={0.9} />
           </mesh>
         );
       })}
@@ -335,7 +438,9 @@ export function Queues() {
     <group>
       <Floor width={width + 10} depth={depth + 10} section={4} fade={120} />
       <Paths spec={ground} positions={positions} />
-      <Walkers spec={ground} positions={positions} />
+      <Packed fallback={<Walkers spec={ground} positions={positions} />}>
+        <PackedWalkers spec={ground} positions={positions} />
+      </Packed>
       {spec.nodes.map((node) => {
         const at = positions.get(node.id);
         if (!at || upstairs.has(node.id)) return null;
@@ -352,7 +457,7 @@ export function Queues() {
             ) : (
               <Counters node={node} />
             )}
-            {kind === 'stage' && <Line node={node} cars={cars} />}
+            {kind === 'stage' && <Packed fallback={<Line node={node} cars={cars} />}>{cars ? <PackedCarLine node={node} /> : <PackedPeopleLine node={node} />}</Packed>}
             {node.kind === 'elevator' ? (
               <Tag text={`${node.label ?? node.id} · ${floorsOf(environment, node)} floors`} tint="#9fd8ff" y={towerHeight(floorsOf(environment, node)) + 0.9} />
             ) : (

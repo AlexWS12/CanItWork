@@ -8,6 +8,7 @@ import './SavePanel.css';
 
 const SAVED_FOR: Record<Visibility, string> = {
   public: 'Anyone with the link can open it.',
+  listed: 'Anyone can open it, and it is listed on the landing page.',
   private: 'Only you can open it.',
   people: 'You and the people you named can open it.',
 };

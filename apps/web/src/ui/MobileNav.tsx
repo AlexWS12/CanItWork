@@ -4,7 +4,7 @@ import './MobileNav.css';
 const VIEWS = [
   ['scene', 'Scene'],
   ['chat', 'Chat'],
-  ['agents', 'Agents'],
+  ['agents', 'Steps'],
 ] as const;
 
 /* Only shown on narrow screens, where the panels can't sit beside the scene */

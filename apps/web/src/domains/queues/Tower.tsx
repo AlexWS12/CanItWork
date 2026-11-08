@@ -4,11 +4,16 @@ import type { Environment, NetNode, NetRun } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
+import { CHARACTERS, Model } from '../../scene/Model';
 
 // An elevator bank drawn as a building cut open: glass floor slabs stacked up, glass shafts rising through them, and lit cars
 // that load at the lobby, ride to a floor, let their riders step out onto the landing, and come back down.
 
-const net = () => runner.run as NetRun | null;
+// The run, but only while it is a flow run: switching designs can briefly leave another kind of run in place
+const net = () => {
+  const run = runner.run as NetRun | null;
+  return run && 'links' in run && 'states' in run ? run : null;
+};
 export const FLOOR_HEIGHT = 1.15;
 const MAX_DRAWN_FLOORS = 12;
 const SHAFT_GAP = 1.3;
@@ -47,7 +52,12 @@ function tripAt(t: number, car: number, top: number): Trip {
   return { y: (1 - THREE.MathUtils.smootherstep(p, 0.65, 1)) * y, floor, phase: 'down' };
 }
 
-function Rider({ color }: { color: string }) {
+// A rider: a real character once the models load, the code-drawn figure until then
+function Rider({ color, seed = 0 }: { color: string; seed?: number }) {
+  return <Model id={CHARACTERS[seed % CHARACTERS.length]} height={0.62} play="idle" fallback={<Figure color={color} />} />;
+}
+
+function Figure({ color }: { color: string }) {
   return (
     <group>
       <mesh position={[0, 0.28, 0]}>
@@ -177,7 +187,7 @@ export function Tower({ node, environment }: { node: NetNode; environment: Envir
                 }}
                 position={[(k % 2) * 0.28 - 0.14, 0.02, Math.floor(k / 2) * 0.28 - 0.14]}
               >
-                <Rider color={RIDER_COLORS[k]} />
+                <Rider color={RIDER_COLORS[k]} seed={k + 1} />
               </group>
             ))}
           </group>
@@ -192,7 +202,7 @@ export function Tower({ node, environment }: { node: NetNode; environment: Envir
               position={[0.85 + k * 0.32, 0, (k % 2) * 0.25 - 0.12]}
               visible={false}
             >
-              <Rider color={RIDER_COLORS[k]} />
+              <Rider color={RIDER_COLORS[k]} seed={k + 1} />
             </group>
           ))}
         </group>

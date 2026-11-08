@@ -571,3 +571,11 @@
   color: var(--color-muted);
   min-height: 32px;
 }
+
+/* Why Steps is empty: a verified design opens as it is */
+.steps-empty {
+  margin: var(--space-4);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--color-muted);
+}

@@ -255,18 +255,18 @@
   bottom: calc(100% + 8px);
   transform: translateX(-50%);
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
-  max-width: min(720px, 90%);
+  /* A whole sentence, wrapping to a second line rather than cut off mid-word */
+  width: max-content;
+  max-width: min(760px, 92%);
   margin: 0;
-  padding: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-4);
   border: 1px solid var(--color-teal-line);
-  border-radius: var(--radius-pill);
+  border-radius: 14px;
   background: var(--color-surface-opaque);
   font-size: var(--text-md);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.4;
   pointer-events: none;
 }
 
@@ -280,6 +280,7 @@
 
 .health-dot {
   flex: none;
+  align-self: center;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -441,4 +442,16 @@
   .speeds {
     display: none;
   }
+}
+
+/* The small "i" beside a tile's label: hover or focus the tile for what it means and where the number comes from */
+.stat-more {
+  margin-left: 5px;
+  vertical-align: -1px;
+  opacity: 0.55;
+}
+
+.stat:hover .stat-more,
+.stat:focus-visible .stat-more {
+  opacity: 1;
 }

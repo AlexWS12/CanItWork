@@ -5,6 +5,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { runner } from '../../runner';
+import { Model, Packed, useInstancedModel } from '../../scene/Model';
 import { select } from '../../store';
 import { ClaimPin, Floor, Tag, pick } from '../shared';
 import { FloorEditMarks, PlacementLayer, useFloorDrag } from './drag';
@@ -12,6 +13,9 @@ import { COLORS, ZONE_TINTS, robotColor, toScene, warehouseSim } from './palette
 
 const dummy = new THREE.Object3D();
 const color = new THREE.Color();
+
+/** A pack model baked for instancing; while it loads or if it can't, the code-built drawing stands in. */
+type Instanced = ReturnType<typeof useInstancedModel>;
 
 const easeOut = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
@@ -31,7 +35,7 @@ const rackGeometry = (() => {
   return mergeGeometries(parts)!;
 })();
 
-function Shelves({ world }: { world: World }) {
+function Shelves({ world, crate }: { world: World; crate?: Instanced }) {
   const frames = useRef<THREE.InstancedMesh>(null!);
   const crates = useRef<THREE.InstancedMesh>(null!);
   const plates = useRef<THREE.InstancedMesh>(null!);
@@ -52,13 +56,17 @@ function Shelves({ world }: { world: World }) {
 
       for (let c = 0; c < CRATES_PER_SHELF; c++) {
         const seed = (i * 7 + c * 13) % 11;
-        const size = 0.3 + (seed % 4) * 0.04;
-        dummy.position.set(x + ((seed % 3) - 1) * 0.1, (0.26 + c * 0.34) * p, z + ((seed % 5) - 2) * 0.05);
-        dummy.scale.set(size, Math.max(0.001, size * 0.8 * p), size);
+        // A box fills most of its board, so the stock reads from across the floor; each sits on its board, a little askew
+        const size = 0.5 + (seed % 4) * 0.04;
+        const height = 0.24 + (seed % 3) * 0.02;
+        dummy.rotation.set(0, ((seed % 3) - 1) * 0.12, 0);
+        dummy.position.set(x + ((seed % 3) - 1) * 0.04, (0.08 + c * 0.34 + height / 2) * p, z + ((seed % 5) - 2) * 0.03);
+        dummy.scale.set(size, Math.max(0.001, height * p), size * 0.85);
         dummy.updateMatrix();
         crates.current.setMatrixAt(i * CRATES_PER_SHELF + c, dummy.matrix);
       }
 
+      dummy.rotation.set(0, 0, 0);
       dummy.position.set(x, 0.02, z);
       dummy.scale.set(0.92 * p, 1, 0.92 * p);
       dummy.updateMatrix();
@@ -78,7 +86,10 @@ function Shelves({ world }: { world: World }) {
     world.shelves.forEach((_, i) => {
       for (let c = 0; c < CRATES_PER_SHELF; c++) {
         const seed = (i * 7 + c * 13) % 11;
-        crates.current.setColorAt(i * CRATES_PER_SHELF + c, color.set(COLORS.crate).offsetHSL(0, 0, (seed - 5) * 0.012));
+        crates.current.setColorAt(
+          i * CRATES_PER_SHELF + c,
+          crate ? color.set('#e3b98c').multiplyScalar(1 - (seed % 5) * 0.06) : color.set(COLORS.crate).offsetHSL(0, 0, (seed - 5) * 0.012),
+        );
       }
     });
     crates.current.instanceColor!.needsUpdate = true;
@@ -124,11 +135,12 @@ function Shelves({ world }: { world: World }) {
         onPointerUp={drag.onPointerUp}
         onClick={pickShelf}
       >
-        <meshStandardMaterial color={COLORS.steel} metalness={0.6} roughness={0.4} />
+        <meshStandardMaterial color="#b8c0cc" metalness={0.35} roughness={0.45} />
       </instancedMesh>
-      <instancedMesh ref={crates} args={[undefined, undefined, count * CRATES_PER_SHELF]} castShadow>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial roughness={0.8} />
+      {/* Kenney's cardboard boxes once loaded, plain boxes until then: either way every crate is one instanced draw */}
+      <instancedMesh ref={crates} args={[crate?.geometry, crate?.material, count * CRATES_PER_SHELF]} castShadow>
+        {!crate && <boxGeometry args={[1, 1, 1]} />}
+        {!crate && <meshStandardMaterial roughness={0.8} />}
       </instancedMesh>
       <instancedMesh ref={plates} args={[undefined, undefined, count]}>
         <boxGeometry args={[1, 0.03, 1]} />
@@ -138,7 +150,16 @@ function Shelves({ world }: { world: World }) {
   );
 }
 
-function Conveyor({ world, index }: { world: World; index: number }) {
+function PackedShelves({ world }: { world: World }) {
+  return <Shelves world={world} crate={useInstancedModel('factory/box-small')} />;
+}
+
+function PackedConveyor({ world, index }: { world: World; index: number }) {
+  return <Conveyor world={world} index={index} belt={useInstancedModel('factory/conveyor')} />;
+}
+
+// A belt: Kenney's roller segments, one per cell, once they load; before that, a dark bed with moving slats
+function Conveyor({ world, index, belt }: { world: World; index: number; belt?: Instanced }) {
   const conveyor = world.conveyors[index];
   const slats = useRef<THREE.InstancedMesh>(null!);
   const bed = useRef<THREE.MeshStandardMaterial>(null!);
@@ -148,12 +169,36 @@ function Conveyor({ world, index }: { world: World; index: number }) {
   const length = conveyor.path.length;
   const [cx, , cz] = toScene(world, { x: first.x + (length - 1) / 2, y: first.y });
   const slatCount = length * 2;
+  const segments = useRef<THREE.InstancedMesh>(null!);
+  const wasBlocked = useRef<boolean | null>(null);
+
+  useLayoutEffect(() => {
+    if (!belt) return;
+    dummy.rotation.set(0, 0, 0);
+    for (let i = 0; i < length; i++) {
+      dummy.position.set(cx - length / 2 + 0.5 + i, 0.17, cz);
+      dummy.scale.set(1.001, 0.34, 0.9);
+      dummy.updateMatrix();
+      segments.current.setMatrixAt(i, dummy.matrix);
+    }
+    segments.current.instanceMatrix.needsUpdate = true;
+    wasBlocked.current = null;
+  }, [belt, cx, cz, length]);
 
   useFrame((_, dt) => {
     const belt = warehouseSim()?.belts[index];
     const blocked = belt?.blocked ?? false;
     if (!blocked && runner.running) offset.current = (offset.current + dt * 2.2 * runner.speed) % 0.5;
+    if (!edge.current) return;
     edge.current.color.set(blocked ? COLORS.danger : '#3b4a66').multiplyScalar(blocked ? 2 : 1);
+    if (belt) {
+      // A jammed belt turns red, segment by segment
+      if (wasBlocked.current === blocked) return;
+      wasBlocked.current = blocked;
+      for (let i = 0; i < length; i++) segments.current.setColorAt(i, color.set(blocked ? '#ff7a7a' : '#ffffff'));
+      segments.current.instanceColor!.needsUpdate = true;
+      return;
+    }
     bed.current.color.set(blocked ? '#3a1218' : '#121a28');
     for (let i = 0; i < slatCount; i++) {
       dummy.rotation.set(0, 0, 0);
@@ -168,10 +213,14 @@ function Conveyor({ world, index }: { world: World; index: number }) {
   return (
     <group onClick={pick(conveyor.id)}>
       <ClaimPin id={conveyor.id} position={[cx, 0.34, cz]} />
-      <mesh position={[cx, 0.16, cz]} castShadow receiveShadow>
-        <boxGeometry args={[length, 0.32, 0.86]} />
-        <meshStandardMaterial ref={bed} metalness={0.6} roughness={0.5} />
-      </mesh>
+      {belt ? (
+        <instancedMesh ref={segments} args={[belt.geometry, belt.material, length]} castShadow receiveShadow />
+      ) : (
+        <mesh position={[cx, 0.16, cz]} castShadow receiveShadow>
+          <boxGeometry args={[length, 0.32, 0.86]} />
+          <meshStandardMaterial ref={bed} metalness={0.6} roughness={0.5} />
+        </mesh>
+      )}
       <mesh position={[cx, 0.34, cz - 0.44]}>
         <boxGeometry args={[length, 0.06, 0.05]} />
         <meshBasicMaterial ref={edge} toneMapped={false} />
@@ -180,17 +229,23 @@ function Conveyor({ world, index }: { world: World; index: number }) {
         <boxGeometry args={[length, 0.06, 0.05]} />
         <meshBasicMaterial color="#3b4a66" toneMapped={false} />
       </mesh>
-      <instancedMesh ref={slats} args={[undefined, undefined, slatCount]}>
-        <boxGeometry args={[0.07, 0.012, 0.76]} />
-        <meshStandardMaterial color="#2c3a54" />
-      </instancedMesh>
+      {!belt && (
+        <instancedMesh ref={slats} args={[undefined, undefined, slatCount]}>
+          <boxGeometry args={[0.07, 0.012, 0.76]} />
+          <meshStandardMaterial color="#2c3a54" />
+        </instancedMesh>
+      )}
       {conveyor.stations.map((s) => {
         const [x, , z] = toScene(world, s);
         return (
-          <mesh key={s.index} position={[x, 0.012, z]} rotation={[-Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[0.32, 0.38, 28]} />
-            <meshBasicMaterial color={COLORS.cargo} toneMapped={false} transparent opacity={0.55} />
-          </mesh>
+          <group key={s.index}>
+            <mesh position={[x, 0.012, z]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.32, 0.38, 28]} />
+              <meshBasicMaterial color={COLORS.cargo} toneMapped={false} transparent opacity={0.55} />
+            </mesh>
+            {/* A packer works each station, on the far side of the belt */}
+            <Model id="characters/character-worker" height={0.9} position={[x, 0, z - 0.85]} play="idle" />
+          </group>
         );
       })}
     </group>
@@ -208,16 +263,19 @@ function Sorter({ world }: { world: World }) {
 
   return (
     <group position={[x, 0, z]} onClick={pick(sorter.id)}>
-      <mesh position={[0, 0.55, 0]} castShadow receiveShadow>
-        <boxGeometry args={[sorter.w - 0.1, 1.1, sorter.h - 0.1]} />
-        <meshStandardMaterial color={COLORS.steelLight} metalness={0.75} roughness={0.35} />
-      </mesh>
-      <mesh position={[0, 1.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[Math.min(sorter.w, sorter.h) * 0.36, 40]} />
-        <meshStandardMaterial color="#0e1522" metalness={0.5} roughness={0.4} />
-      </mesh>
-      <mesh ref={ring} position={[0, 1.14, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[Math.min(sorter.w, sorter.h) * 0.3, Math.min(sorter.w, sorter.h) * 0.36, 6, 1]} />
+      <Model
+        id="factory/machine-window"
+        width={Math.min(sorter.w, sorter.h) - 0.2}
+        fallback={
+          <mesh position={[0, 0.55, 0]} castShadow receiveShadow>
+            <boxGeometry args={[sorter.w - 0.1, 1.1, sorter.h - 0.1]} />
+            <meshStandardMaterial color={COLORS.steelLight} metalness={0.75} roughness={0.35} />
+          </mesh>
+        }
+      />
+      {/* The sorting ring turns on the floor around the machine while it runs */}
+      <mesh ref={ring} position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[Math.min(sorter.w, sorter.h) * 0.52, Math.min(sorter.w, sorter.h) * 0.57, 6, 1]} />
         <meshBasicMaterial color={COLORS.cargo} toneMapped={false} />
       </mesh>
     </group>
@@ -249,6 +307,8 @@ function Docks({ world }: { world: World }) {
               <boxGeometry args={[0.05, 0.05, 1.2]} />
               <meshBasicMaterial color={COLORS.cargo} toneMapped={false} />
             </mesh>
+            {/* A truck backed up to the door, loading */}
+            <Model id="vehicles/delivery" width={2.2} position={[x + 1.65, 0, z]} rotation={Math.PI / 2} />
           </group>
         );
       })}
@@ -270,6 +330,7 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
     const offline = state?.offline ?? false;
     const inUse = Boolean(state?.claimedBy);
     const pulse = inUse ? 1.4 + Math.sin(clock.elapsedTime * 6) * 0.6 : 1;
+    if (!light.current || !pad.current) return;
     light.current.color.set(offline ? COLORS.danger : COLORS.energy).multiplyScalar(pulse);
     pad.current.color.set(offline ? COLORS.danger : COLORS.energy);
   });
@@ -386,9 +447,13 @@ export function Facility({ world }: { world: World }) {
       <Floor width={size[0]} depth={size[1]} color={COLORS.floor} metalness={0.4} roughness={0.55} fade={80} />
       <Outline world={world} />
       <Zones world={world} />
-      <Shelves world={world} />
+      <Packed fallback={<Shelves world={world} />}>
+        <PackedShelves world={world} />
+      </Packed>
       {world.conveyors.map((c, i) => (
-        <Conveyor key={c.id} world={world} index={i} />
+        <Packed key={c.id} fallback={<Conveyor world={world} index={i} />}>
+          <PackedConveyor world={world} index={i} />
+        </Packed>
       ))}
       <Sorter world={world} />
       <Docks world={world} />

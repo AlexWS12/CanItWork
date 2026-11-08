@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { StreamEvent } from '@tv/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DOMAINS } from '@tv/core';
-import { build, showcaseEnvironment } from '../src/agents';
+import { build, showcaseEnvironment, verifiedEnvironment, verifiedList } from '../src/agents';
 import { normalize, resetStale } from '../src/design-cache';
 import { DEFAULT_SPEC, isolateEnv, json, mockFetch, openAiReply } from './helpers';
 
@@ -111,5 +111,17 @@ describe('verified design cache', () => {
       ).toEqual([]);
     }
     expect(showcaseEnvironment('teleporter')).toBeNull();
+  });
+
+  it('lists every verified design of a kind that still passes, and opens each one as is', () => {
+    for (const id of Object.keys(DOMAINS)) {
+      const list = verifiedList(id);
+      expect(list.length, id).toBeGreaterThan(0);
+      const opened = verifiedEnvironment(list[0].prompt);
+      expect(opened?.environment.domain).toBe(id);
+      expect(opened?.environment.name).toBe(list[0].name);
+    }
+    expect(verifiedList('teleporter')).toEqual([]);
+    expect(verifiedEnvironment('a design nobody verified')).toBeNull();
   });
 });
