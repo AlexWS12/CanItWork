@@ -1,4 +1,4 @@
-/* Landing: a floating strip with the wordmark and the integration chips */
+/* Landing: a floating strip with the wordmark, the service status and the account */
 .status {
   position: fixed;
   top: var(--gutter);
@@ -11,8 +11,6 @@
   z-index: 5;
   font-size: var(--text-sm);
   white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
 
 /* Joins the landing title intro (intro-in is in Landing.css) */
@@ -28,35 +26,6 @@
 
 .status .wordmark {
   margin-right: var(--space-2);
-}
-
-.integrations {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.offline {
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-}
-
-.chip {
-  font-family: var(--font-mono);
-  padding: var(--space-half) var(--space-2);
-  border-radius: var(--radius-pill);
-  border: var(--rule);
-  color: var(--color-muted);
-}
-
-.chip[data-on='true'] {
-  color: var(--color-teal);
-  border-color: var(--color-teal-line);
-}
-
-.chip[data-check='failing'] {
-  color: var(--color-danger);
-  border-color: var(--color-danger-line);
 }
 
 /* Running: a full-width bar holds identity and state */
@@ -104,9 +73,8 @@
 }
 
 .domain-tag {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-teal);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
 }
 
 .topbar-center {
@@ -116,6 +84,7 @@
   min-width: 0;
 }
 
+/* The run state is plain text, amber only while something is happening */
 .state-pill {
   display: flex;
   align-items: center;
@@ -125,52 +94,16 @@
   text-overflow: ellipsis;
   font: var(--text-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  background: var(--color-accent-fill);
-  border: 1px solid var(--color-accent-line);
   color: var(--color-accent);
 }
 
 .state-pill[data-state='paused'] {
-  background: var(--color-fill);
-  border: var(--rule);
   color: var(--color-muted);
 }
 
 .state-pill[data-state='incident'] {
   display: block;
-  background: var(--color-danger-strong);
-  border-color: transparent;
-  color: var(--color-text);
-}
-
-.dots {
-  gap: 6px;
-  font: var(--text-xs) var(--font-mono);
-}
-
-.dot {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-muted);
-}
-
-.dot::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
-}
-
-.dot[data-on='true'] {
-  color: var(--color-teal);
-}
-
-.dot[data-check='failing'] {
-  color: var(--color-danger);
+  color: var(--color-danger-soft);
 }
 
 .new-system {
@@ -179,23 +112,127 @@
   padding: var(--space-1) 10px;
 }
 
-/* Narrower: integrations shrink to their dots, named in the tooltip */
-@media (max-width: 1180px) {
-  .dots .integration-name,
-  .dots .chip-note {
-    display: none;
-  }
-}
-
 @media (max-width: 900px) {
   .topbar {
     gap: var(--space-3);
     padding: 0 var(--space-3);
   }
 
-  .topbar .identity,
   .topbar .divider,
-  .topbar .dots {
+  .topbar .new-system,
+  .topbar .status-label {
     display: none;
   }
+
+  .identity .domain-tag {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar .state-pill {
+    display: none;
+  }
+}
+
+/* One status for every service: a dot and a word; the menu says what each service does */
+.status-menu {
+  position: relative;
+}
+
+.status-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.status-dot[data-state='ok'] {
+  background: var(--color-teal);
+}
+
+.status-dot[data-state='warn'],
+.status-dot[data-state='local'] {
+  background: var(--color-accent);
+}
+
+.status-dot[data-state='offline'] {
+  background: var(--color-danger);
+}
+
+.status-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 40;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: var(--rule);
+  background: var(--color-surface-opaque);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-float);
+  white-space: normal;
+}
+
+.status .status-panel {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+.status-title {
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.status-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.status-panel li {
+  display: grid;
+  grid-template-columns: 7px 84px 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: var(--rule);
+  font-size: var(--text-sm);
+}
+
+.status-panel li[data-on='false'] {
+  color: var(--color-muted);
+}
+
+.status-name {
+  font-weight: 600;
+}
+
+.status-role {
+  color: var(--color-muted);
+}
+
+.status-debug {
+  margin: 0;
+  font: var(--text-xs) var(--font-mono);
+  color: var(--color-muted);
 }
