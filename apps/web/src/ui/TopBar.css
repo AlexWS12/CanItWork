@@ -119,7 +119,7 @@
   }
 
   .topbar .divider,
-  .topbar .new-system,
+  .topbar .start-over,
   .topbar .status-label {
     display: none;
   }
@@ -235,4 +235,21 @@
   margin: 0;
   font: var(--text-xs) var(--font-mono);
   color: var(--color-muted);
+}
+
+/* On a phone the system's name gives way first, so Share and the account always fit */
+@media (max-width: 560px) {
+  .topbar .topbar-center {
+    display: none;
+  }
+
+  .topbar .identity {
+    flex: 1;
+  }
+
+  .topbar .identity b {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }

@@ -286,3 +286,11 @@ p {
     scroll-behavior: auto !important;
   }
 }
+
+/* Scene labels shrink on a phone, where a whole system shares a narrow screen */
+@media (max-width: 560px) {
+  .scene-tag {
+    font-size: 9px;
+    padding: 0 var(--space-1);
+  }
+}

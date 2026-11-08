@@ -20,7 +20,8 @@ mkdirSync(out, { recursive: true });
 
 // Software WebGL, so captures work without a GPU or a visible window
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+// --phone: a 390 by 844 phone screen instead of a 1440 by 900 desktop
+const page = await browser.newPage({ viewport: flag('phone') ? { width: 390, height: 844 } : { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 page.on('pageerror', (error) => console.error('page error:', error.message));
 await page.goto(url);
 await page.waitForFunction(() => 'shoot' in (window.__tv ?? {}), null, { timeout: 30000 });

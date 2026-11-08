@@ -141,7 +141,7 @@ export function TopBar() {
       <StatusMenu />
       <LivePill />
       <ShareButton />
-      <button className="new-system" onClick={startOver}>
+      <button className="new-system start-over" onClick={startOver}>
         New system
       </button>
       <AccountButton />
