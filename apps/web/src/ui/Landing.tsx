@@ -1,5 +1,5 @@
 import { DOMAINS, domainList, type DomainId } from '@tv/core';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
 import { Building } from './Building';
@@ -46,6 +46,55 @@ function useFeatured() {
   return featured;
 }
 
+// The title intro plays once per page load. While it runs, the root carries data-intro="playing" and the
+// CSS animations in Landing.css and TopBar.css apply; removing it shows every element in its end state.
+const INTRO_MS = 4350;
+let introStarted = false;
+
+function playIntro() {
+  if (introStarted) return;
+  introStarted = true;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.documentElement.dataset.intro = 'playing';
+  setTimeout(endIntro, INTRO_MS);
+}
+
+function endIntro() {
+  delete document.documentElement.dataset.intro;
+}
+
+const TAGLINE = ['Describe a system.', 'Run it.', 'Break it.', 'Fix it.'];
+
+// "Can it?", then "Work?", then the two words slide together into the wordmark
+function IntroTitle() {
+  const canIt = useRef<HTMLSpanElement>(null);
+  const [w, setW] = useState(0);
+  useLayoutEffect(() => {
+    playIntro();
+    const measure = () => canIt.current && setW(canIt.current.getBoundingClientRect().width);
+    measure();
+    void document.fonts.ready.then(measure);
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  return (
+    <h1 aria-label="CanItWork" className="intro-title" style={{ '--canit-w': `${w}px` } as CSSProperties}>
+      <span className="intro-q intro-can" aria-hidden>
+        Can it?
+      </span>
+      <span className="intro-q intro-work" aria-hidden>
+        Work?
+      </span>
+      <span className="intro-merged" aria-hidden>
+        <span ref={canIt} className="intro-canit">
+          CanIt
+        </span>
+        <span className="intro-worked">Work</span>
+      </span>
+    </h1>
+  );
+}
+
 function Refusal() {
   const refusal = useStore((s) => s.refusal);
   if (!refusal) return null;
@@ -76,6 +125,7 @@ export function Landing() {
   };
   // Examples fill the input rather than building, so they can be edited first
   const use = (example: string) => {
+    endIntro();
     setText(example);
     input.current?.focus();
   };
@@ -84,8 +134,14 @@ export function Landing() {
   return (
     <div className="landing">
       <header className="landing-head">
-        <h1>CanItWork</h1>
-        <p className="tagline">Describe a system. Run it. Break it. Fix it.</p>
+        <IntroTitle />
+        <p className="tagline">
+          {TAGLINE.map((phrase, i) => (
+            <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>
+              {`${phrase} `}
+            </span>
+          ))}
+        </p>
       </header>
       <div className="landing-main">
         <form
@@ -102,7 +158,10 @@ export function Landing() {
             rows={2}
             value={text}
             placeholder="Describe a system in your own words"
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              endIntro();
+              setText(e.target.value);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -119,19 +178,19 @@ export function Landing() {
         <section className="prompts" aria-labelledby="prompts-title">
           <h2 id="prompts-title">Try</h2>
           <ul className="prompt-list">
-            {featured.map((example) => (
-              <li key={example}>
+            {featured.map((example, i) => (
+              <li key={example} style={{ '--i': i } as CSSProperties}>
                 <button onClick={() => use(example)}>{example}</button>
               </li>
             ))}
           </ul>
         </section>
       </div>
-      <section className="landing-domains" aria-labelledby="domains-title">
+      <section className="landing-domains" aria-labelledby="domains-title" style={{ '--n': domainList().length } as CSSProperties}>
         <h2 id="domains-title">What it can build</h2>
         <ul className="domain-chips">
-          {domainList().map((d) => (
-            <li key={d.id}>
+          {domainList().map((d, i) => (
+            <li key={d.id} style={{ '--i': i } as CSSProperties}>
               <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
                 {d.label}
               </button>
@@ -140,11 +199,12 @@ export function Landing() {
         </ul>
         <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
         {domain && (
-          <div className="domain-detail">
+          // Keyed by domain so choosing another chip remounts the card and replays its reveal
+          <div key={domain.id} className="domain-detail">
             <p>{domain.blurb}</p>
             <ul className="prompt-list">
-              {domain.examples.map((example) => (
-                <li key={example}>
+              {domain.examples.map((example, i) => (
+                <li key={example} style={{ '--i': i } as CSSProperties}>
                   <button onClick={() => use(example)}>{example}</button>
                 </li>
               ))}
