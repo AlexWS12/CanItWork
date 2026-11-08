@@ -1,4 +1,5 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
+import { EditableSchemaRun } from './edits';
 import { SchemaRun, isIndexed, loopCandidate } from './engine';
 import { DEFAULT_POOL, DatabasePatchSchema, DatabaseSpecSchema, partitionsOf, type Column, type DatabaseSpec, type Table } from './schema';
 
@@ -465,7 +466,7 @@ Give every entity the user names or describes its own table, including link tabl
   compile: (spec) => spec,
   validate: validateSchema,
   describe: (spec) => JSON.stringify(spec),
-  createRun: (spec, seed) => new SchemaRun(spec, seed),
+  createRun: (spec, seed) => new EditableSchemaRun(spec, seed),
   variants: (spec) => {
     const out = spec.workload.flatMap((q) => {
       const t = spec.tables.find((x) => x.name === q.table);

@@ -16,6 +16,7 @@ const PROMPTS: Partial<Record<DomainId, string>> = {
   software: 'A web app with an API, a database and a payment provider',
   fleet: 'Six drones searching a forest for survivors',
   electronics: 'An LED with a resistor on a 9 V battery',
+  database: 'An online shop database with users, orders and products',
 };
 
 function start(domain: DomainId) {
@@ -42,6 +43,7 @@ const idsOf = (domain: DomainId, run: Run): string[] => {
   if (r.spec?.nodes) return r.spec.nodes.map((n: { id: string }) => n.id);
   if (domain === 'fleet') return ['base', ...r.units.map((u: { id: string }) => u.id)];
   if (domain === 'electronics') return r.spec.parts.map((p: { id: string }) => p.id);
+  if (domain === 'database') return r.spec.tables.map((t: { name: string }) => t.name);
   return [];
 };
 
@@ -66,11 +68,15 @@ describe('hand edits in every domain', () => {
 
       it('refuses an edit to something that is not there', () => {
         const { run } = start(domain);
-        const [, view] = editables(run, [SYSTEM, ...idsOf(domain, run)]).find(([, v]) => v!.settings?.some((s) => Object.keys(s.patch).length > 1))!;
-        const setting = view!.settings!.find((s) => Object.keys(s.patch).length > 1)!;
-        const field = Object.keys(setting.patch).find((k) => k !== 'op')!;
-        const reason = run.check!([{ ...settingPatch(setting, another(setting)), [field]: 'nothing-called-this' }]);
-        expect(reason).toMatch(/no|only/i);
+        // Every patch on offer that names a part, table or role, with that name swapped for one that doesn't exist
+        const named = editables(run, [SYSTEM, ...idsOf(domain, run)]).flatMap(([, view]) => [
+          ...(view!.settings ?? []).map((s) => settingPatch(s, another(s))),
+          ...(view!.edits ?? []).flatMap((e) => e.patches as Array<Record<string, unknown>>),
+        ]);
+        const patch = named.find((p) => Object.entries(p).some(([k, v]) => k !== 'op' && typeof v === 'string'))!;
+        expect(patch, `${domain} offers nothing that names a part`).toBeDefined();
+        const field = Object.entries(patch).find(([k, v]) => k !== 'op' && typeof v === 'string')![0];
+        expect(run.check!([{ ...patch, [field]: 'nothing-called-this' }])).toMatch(/no|only/i);
       });
 
       it('replays hand edits to the same result', () => {
@@ -94,6 +100,33 @@ describe('hand edits in every domain', () => {
     run.apply(edit.patches);
     expect(run.check!(edit.patches)).toMatch(/already a cache/);
     expect(run.inspect(id)!.edits).toEqual([]);
+  });
+
+  it('a database indexes a filter column once, and takes one pooler', () => {
+    const { run } = start('database');
+    const id = idsOf('database', run).find((t) => run.inspect(t)?.edits?.some((e) => e.label.startsWith('Index ')));
+    if (id) {
+      const index = run.inspect(id)!.edits!.find((e) => e.label.startsWith('Index '))!;
+      run.apply(index.patches);
+      expect(run.check!(index.patches)).toMatch(/already has that index/);
+      expect(run.inspect(id)!.edits!.map((e) => e.label)).not.toContain(index.label);
+    }
+    const pooler = run.inspect(SYSTEM)!.edits!.find((e) => e.label === 'Put a pooler in front')!;
+    run.apply(pooler.patches);
+    expect(run.check!(pooler.patches)).toMatch(/already a pooler/);
+    expect(run.inspect(SYSTEM)!.edits!.map((e) => e.label)).not.toContain(pooler.label);
+  });
+
+  it('a partitioned table takes more partitions by hand', () => {
+    const d = DOMAINS.database;
+    const spec = d.specSchema.parse(d.rules.spec(PROMPTS.database!));
+    const table = spec.tables[0];
+    Object.assign(table, { partitions: 4, partitionBy: table.columns[0].name });
+    const run = d.createRun(d.compile(spec), 7);
+    const setting = run.inspect(table.name)!.settings!.find((s) => s.label === 'Partitions')!;
+    expect(setting.value).toBe(4);
+    run.apply([settingPatch(setting, 8)]);
+    expect(run.inspect(table.name)!.settings!.find((s) => s.label === 'Partitions')!.value).toBe(8);
   });
 
   it('a graph network refuses a link that would make a loop', () => {
