@@ -5,7 +5,7 @@ import { chatJson } from '../src/llm';
 import { resetPruneRest } from '../src/llm';
 import { resetCouncil } from '../src/swarms';
 
-const ENV = ['PRUNE_API_KEY', 'GEMINI_API_KEY', 'SWARMS_API_KEY', 'SWARMS_MODEL', 'REDTEAM_MODEL', 'SWARMS_KEEP_USD', 'TYPESAFE_API_KEY'];
+const ENV = ['PRUNE_API_KEY', 'GEMINI_API_KEY', 'SWARMS_API_KEY', 'SWARMS_MODEL', 'REDTEAM_MODEL', 'SWARMS_KEEP_USD', 'TYPESAFE_API_KEY', 'DATABASE_URL'];
 export const schema = z.object({ ok: z.boolean() });
 export const DEFAULT_SPEC = DOMAINS.warehouse.rules.spec('a warehouse');
 export const openAiReply = (content: string, extra: object = {}) => ({
