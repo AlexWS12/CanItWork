@@ -102,6 +102,11 @@ const SHOWCASE = [
   'A supermarket on Saturday: 8 checkouts, 4 self-service tills and one customer service desk',
   'An emergency room on a busy Friday night',
   'A neighbourhood microgrid with rooftop solar and a battery',
+  'A city water system with a reservoir, a treatment plant and a water tower',
+  'A supply chain from two suppliers through a port to five retail stores',
+  'A car factory with welding, painting and final assembly',
+  'An airport with two runways and 20 gates',
+  'A customer support call center with an IVR menu and 25 agents',
 ];
 
 export const showcase = () =>
