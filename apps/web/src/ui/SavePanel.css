@@ -4,6 +4,44 @@
   border-top: 0;
 }
 
+/* Right after saving: the picture the card in My systems will show */
+.saved-shot {
+  position: relative;
+  margin: 0;
+}
+
+.saved-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius-sm, 8px);
+}
+
+.saved-shot figcaption {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--color-bg-scrim);
+  font-size: var(--text-sm);
+}
+
+.saved-shot svg {
+  color: var(--color-teal);
+}
+
+.saved-said {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .share-save .save-name {
   flex-direction: column;
   align-items: stretch;
