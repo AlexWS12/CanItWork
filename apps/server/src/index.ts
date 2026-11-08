@@ -10,6 +10,7 @@ import { build, chat, describeFailure, recover, servedFromCache, type Emit } fro
 import { authConfig } from './auth';
 import { showcase } from './design-cache';
 import { limitMessage, take, visitorOf } from './integrations/limit';
+import { mountRooms } from './rooms';
 import { mountRuns, storageKind } from './runs';
 import { checkedStatus, providerStatus } from './status';
 
@@ -35,6 +36,7 @@ app.get('/api/auth/config', (c) => {
 });
 
 mountRuns(app);
+mountRooms(app);
 
 function agentStream(run: (emit: Emit) => Promise<void>) {
   return (c: Context) =>

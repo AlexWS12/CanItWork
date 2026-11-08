@@ -2,6 +2,7 @@ import type { Candidate, Environment, Incident, ProviderStatus, StreamEvent } fr
 import { matchEntities } from './entities';
 import { runner } from './runner';
 import { authFetch, useAuth } from './auth';
+import { joinLive, leaveLive, liveIdOf, useLive } from './live';
 import { MAX_SHARED_TICKS, decodeRun, encodeRun, isSharedLink, runHash, sane, savedIdOf, savedRunLink, shortHash, type SharedRun } from './share';
 import { useStore, type Message } from './store';
 
@@ -60,6 +61,8 @@ function reply(text: string) {
 }
 
 function loadEnvironment(environment: Environment) {
+  // A new design starts over, so it leaves any live session around the old one.
+  if (useLive.getState().id) leaveLive();
   runner.load(environment);
   store().set({ environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
 }
@@ -101,6 +104,8 @@ function replayShared(shared: SharedRun, from: string) {
 // Opens a run from a shared link and checks it replays to the hash the link carries.
 export async function openSharedRun() {
   if (!isSharedLink()) return;
+  const live = liveIdOf();
+  if (live) return live === useLive.getState().id ? undefined : joinLive(live);
   const id = savedIdOf();
   if (id) return openSavedRun(id);
   const shared = await decodeRun();
@@ -158,6 +163,7 @@ export async function buildEnvironment(prompt: string) {
 }
 
 export function startOver() {
+  leaveLive();
   runner.clear();
   store().reset();
   // A shared run's link would otherwise bring it back on the next reload.

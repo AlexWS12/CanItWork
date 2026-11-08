@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { saveRun, shareRun, type Visibility } from '../actions';
 import { useAuth } from '../auth';
 import { shortHash, type SharedRun } from '../share';
+import { liveLink, startLive, useLive } from '../live';
 import { VISIBILITY_LABEL, signInKeepingRun } from './Account';
 import './SharePanel.css';
 
@@ -21,6 +22,9 @@ export function ShareButton() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const { enabled, account } = useAuth();
+  const liveId = useLive((s) => s.id);
+  const [starting, setStarting] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -52,8 +56,8 @@ export function ShareButton() {
     };
   }, [open]);
 
-  // A saved run's short link makes a far smaller QR code than a link that carries the whole run.
-  const link = saved?.url ?? shared?.url ?? '';
+  // An invite to a live session, or a saved run's short link, makes a far smaller QR code than a link that carries the whole run.
+  const link = liveId ? liveLink(liveId) : (saved?.url ?? shared?.url ?? '');
   useEffect(() => {
     if (!showQr || !link || link.length > QR_LIMIT) return;
     let live = true;
@@ -106,9 +110,11 @@ export function ShareButton() {
         <div className="share-panel" ref={panel} role="dialog" aria-label="Share this run">
           <p className="share-title">Share this run</p>
           <p className="share-note">
-            {saved
-              ? `Saved to your account. ${VISIBILITY_LABEL[saved.visibility]} can open this short link.`
-              : 'The link holds the whole run, so it replays tick by tick on any device and checks its proof hash.'}
+            {liveId
+              ? 'Anyone who opens this invite joins the live session: they see this run and every change anyone makes, as it happens.'
+              : saved
+                ? `Saved to your account. ${VISIBILITY_LABEL[saved.visibility]} can open this short link.`
+                : 'The link holds the whole run, so it replays tick by tick on any device and checks its proof hash.'}
           </p>
           <div className="share-actions">
             <button className="share-primary" onClick={copy}>
@@ -137,7 +143,32 @@ export function ShareButton() {
             ) : (
               <p className="share-note">Drawing the QR code…</p>
             ))}
-          {enabled && !saved && (
+          {!liveId && (
+            <div className="share-save">
+              <p className="share-title">Work on it together</p>
+              <p className="share-note">Start a live session: everyone with the invite sees the same run, and every break, fix and switch flip shows up for all of them.</p>
+              <button
+                className="share-primary"
+                disabled={starting}
+                onClick={async () => {
+                  setStarting(true);
+                  setLiveError(null);
+                  try {
+                    await startLive();
+                    setQr(null);
+                  } catch (error) {
+                    setLiveError(error instanceof Error ? error.message : 'The live session could not start');
+                  } finally {
+                    setStarting(false);
+                  }
+                }}
+              >
+                {starting ? 'Starting…' : 'Start a live session'}
+              </button>
+              {liveError && <p className="share-warn">{liveError}</p>}
+            </div>
+          )}
+          {enabled && !saved && !liveId && (
             <div className="share-save">
               {account ? (
                 <>

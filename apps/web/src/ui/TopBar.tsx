@@ -4,6 +4,7 @@ import { startOver } from '../actions';
 import { useStore } from '../store';
 import { ticks } from './labels';
 import { AccountButton } from './Account';
+import { LivePill } from './LivePill';
 import { ShareButton } from './SharePanel';
 import './TopBar.css';
 
@@ -91,6 +92,7 @@ export function TopBar() {
         <StatePill />
       </div>
       <Integrations variant="dot" />
+      <LivePill />
       <ShareButton />
       <button className="new-system" onClick={startOver}>
         New system

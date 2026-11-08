@@ -19,6 +19,9 @@ class Runner {
   private sincePublish = 0;
   private statHistory: Record<string, number[]> = {};
   private sampledTick = -1;
+  /** Hears every action taken on this screen and every play, pause or speed change, so a live session can share them. */
+  onLocal: ((event: TimedEvent) => void) | null = null;
+  onTransport: ((running: boolean, speed: number, tick: number) => void) | null = null;
 
   load(environment: Environment, seed = 1) {
     const domain = DOMAINS[environment.domain];
@@ -104,9 +107,18 @@ class Runner {
   toggle() {
     this.running = !this.running;
     this.publish();
+    this.onTransport?.(this.running, this.speed, this.run?.tick ?? 0);
   }
 
   setSpeed(speed: number) {
+    this.speed = speed;
+    this.publish();
+    this.onTransport?.(this.running, this.speed, this.run?.tick ?? 0);
+  }
+
+  /** Someone else in a live session played, paused or changed speed. */
+  setTransport(running: boolean, speed: number) {
+    this.running = running;
     this.speed = speed;
     this.publish();
   }
@@ -115,15 +127,28 @@ class Runner {
     const { run } = this;
     if (!run) return false;
     run.inject(incident);
+    const logged = run.log.at(-1);
     run.step();
     this.publish();
+    if (logged) this.onLocal?.(logged);
     return true;
   }
 
   applyPatches(patches: unknown[]) {
     if (!this.run || !patches.length) return;
     this.run.apply(patches);
+    const logged = this.run.log.at(-1);
     useStore.getState().bumpStructure();
+    this.publish();
+    if (logged) this.onLocal?.(logged);
+  }
+
+  /** Brings in actions from a live session: replays the whole log to where this screen already is, so every screen agrees. */
+  catchUp(environment: Environment, seed: number, events: TimedEvent[], tick: number) {
+    const { running, speed } = this;
+    this.replay(environment, seed, Math.max(tick, this.run?.tick ?? 0), events);
+    this.running = running;
+    this.speed = speed;
     this.publish();
   }
 

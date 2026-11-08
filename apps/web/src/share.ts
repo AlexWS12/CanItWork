@@ -66,7 +66,7 @@ const SAVED = '#s=';
 export const savedRunLink = (id: string) => `${location.origin}${location.pathname}${SAVED}${id}`;
 export const savedIdOf = (hash = location.hash) => (hash.startsWith(SAVED) ? hash.slice(SAVED.length).replace(/[^A-Za-z0-9]/g, '') : null);
 
-export const isSharedLink = (hash = location.hash) => hash.startsWith(PREFIX) || hash.startsWith(SAVED);
+export const isSharedLink = (hash = location.hash) => hash.startsWith(PREFIX) || hash.startsWith(SAVED) || hash.startsWith('#live=');
 
 export function sane(run: SharedRun | null | undefined): run is SharedRun {
   return Boolean(

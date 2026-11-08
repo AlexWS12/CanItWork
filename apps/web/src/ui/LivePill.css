@@ -1,0 +1,126 @@
+/* Live session: a pill in the top bar with who is here */
+.live {
+  position: relative;
+}
+
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: 2px var(--space-2) 2px 10px;
+  font-size: var(--text-sm);
+  border-color: var(--color-teal-line);
+  color: var(--color-teal);
+}
+
+.live-pill[data-status='connecting'],
+.live-pill[data-status='ended'] {
+  border-color: var(--color-line-strong);
+  color: var(--color-muted);
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.live-pill[data-status='live'] .live-dot {
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-pill[data-status='live'] .live-dot {
+    animation: none;
+  }
+}
+
+.live-faces {
+  display: inline-flex;
+}
+
+.live-face {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 700;
+  color: #0b0f17;
+  border: 2px solid var(--color-surface-opaque);
+}
+
+.live-faces .live-face + .live-face {
+  margin-left: -6px;
+}
+
+.live-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.live-more {
+  margin-left: 4px;
+  font-size: var(--text-sm);
+}
+
+.live-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 40;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--color-surface-opaque);
+  border: var(--rule-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 18px 50px oklch(9% 0.012 261 / 0.55);
+  white-space: normal;
+}
+
+.live-title {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.live-menu ul {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.live-menu li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.live-you {
+  color: var(--color-muted);
+}
+
+.live-menu button {
+  min-height: 0;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
