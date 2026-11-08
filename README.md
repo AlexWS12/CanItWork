@@ -130,7 +130,7 @@ failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Anal
 
 Agents propose and the simulators decide. Simulators are deterministic, so an environment, seed and event log always replay to the same result.
 
-**Working together:** Share can start a live session. Everyone with the invite sees the same run, and every break, fix, switch flip, play and pause shows up for all of them, with who did it in the chat. The agents work for the whole room: when someone breaks the system, everyone watches the Recovery Council's steps and gets the same fix proposals, and anyone can apply one. Because the simulators are deterministic, the server only relays the action log; each browser replays it and lands on exactly the same state. Someone joining late starts from the whole log and the agents' work so far, and a screen that falls behind catches up to the session's clock.
+**Working together:** Share can start a live session. Everyone with the invite sees the same run, and every break, fix, switch flip, play and pause shows up for all of them, with who did it in the chat. The agents work for the whole room: when someone breaks the system, everyone watches the Recovery Council's steps and gets the same fix proposals, and anyone can apply one. Because the simulators are deterministic, the server only relays the action log; each browser replays it and lands on exactly the same state. Someone joining late starts from the whole log and the agents' work so far, and a screen that falls behind catches up to the session's clock. Sessions are saved with the runs (Tiger Data's Postgres when `DATABASE_URL` is set), so a server restart picks them up again for a day.
 
 **Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch. Share can also show the link as a QR code, drawn in the browser so the run never goes to an outside service.
 
@@ -177,7 +177,6 @@ A flow domain such as power or airports is mostly a config for the flow engine: 
 - Flow domains move averages, not individuals: patients, flights or pallets are a flow with capacities, not agents with their own histories.
 - Fleet units move in 2D and don't avoid each other.
 - Without keys, only the built-in templates are available.
-- Live sessions are kept in the server's memory, so a restart ends them; saved runs persist.
 - Counters aren't a building block yet: at a clock slow enough to watch, the top bits of a wide counter take minutes to light.
 
 ## Working on it

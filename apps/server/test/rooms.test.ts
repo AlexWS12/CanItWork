@@ -1,6 +1,13 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { mountRooms } from '../src/rooms';
+import { flushRoomsForTests, forgetRoomsForTests, mountRooms } from '../src/rooms';
+
+// Sessions are saved to a scratch file here, never the app's own.
+process.env.ROOMS_FILE = path.join(mkdtempSync(path.join(tmpdir(), 'rooms-')), 'rooms.json');
+delete process.env.DATABASE_URL;
 import { DEFAULT_SPEC } from './helpers';
 
 const app = new Hono();
@@ -81,6 +88,21 @@ describe('live rooms', () => {
     const cleo = listen(await app.request(`/api/rooms/${id}/stream?client=cleo-3`));
     expect(await cleo.next()).toMatchObject({ type: 'snapshot', agents: [step, recovery] });
     await Promise.all([ana.close(), ben.close(), cleo.close()]);
+  });
+
+  it('comes back after a server restart with its whole history', async () => {
+    const { id } = (await (await app.request('/api/rooms', json({ environment, seed: 7, tick: 10, events: [] }))).json()) as { id: string };
+    const ana = listen(await app.request(`/api/rooms/${id}/stream?client=ana-1&name=Ana`));
+    await ana.next();
+    const event = { at: 12, incident: { type: 'fail_robot', target: 'R1' } };
+    await app.request(`/api/rooms/${id}/events`, json({ client: 'ana-1', event }));
+    await ana.close();
+    await flushRoomsForTests();
+    forgetRoomsForTests();
+
+    const back = listen(await app.request(`/api/rooms/${id}/stream?client=ana-2&name=Ana`));
+    expect(await back.next()).toMatchObject({ type: 'snapshot', seed: 7, events: [event] });
+    await back.close();
   });
 
   it('only takes actions from people in the room, and says when a session has ended', async () => {

@@ -4,6 +4,7 @@ import type { Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { userFrom } from './auth';
+import { keepRoom, loadRoom } from './keep';
 
 // Live sessions. Simulators are deterministic, so people working on one system together only need to share its action log:
 // breaks, fixes, switch flips, play and pause. The room relays each action to everyone; each browser replays the log, with
@@ -63,6 +64,34 @@ function sweep() {
   for (const [id, room] of rooms) if (!room.listeners.size && Date.now() - room.touched > IDLE_MS) rooms.delete(id);
 }
 
+// Sessions are saved a moment after each change, so a server restart picks them up where they were; who is connected is not
+// saved, since everyone reconnects on their own.
+const saving = new Map<string, ReturnType<typeof setTimeout>>();
+function persist(room: Room) {
+  clearTimeout(saving.get(room.id));
+  saving.set(
+    room.id,
+    setTimeout(() => {
+      saving.delete(room.id);
+      const { id, environment, seed, events, anchor, agents, touched } = room;
+      void keepRoom(id, { id, environment, seed, events, anchor, agents, touched }).catch((error) => console.warn('[rooms] could not save', id, String(error)));
+    }, 1000),
+  );
+}
+
+const KEEP_MS = 24 * 60 * 60 * 1000;
+/** A session from memory, or from where it was saved before a restart (kept a day after its last change). */
+async function getRoom(id: string): Promise<Room | null> {
+  const live = rooms.get(id);
+  if (live) return live;
+  if (!/^[a-z0-9]{4,16}$/.test(id)) return null;
+  const saved = (await loadRoom(id).catch(() => null)) as Omit<Room, 'members' | 'listeners'> | null;
+  if (!saved || Date.now() - saved.touched > KEEP_MS || !(saved.environment?.domain in DOMAINS)) return null;
+  const room: Room = { ...saved, agents: saved.agents ?? [], members: new Map(), listeners: new Map() };
+  rooms.set(id, room);
+  return room;
+}
+
 const roomId = () => {
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
   return [...randomBytes(8)].map((b) => alphabet[b % alphabet.length]).join('');
@@ -96,6 +125,25 @@ async function memberFor(c: Context, room: Room, client: string): Promise<Member
 
 export const roomCount = () => rooms.size;
 
+/** Tests forget the sessions in memory, as a restart would, to check they come back from where they were saved. */
+export function forgetRoomsForTests() {
+  rooms.clear();
+}
+
+/** Tests wait for pending saves instead of the one-second delay. */
+export async function flushRoomsForTests() {
+  const pending = [...saving.keys()];
+  for (const id of pending) {
+    clearTimeout(saving.get(id));
+    saving.delete(id);
+    const room = rooms.get(id);
+    if (room) {
+      const { environment, seed, events, anchor, agents, touched } = room;
+      await keepRoom(id, { id, environment, seed, events, anchor, agents, touched });
+    }
+  }
+}
+
 export function mountRooms(app: Hono) {
   app.post('/api/rooms', async (c) => {
     sweep();
@@ -116,11 +164,12 @@ export function mountRooms(app: Hono) {
       agents: agents.filter((a) => AGENT_TYPES.has(a.type)) as AgentEvent[],
       touched: Date.now(),
     });
+    persist(rooms.get(id)!);
     return c.json({ id }, 201);
   });
 
   app.get('/api/rooms/:id/stream', async (c) => {
-    const room = rooms.get(c.req.param('id'));
+    const room = await getRoom(c.req.param('id'));
     if (!room) return c.json({ error: 'This live session has ended' }, 404);
     const client = (c.req.query('client') ?? '').slice(0, 40);
     if (client.length < 4) return c.json({ error: 'Missing client id' }, 400);
@@ -168,14 +217,14 @@ export function mountRooms(app: Hono) {
   });
 
   // Where the session's clock stands now, so a screen that fell behind (a hidden tab, a slow laptop) can catch up.
-  app.get('/api/rooms/:id/clock', (c) => {
-    const room = rooms.get(c.req.param('id'));
+  app.get('/api/rooms/:id/clock', async (c) => {
+    const room = await getRoom(c.req.param('id'));
     if (!room) return c.json({ error: 'This live session has ended' }, 404);
     return c.json({ tick: tickOf(room), running: room.anchor.running, speed: room.anchor.speed });
   });
 
   app.post('/api/rooms/:id/events', async (c) => {
-    const room = rooms.get(c.req.param('id'));
+    const room = await getRoom(c.req.param('id'));
     if (!room) return c.json({ error: 'This live session has ended' }, 404);
     const parsed = EventBody.safeParse(await c.req.json().catch(() => ({})));
     const by = parsed.success ? room.members.get(parsed.data.client) : undefined;
@@ -184,12 +233,13 @@ export function mountRooms(app: Hono) {
     const event = parsed.data.event as unknown as TimedEvent;
     room.events.push(event);
     broadcast(room, { type: 'event', event, by }, by.client);
+    persist(room);
     return c.json({ ok: true });
   });
 
   // One person's agents ran (a break they made, a question they asked); everyone else sees the same steps and results.
   app.post('/api/rooms/:id/agents', async (c) => {
-    const room = rooms.get(c.req.param('id'));
+    const room = await getRoom(c.req.param('id'));
     if (!room) return c.json({ error: 'This live session has ended' }, 404);
     const text = await c.req.text();
     if (text.length > 200_000) return c.json({ error: 'Too large to relay' }, 413);
@@ -201,11 +251,12 @@ export function mountRooms(app: Hono) {
     room.agents.push(event);
     if (room.agents.length > MAX_AGENT_EVENTS) room.agents.splice(0, room.agents.length - MAX_AGENT_EVENTS);
     broadcast(room, { type: 'agent', event, by }, by.client);
+    persist(room);
     return c.json({ ok: true });
   });
 
   app.post('/api/rooms/:id/transport', async (c) => {
-    const room = rooms.get(c.req.param('id'));
+    const room = await getRoom(c.req.param('id'));
     if (!room) return c.json({ error: 'This live session has ended' }, 404);
     const parsed = TransportBody.safeParse(await c.req.json().catch(() => ({})));
     const by = parsed.success ? room.members.get(parsed.data.client) : undefined;
@@ -213,6 +264,7 @@ export function mountRooms(app: Hono) {
     const { running, speed, tick } = parsed.data;
     room.anchor = { tick, at: Date.now(), running, speed };
     broadcast(room, { type: 'transport', running, speed, tick, by }, by.client);
+    persist(room);
     return c.json({ ok: true });
   });
 }
