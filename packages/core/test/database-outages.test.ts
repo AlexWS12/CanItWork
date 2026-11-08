@@ -159,3 +159,12 @@ describe('claims and recoveries', () => {
     expect(labels).toEqual(expect.arrayContaining(['Leak connections', 'Stall the replicas', 'N+1 on order history']));
   });
 });
+
+describe('database load wording', () => {
+  it('reads as a percentage up to ten times capacity, then as a multiple', async () => {
+    const { loadText } = await import('../src/domains/database/engine');
+    expect(loadText(0.42)).toBe('42%');
+    expect(loadText(9.99)).toBe('999%');
+    expect(loadText(113.26)).toBe('113×');
+  });
+});

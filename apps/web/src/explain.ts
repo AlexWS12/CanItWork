@@ -92,14 +92,31 @@ export interface PlainFinding {
 // "Surge: 100 → 73.8 % of arrivals served (-26.2%)" becomes a sentence a non-engineer can read
 export function plainFinding(finding: Finding, explanation: Explanation | null): PlainFinding {
   const told = explanation?.findings.find((f) => f.claim === finding.claim);
-  if (told) return { title: told.title, impact: told.impact, advice: told.advice };
   const broke = finding.verdict === 'confirmed';
+  const before = struggling(finding);
+  // An attack that changed nothing on a design already failing proves nothing about its strength, so it never says "held up"
+  if (!broke && before !== null)
+    return {
+      title: told?.title ?? finding.claim,
+      impact: `This attack changed nothing, because the design was already struggling before it: ${before}.`,
+      advice: 'Fix what is failing now first. The Steps list shows what the simulator found.',
+    };
+  if (told) return { title: told.title, impact: told.impact, advice: told.advice };
   const impact = describeChange(finding.evidence, broke);
   return {
     title: finding.claim,
     impact,
     advice: broke ? 'Watch it happen, and the agents will propose fixes and test each one in the simulator.' : 'Your design held up. No action needed.',
   };
+}
+
+// When a claim's evidence starts from a share already below 80% ("52.4 → 52.4 % of queries within 100 ms"), the design was
+// failing before the attack: returns that starting point in words, or null when it started out fine
+export function struggling(finding: Finding): string | null {
+  const m = finding.evidence.match(/(-?[\d.]+)\s*→\s*(-?[\d.]+)\s*%\s*(?:of\s*)?([^(]*)/);
+  if (!m) return null;
+  const from = Number(m[1]);
+  return from < 80 ? `only ${from}% of ${m[3].trim() || 'it working'}` : null;
 }
 
 // The simulator's evidence ("Surge: 100 → 73.8 % of arrivals served (-26.2%)", "Backlog 16 → 259") as a sentence

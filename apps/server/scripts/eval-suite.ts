@@ -67,6 +67,19 @@ const column = (what: string, tableRe: RegExp, colRe: RegExp): Check => [
   (s) => (s.tables ?? []).some((t: { name: string; columns: Array<{ name: string }> }) => tableRe.test(t.name) && t.columns.some((c) => colRe.test(c.name))),
 ];
 const rowsOf = (what: string, re: RegExp, n: number): Check => [what, (s) => tables(s).some((t) => re.test(t.name) && t.rows >= n * 0.8 && t.rows <= n * 1.25)];
+// A party (sellers, buyers) as its own table, or as a role on one users table that other tables point at, as many real
+// marketplaces do: users(role) with listings.seller_id
+const party = (what: string, re: RegExp, key: RegExp): Check => [
+  what,
+  (s) =>
+    tables(s).some((t) => re.test(t.name)) ||
+    ((s.tables ?? []).some(
+      (t: { name: string; columns: Array<{ name: string }> }) => /user|account|member/i.test(t.name) && t.columns.some((c) => /role|type|kind/i.test(c.name)),
+    ) &&
+      (s.tables ?? []).some((t: { columns: Array<{ name: string }> }) => t.columns.some((c) => key.test(c.name)))),
+];
+// A table check that only applies when the design was built as a database, for a case another domain may fairly model
+const asTables = ([what, test]: Check): Check => [what, (s) => !s.tables || test(s)];
 const workload = (n = 1): Check => [`${n}+ queries`, (s) => (s.workload ?? []).length >= n];
 // Fleets: how many units have a behaviour.
 const roleCount = (s: Spec, behavior: string) =>
@@ -1111,9 +1124,10 @@ const CASES: Case[] = [
   },
   {
     id: 'db-parking',
-    domain: 'database',
+    // Entries and exits make a fair queue simulation too: cars waiting at the gates
+    domain: ['database', 'queues'],
     prompt: 'A parking garage system with levels, spots, vehicles, entries and exits and payments',
-    checks: [table('spots', /spot|space|bay/i), table('vehicles', /vehicle|car/i), table('payments', /payment/i)],
+    checks: [asTables(table('spots', /spot|space|bay/i)), asTables(table('vehicles', /vehicle|car/i)), asTables(table('payments', /payment/i))],
   },
   {
     id: 'db-delete',
@@ -1131,9 +1145,15 @@ const CASES: Case[] = [
   },
   {
     id: 'db-marketplace',
-    domain: 'database',
+    // It never says schema or database, so building the marketplace as an app is a fair reading too
+    domain: ['database', 'software'],
     prompt: 'A two-sided marketplace with buyers, sellers, listings, orders, payouts and disputes',
-    checks: [table('sellers', /seller|vendor|merchant/i), table('listings', /listing|product|item/i), table('payouts', /payout/i), table('disputes', /dispute/i)],
+    checks: [
+      asTables(party('sellers', /seller|vendor|merchant/i, /^(seller|vendor|merchant)_id$/i)),
+      asTables(table('listings', /listing|product|item/i)),
+      asTables(table('payouts', /payout/i)),
+      asTables(table('disputes', /dispute/i)),
+    ],
   },
   {
     id: 'db-chat',
