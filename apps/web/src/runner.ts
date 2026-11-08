@@ -16,7 +16,8 @@ const insert = (queue: TimedEvent[], from: number, event: TimedEvent) => {
 const HISTORY = 60;
 
 // '99.4%', '84 ms' and 12 all chart as their leading number
-const numeric = (value: string | number) => (typeof value === 'number' ? value : parseFloat(value.replace(/,/g, '')));
+// "1,240", "$215/mo" and "98%" all read as their number
+const numeric = (value: string | number) => (typeof value === 'number' ? value : parseFloat(value.replace(/,/g, '').replace(/^[^\d.-]+/, '')));
 
 class Runner {
   run: Run | null = null;
@@ -291,3 +292,9 @@ class Runner {
 }
 
 export const runner = new Runner();
+
+/**
+ * The open run, but only while it belongs to the given kind of system. Switching designs replaces the run a frame before the
+ * old view unmounts, so a view that read runner.run directly could read another kind's run and crash on it.
+ */
+export const runFor = <T>(...kinds: string[]) => (runner.run && runner.domain && kinds.includes(runner.domain.id) ? (runner.run as T) : null);

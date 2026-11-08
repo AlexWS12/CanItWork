@@ -15,13 +15,13 @@ import {
 } from '@tv/core';
 import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 import { select } from '../../store';
 import { PITCH, PackageBody, SevenSegment, SmallPart } from './Packages';
 
 // Draws the core breadboard layout: the board, its holes, the parts in them and the jumpers between them.
 
-const circuit = () => runner.run as CircuitRun | null;
+const circuit = () => runFor<CircuitRun>('electronics');
 const LED_COLORS = { red: '#ff3b3b', yellow: '#ffd24a', green: '#3dff7a', blue: '#4aa3ff', white: '#ffffff' };
 const JUMPER_COLORS = ['#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#eab308', '#ec4899', '#14b8a6', '#f97316'];
 

@@ -14,7 +14,11 @@ import { Tower, floorsOf, towerHeight } from './Tower';
 // Queues as you'd see them: a row of counters per station with staff behind them, people (or cars) waiting in snaking lines,
 // lanes with traffic lights, elevator cars in their shafts, and people walking between stations as they are served.
 
-const net = () => runner.run as NetRun | null;
+// The run, but only while it is a flow run: switching designs can briefly leave another kind of run in place
+const net = () => {
+  const run = runner.run as NetRun | null;
+  return run && 'links' in run && 'states' in run ? run : null;
+};
 const LAYER_GAP = 12;
 const ROW_GAP = 9;
 const SPACING = 1.1;

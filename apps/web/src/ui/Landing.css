@@ -268,41 +268,11 @@
   color: var(--color-muted);
 }
 
-/* The agents: six cards on a line, with a token handing off down it */
+/* The agents: a plain numbered row, each under a rule that lights in turn as the work hands down the line */
 .relay {
   position: relative;
   max-width: 1296px;
   margin: 0 auto;
-}
-
-.relay-track {
-  position: absolute;
-  left: 24px;
-  right: 24px;
-  top: 34px;
-  height: 2px;
-  background: var(--color-line);
-}
-
-.relay-token {
-  position: absolute;
-  top: -5px;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  box-shadow: 0 0 16px 3px oklch(82.1% 0.149 72 / 0.55);
-  animation: relay 6s ease-in-out infinite;
-}
-
-@keyframes relay {
-  from {
-    left: 0%;
-  }
-  to {
-    left: 100%;
-  }
 }
 
 .agent-cards {
@@ -310,19 +280,17 @@
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-8) var(--space-6);
 }
 
 .agent-cards li {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-5) var(--space-5) var(--space-6);
-  border-radius: 18px;
-  border: var(--rule);
-  background: var(--color-surface-solid);
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 2px solid var(--color-line);
   animation: agent-turn 6s infinite;
   animation-delay: calc(var(--i) * 1s);
 }
@@ -331,29 +299,23 @@
   0%,
   18%,
   100% {
-    border-color: var(--color-line);
+    border-top-color: var(--color-line);
   }
   4%,
   14% {
-    border-color: var(--color-accent-line);
+    border-top-color: var(--color-accent);
   }
 }
 
 .agent-top {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
+  gap: var(--space-2);
 }
 
 .agent-n {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 1px solid var(--color-accent-line);
-  background: var(--color-bg);
-  font: var(--text-xs) var(--font-mono);
+  font: var(--text-sm) var(--font-mono);
   color: var(--color-accent);
 }
 
@@ -362,18 +324,11 @@
   color: var(--color-muted);
 }
 
-.agent-engine[data-engine='Swarms'] {
-  color: var(--color-teal);
-}
-
-.agent-engine[data-engine='Simulator'] {
-  color: var(--color-accent);
-}
-
 .agent-cards b {
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .agent-does {
@@ -683,7 +638,6 @@
 @media (prefers-reduced-motion: reduce) {
   .now-dot,
   .stage-switch button[data-run='true']::after,
-  .relay-token,
   .agent-cards li {
     animation: none;
   }

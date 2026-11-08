@@ -2,7 +2,8 @@
 // Usage: npm run capture -w @tv/web -- <label> [domain ...] [--ui] [--url=http://localhost:5175]
 //   Saves apps/web/.captures/<label>/<domain>.png (the 3D canvas), <domain>-ui.png with --ui (the whole page), and stats.json.
 // The dev server must be running; captures use its window.__tv tools, so nothing is designed and nothing is spent.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -43,6 +44,85 @@ if (flag('landing')) {
   await page.screenshot({ path: path.join(out, 'landing-phone.png') });
   await browser.close();
   console.log(`Saved the landing page to ${out}`);
+  process.exit(0);
+}
+// --thumbs: a preview picture of every verified design, for the landing's system panels, then stop.
+// Saves public/thumbs/<slug>.jpg and public/thumbs/index.json (prompt to file). Verified designs open as is: nothing is designed.
+if (flag('thumbs')) {
+  const thumbs = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public/thumbs');
+  mkdirSync(thumbs, { recursive: true });
+  // Saved after every picture and merged into what is there, so a run can stop at any point and one kind can be redone alone
+  const indexFile = path.join(thumbs, 'index.json');
+  let index = {};
+  try {
+    index = JSON.parse(readFileSync(indexFile, 'utf8'));
+  } catch {
+    // First run
+  }
+  const done = new Set(flag('again') ? [] : Object.keys(index));
+  let made = 0;
+  for (const domain of domains) {
+    const { verified } = await page.evaluate(async (d) => (await fetch(`/api/systems/${d}`)).json(), domain);
+    for (const { prompt, name } of verified) {
+      // Already pictured: skipped unless --again
+      if (done.has(prompt)) continue;
+      try {
+        const { environment } = await page.evaluate(async (p) => (await fetch(`/api/verified?prompt=${encodeURIComponent(p)}`)).json(), prompt);
+        const shot = await page.evaluate((e) => window.__tv.shoot(e, { settle: 1500 }), environment);
+        // Crops to the system itself (anything brighter than the graphite floor), pads it, and fits it to a 4:3 picture
+        const jpeg = await page.evaluate(async (png) => {
+          const img = new Image();
+          img.src = png;
+          await img.decode();
+          const full = new OffscreenCanvas(img.width, img.height);
+          const fc = full.getContext('2d');
+          fc.drawImage(img, 0, 0);
+          const { data, width, height } = fc.getImageData(0, 0, img.width, img.height);
+          let x0 = width,
+            y0 = height,
+            x1 = 0,
+            y1 = 0;
+          for (let y = 0; y < height; y += 2)
+            for (let x = 0; x < width; x += 2) {
+              const i = (y * width + x) * 4;
+              if (data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11 > 72) {
+                x0 = Math.min(x0, x);
+                x1 = Math.max(x1, x);
+                y0 = Math.min(y0, y);
+                y1 = Math.max(y1, y);
+              }
+            }
+          if (x1 <= x0) [x0, y0, x1, y1] = [0, 0, width, height];
+          let w = (x1 - x0) * 1.3;
+          let h = (y1 - y0) * 1.3;
+          if (w / h > 4 / 3) h = (w * 3) / 4;
+          else w = (h * 4) / 3;
+          const cx = (x0 + x1) / 2;
+          const cy = (y0 + y1) / 2;
+          const out = new OffscreenCanvas(480, 360);
+          const oc = out.getContext('2d');
+          oc.fillStyle = '#0b0c0f';
+          oc.fillRect(0, 0, 480, 360);
+          oc.drawImage(img, cx - w / 2, cy - h / 2, w, h, 0, 0, 480, 360);
+          const blob = await out.convertToBlob({ type: 'image/jpeg', quality: 0.82 });
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          let text = '';
+          for (const b of bytes) text += String.fromCharCode(b);
+          return btoa(text);
+        }, shot.png);
+        const slug = `${domain}-${createHash('sha1').update(prompt).digest('hex').slice(0, 10)}.jpg`;
+        writeFileSync(path.join(thumbs, slug), Buffer.from(jpeg, 'base64'));
+        index[prompt] = slug;
+        made++;
+        writeFileSync(indexFile, JSON.stringify(index, null, 2));
+        console.log(`${domain.padEnd(12)} ${name}`);
+      } catch (error) {
+        console.error(`${domain} ${name}: ${error}`);
+      }
+    }
+  }
+  await browser.close();
+  console.log(`Saved ${made} new previews (${Object.keys(index).length} in all) to ${thumbs}`);
   process.exit(0);
 }
 // --gallery: every pack model side by side, then stop

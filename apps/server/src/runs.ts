@@ -9,9 +9,11 @@ import { userFrom, type User } from './auth';
 
 // Saved runs. A share link that holds the whole run is public by nature; a saved run lives here instead, so its link
 // is a short id and the owner decides who can open it: anyone with the link, only themselves, or people they name by email.
+// "Listed" is anyone with the link plus a place on the landing page, beside the verified designs of its kind; a run is
+// listed only when its owner chooses it, so a link-shared run never shows up anywhere by itself.
 // Runs go to Postgres (Tiger Data) when DATABASE_URL is set, otherwise to a local file for development.
 
-export type Visibility = 'public' | 'private' | 'people';
+export type Visibility = 'public' | 'listed' | 'private' | 'people';
 
 export interface SavedRun {
   id: string;
@@ -31,6 +33,8 @@ interface Store {
   save(run: SavedRun): Promise<void>;
   get(id: string): Promise<SavedRun | null>;
   list(owner: string): Promise<SavedRun[]>;
+  /** Runs their owners chose to list, newest first. */
+  listed(domain: string): Promise<SavedRun[]>;
   update(id: string, change: Pick<SavedRun, 'visibility' | 'people'>): Promise<void>;
   remove(id: string): Promise<void>;
 }
@@ -61,6 +65,12 @@ function fileStore(): Store {
       return Object.values(read())
         .filter((r) => r.owner === owner)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
+    async listed(domain) {
+      return Object.values(read())
+        .filter((r) => r.visibility === 'listed' && r.domain === domain)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 50);
     },
     async update(id, change) {
       const all = read();
@@ -120,6 +130,10 @@ function postgresStore(url: string): Store {
       await table();
       return (await sql`select * from runs where owner = ${owner} order by updated_at desc limit 200`).map(row);
     },
+    async listed(domain) {
+      await table();
+      return (await sql`select * from runs where visibility = 'listed' and domain = ${domain} order by updated_at desc limit 50`).map(row);
+    },
     async update(id, change) {
       await table();
       await sql`update runs set visibility = ${change.visibility}, people = ${change.people}, updated_at = now() where id = ${id}`;
@@ -143,7 +157,7 @@ export const storageKind = () => (process.env.DATABASE_URL?.trim() ? 'postgres' 
 
 /** Who may open a run: anyone when public, its owner always, and named people by their verified email. */
 export function canOpen(run: SavedRun, user: User | null) {
-  if (run.visibility === 'public') return true;
+  if (run.visibility === 'public' || run.visibility === 'listed') return true;
   if (user?.sub === run.owner) return true;
   return run.visibility === 'people' && Boolean(user?.email) && run.people.includes(user!.email!);
 }
@@ -154,7 +168,7 @@ const id = () => {
 };
 
 const Sharing = z.object({
-  visibility: z.enum(['public', 'private', 'people']),
+  visibility: z.enum(['public', 'listed', 'private', 'people']),
   people: z.array(z.string().trim().toLowerCase().email()).max(20).default([]),
 });
 const Body = Sharing.extend({
@@ -169,6 +183,11 @@ const Body = Sharing.extend({
 const MAX_BYTES = 1_000_000;
 
 const summary = (r: SavedRun) => ({ id: r.id, name: r.name, domain: r.domain, visibility: r.visibility, people: r.people, updatedAt: r.updatedAt });
+
+/** The runs listed for a kind of system: what anyone may see of them, which leaves out the owner's account and the run itself. */
+export async function listedRuns(domain: string) {
+  return (await runs().listed(domain)).map((r) => ({ id: r.id, name: r.name, ownerName: r.ownerName, updatedAt: r.updatedAt }));
+}
 
 export function mountRuns(app: Hono) {
   app.get('/api/me', async (c) => {
@@ -222,7 +241,7 @@ export function mountRuns(app: Hono) {
     if (!run) return c.json({ error: 'No run with that link' }, 404);
     if (user?.sub !== run.owner) return c.json({ error: 'Only its owner can change who sees it' }, 403);
     const parsed = Sharing.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'Choose public, private or people' }, 400);
+    if (!parsed.success) return c.json({ error: 'Choose public, listed, private or people' }, 400);
     const change = { visibility: parsed.data.visibility, people: parsed.data.visibility === 'people' ? parsed.data.people : [] };
     await runs().update(run.id, change);
     return c.json(summary({ ...run, ...change }));

@@ -3,3 +3,4 @@ dist
 package-lock.json
 *.md
 apps/web/public/models/
+apps/web/public/thumbs/

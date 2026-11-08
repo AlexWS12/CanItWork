@@ -13,7 +13,8 @@ const RULES: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   [/worst part load/i, () => 'How close the most stressed part is to its limit. Over 100% it overheats and burns out.'],
   [
     /^monthly cost$/i,
-    () => 'What this system would cost to run for a month at rough cloud list prices. It moves as replicas are added or traffic changes, so you can see what a fix costs.',
+    () =>
+      'A rough estimate of what running this for a month would cost with a cloud provider, at public list prices: the servers, databases and queues it uses, plus a small charge per request. Traffic varies from moment to moment, so this shows the recent average. It is for comparing designs and fixes, not a quote. Where it comes from:',
   ],
   [/^% of (.+?) within (.+)$/i, (m) => `Your main goal: the share of ${m[1]} answered in under ${m[2]}, which feels instant. Higher is better.`],
   [/^% of (.+)$/i, (m) => `Your main goal: the share of ${m[1]}. Higher is better; under 90% means people or work are being let down.`],
@@ -38,7 +39,11 @@ const RULES: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
 ];
 
 // Labels that carry simulator jargon, in the words shown on screen
-export const displayLabel = (label: string) => label.replace(/^per (\d+) ticks$/i, 'delivery rate').replace(/^within (.+)$/i, 'answered within $1');
+export const displayLabel = (label: string) =>
+  label
+    .replace(/^per (\d+) ticks$/i, 'delivery rate')
+    .replace(/^within (.+)$/i, 'answered within $1')
+    .replace(/^monthly cost$/i, 'estimated monthly cost');
 
 function lookup(map: Record<string, string> | undefined, label: string) {
   if (!map) return undefined;
@@ -47,6 +52,9 @@ function lookup(map: Record<string, string> | undefined, label: string) {
 }
 
 export function metricHelp(label: string, explanation: Explanation | null): string {
+  // Cost always says what kind of number it is (an averaged estimate at list prices), which a generated line can leave out
+  const [, costRule] = RULES.find(([pattern]) => pattern.test(label) && /cost/i.test(label)) ?? [];
+  if (costRule) return costRule(label.match(/.*/)!);
   const told = lookup(explanation?.metrics, label);
   if (told) return told;
   for (const [pattern, say] of RULES) {

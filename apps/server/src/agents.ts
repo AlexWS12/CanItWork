@@ -34,7 +34,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
-import { forget, lookup, markStale, remember, showcase } from './design-cache';
+import { forget, lookup, markStale, remember, showcase, verifiedFor } from './design-cache';
 import { importFile, type Imported } from './importers';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
@@ -428,6 +428,24 @@ export function showcaseEnvironment(domainId: string): { prompt: string; environ
     return { prompt, environment: { domain: hit.id, name, summary, spec, unmodelled } };
   }
   return null;
+}
+
+/** Any verified design, by the prompt it answers, ready to open with no model call; null when it no longer passes the checks. */
+export function verifiedEnvironment(prompt: string): { prompt: string; environment: Environment } | null {
+  const hit = servedFromCache(prompt);
+  if (!hit) return null;
+  const { name, summary, spec, unmodelled } = hit.draft;
+  return { prompt, environment: { domain: hit.id, name, summary, spec, unmodelled } };
+}
+
+// The verified designs listed for a kind of system: each is checked once against the current simulator, so the list
+// only offers designs that will open. Cleared when the server restarts.
+const passing = new Map<string, boolean>();
+export function verifiedList(domain: string) {
+  return verifiedFor(domain).filter(({ prompt }) => {
+    if (!passing.has(prompt)) passing.set(prompt, servedFromCache(prompt) !== null);
+    return passing.get(prompt);
+  });
 }
 
 const ReviewSchema = z.object({ shortfalls: z.array(z.string()).max(4).default([]) });

@@ -6,11 +6,20 @@ import { savedRunLink } from '../share';
 import { useStore } from '../store';
 import './Account.css';
 
-export const VISIBILITY_LABEL: Record<Visibility, string> = { public: 'Anyone with the link', private: 'Only me', people: 'People I choose' };
+export const VISIBILITY_LABEL: Record<Visibility, string> = {
+  public: 'Anyone with the link',
+  listed: 'Public, listed on the landing',
+  private: 'Only me',
+  people: 'People I choose',
+};
 
-/** Signs in, keeping any open run in the link so it comes back after Auth0's page. */
+/**
+ * Signs in, keeping any open run in the link so it comes back after Auth0's page. The landing's live hero is not the user's
+ * run, so on the landing nothing is kept and signing in comes back to the landing.
+ */
 export async function signInKeepingRun() {
-  if (useStore.getState().environment) await shareRun();
+  const { environment, showcase } = useStore.getState();
+  if (environment && !showcase) await shareRun();
   await signIn();
 }
 

@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { netsOf, pinsOf, sensorOf, withUnit, type CircuitRun, type CircuitSpec, type Part } from '@tv/core';
 import { useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Floor, Tag, pick } from '../shared';
 import { Unknown } from '../../scene/Unknown';
@@ -12,7 +12,7 @@ import { BoardParts, breadboardExtent, jumperColor, layoutBreadboard, spotPositi
 import { PackageBody, SevenSegment, SmallPart, dipSpan, drawnByPackage, packagePin } from './Packages';
 import './Bench.css';
 
-const circuit = () => runner.run as CircuitRun | null;
+const circuit = () => runFor<CircuitRun>('electronics');
 const LED_COLORS = { red: '#ff3b3b', yellow: '#ffd24a', green: '#3dff7a', blue: '#4aa3ff', white: '#ffffff' };
 const WIRE_COLORS = ['#f59e0b', '#22d3ee', '#a78bfa', '#34d399', '#f472b6', '#60a5fa'];
 const dummy = new THREE.Object3D();

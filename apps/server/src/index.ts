@@ -5,14 +5,14 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { config } from 'dotenv';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import type { StreamEvent } from '@tv/core';
-import { build, chat, describeFailure, edit, explain, recover, servedFromCache, showcaseEnvironment, type Emit } from './agents';
+import { DOMAINS, type StreamEvent } from '@tv/core';
+import { build, chat, describeFailure, edit, explain, recover, servedFromCache, showcaseEnvironment, verifiedEnvironment, verifiedList, type Emit } from './agents';
 import { authConfig } from './auth';
 import { showcase } from './design-cache';
 import { admit } from './integrations/limit';
 import { hasGemini, pruneBypass } from './llm';
 import { mountRooms } from './rooms';
-import { mountRuns, storageKind } from './runs';
+import { listedRuns, mountRuns, storageKind } from './runs';
 import { summary } from './spend';
 import { checkedStatus, providerStatus } from './status';
 
@@ -35,6 +35,21 @@ app.get('/api/examples', (c) => c.json({ examples: showcase() }));
 app.get('/api/examples/:domain', (c) => {
   const found = showcaseEnvironment(c.req.param('domain'));
   return found ? c.json(found) : c.json({ error: 'No showcase design for that kind of system' }, 404);
+});
+
+// A kind of system's page on the landing: every verified design of that kind, and the runs people chose to list.
+// Signed-in people add their own saved runs from /api/runs. Nothing here calls a model.
+app.get('/api/systems/:domain', async (c) => {
+  const domain = c.req.param('domain');
+  if (!(domain in DOMAINS)) return c.json({ error: 'No such kind of system' }, 404);
+  const listed = await listedRuns(domain).catch(() => []);
+  return c.json({ verified: verifiedList(domain), listed });
+});
+
+// Opens one verified design by the prompt it answers, as is: free, and instant.
+app.get('/api/verified', (c) => {
+  const found = verifiedEnvironment(c.req.query('prompt') ?? '');
+  return found ? c.json(found) : c.json({ error: 'That design is no longer verified' }, 404);
 });
 
 app.get('/api/spend', (c) => c.json(summary(pruneBypass())));

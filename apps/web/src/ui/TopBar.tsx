@@ -1,5 +1,5 @@
 import { DOMAINS, type KeyCheck, type ProviderStatus } from '@tv/core';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { startOver } from '../actions';
 import { useStore } from '../store';
 import { ticks } from './labels';
@@ -32,7 +32,7 @@ const chipsOf = (status: ProviderStatus | null | undefined): Chip[] =>
 const ROLE: Record<string, string> = {
   Gemini: 'Designs and explains',
   Jev: 'Picks the right simulator',
-  Swarms: 'Runs the Red Team and Recovery Council',
+  Swarms: 'Looks for weak spots and finds fixes',
   'Tiger Data': 'Keeps your saved runs',
 };
 
@@ -107,6 +107,24 @@ function StatePill() {
   );
 }
 
+/** The logo, as the way home: from a system it goes back to the landing page, and on the landing it returns to the top. */
+function HomeLink({ children }: { children: ReactNode }) {
+  return (
+    <a
+      className="home-link"
+      href="/"
+      aria-label="CanItWork, back to the start"
+      onClick={(e) => {
+        e.preventDefault();
+        if (useStore.getState().environment && !useStore.getState().showcase) startOver();
+        document.querySelector('.landing')?.scrollTo({ top: 0, behavior: 'smooth' });
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
 export function TopBar() {
   const environment = useStore((s) => s.environment);
   const building = useStore((s) => s.building);
@@ -119,7 +137,9 @@ export function TopBar() {
   if (!environment || showcase) {
     return (
       <div className="status">
-        <Wordmark />
+        <HomeLink>
+          <Wordmark />
+        </HomeLink>
         <StatusMenu />
         <AccountButton />
       </div>
@@ -129,7 +149,9 @@ export function TopBar() {
   return (
     <header className="topbar" data-incident={incident}>
       {/* Same precedence as StatePill: an open incident, otherwise running or paused */}
-      <Wordmark state={incident ? 'incident' : running ? 'running' : 'paused'} />
+      <HomeLink>
+        <Wordmark state={incident ? 'incident' : running ? 'running' : 'paused'} />
+      </HomeLink>
       <span className="divider" aria-hidden />
       <div className="identity" title={environment.summary}>
         <b>{environment.name}</b>

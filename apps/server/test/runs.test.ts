@@ -5,7 +5,7 @@ import { Hono } from 'hono';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useKeysForTests } from '../src/auth';
-import { mountRuns } from '../src/runs';
+import { listedRuns, mountRuns } from '../src/runs';
 
 const DOMAIN = 'canitwork-test.auth0.com';
 const AUDIENCE = 'https://canitwork.api';
@@ -96,6 +96,22 @@ describe('saved runs', () => {
     expect((await call('DELETE', `/api/runs/${id}`, await bob())).status).toBe(403);
     expect((await call('DELETE', `/api/runs/${id}`, await alice())).status).toBe(200);
     expect((await call('GET', `/api/runs/${id}`, await alice())).status).toBe(404);
+  });
+
+  it('lists a run on the landing only when its owner chooses to, without the run or the account behind it', async () => {
+    const linked = await save('public');
+    const listed = await save('listed');
+    await save('private');
+    const shown = await listedRuns('electronics');
+    expect(shown.map((r) => r.id)).toEqual([listed.id]);
+    expect(Object.keys(shown[0]).sort()).toEqual(['id', 'name', 'ownerName', 'updatedAt']);
+    expect(await listedRuns('warehouse')).toEqual([]);
+    // A listed run opens for anyone, like a link-shared one; unlisting it takes it off the landing
+    expect((await call('GET', `/api/runs/${listed.id}`)).status).toBe(200);
+    expect((await call('PATCH', `/api/runs/${listed.id}`, await alice(), { visibility: 'public' })).status).toBe(200);
+    expect(await listedRuns('electronics')).toEqual([]);
+    expect((await call('PATCH', `/api/runs/${linked.id}`, await alice(), { visibility: 'listed' })).status).toBe(200);
+    expect((await listedRuns('electronics')).map((r) => r.id)).toEqual([linked.id]);
   });
 
   it('without an Auth0 API, asks Auth0 who a token belongs to, and remembers the answer', async () => {

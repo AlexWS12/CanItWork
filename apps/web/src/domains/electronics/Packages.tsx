@@ -2,11 +2,11 @@ import { useFrame } from '@react-three/fiber';
 import { dipRows, pinsOf, type CircuitRun, type Part } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { runner } from '../../runner';
+import { runFor, runner } from '../../runner';
 import { Unknown } from '../../scene/Unknown';
 
 // One renderer per physical package, so any chip, board or module the Architect names is drawn from its pin count and label.
-const circuit = () => runner.run as CircuitRun | null;
+const circuit = () => runFor<CircuitRun>('electronics');
 export const PITCH = 0.3;
 const METAL = { color: '#c8d0da', metalness: 0.85, roughness: 0.3 };
 

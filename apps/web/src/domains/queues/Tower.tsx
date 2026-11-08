@@ -8,7 +8,11 @@ import { runner } from '../../runner';
 // An elevator bank drawn as a building cut open: glass floor slabs stacked up, glass shafts rising through them, and lit cars
 // that load at the lobby, ride to a floor, let their riders step out onto the landing, and come back down.
 
-const net = () => runner.run as NetRun | null;
+// The run, but only while it is a flow run: switching designs can briefly leave another kind of run in place
+const net = () => {
+  const run = runner.run as NetRun | null;
+  return run && 'links' in run && 'states' in run ? run : null;
+};
 export const FLOOR_HEIGHT = 1.15;
 const MAX_DRAWN_FLOORS = 12;
 const SHAFT_GAP = 1.3;

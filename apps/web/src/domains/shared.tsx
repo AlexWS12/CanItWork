@@ -90,7 +90,7 @@ export function ClaimPin({ id, position = [0, 0, 0] }: { id: string; position?: 
       <Html zIndexRange={[20, 11]} pointerEvents="none">
         <div ref={pin} className="claim-pin" data-verdict={finding.verdict}>
           <button className="claim-card" onClick={() => select(id)}>
-            <span className="claim-kicker">Stress test · {confirmed ? 'Weak spot' : 'Held up'}</span>
+            <span className="claim-kicker">Weak-spot check · {confirmed ? 'Weak spot' : 'Held up'}</span>
             <span>
               {plain.title} {plain.impact}
             </span>

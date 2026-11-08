@@ -6,6 +6,7 @@ import { preloadModels, type ModelId } from '../scene/Model';
 import { useStore } from '../store';
 import { SignInButton } from './Account';
 import { Building } from './Building';
+import { SystemPanel } from './SystemPanel';
 import { Wordmark } from './Wordmark';
 import './Landing.css';
 
@@ -15,12 +16,12 @@ const GROUPS = ['Hardware', 'Software', 'Operations', 'Robots and drones'] as co
 
 // The agents behind every build, in every domain. Agents propose; the simulator decides.
 const TEAM = [
-  { name: 'Interpreter', engine: 'Jev + Gemini', does: 'works out which simulator fits what you described, or says none does' },
-  { name: 'Architect', engine: 'Gemini', does: 'designs the system; with the Design Council on, three Swarms architects compete and the simulator picks the winner' },
-  { name: 'Validator', engine: 'Simulator', does: 'runs the design and sends it back with what failed until it passes' },
+  { name: 'Understands your request', engine: 'Jev + Gemini', does: 'works out what kind of system you mean, or says honestly that it can’t model it' },
+  { name: 'Designs it', engine: 'Gemini', does: 'draws up the parts and how they connect; it can ask three designers and keep the best version' },
+  { name: 'Tests it', engine: 'Simulator', does: 'runs the design in a real simulator and sends it back with whatever failed, until everything passes' },
   { name: 'Reviewer', engine: 'Gemini', does: 'checks the design against what you asked for and sends back anything it shrank or left out' },
-  { name: 'Red Team', engine: 'Swarms', does: 'predicts how the design breaks; the simulator confirms or refutes every claim' },
-  { name: 'Recovery Council', engine: 'Swarms', does: 'proposes fixes after a failure; the simulator ranks them by what they actually do' },
+  { name: 'Looks for weak spots', engine: 'Swarms', does: 'imagines how it could go wrong, like a rush of visitors or a part failing, and the simulator tries each one' },
+  { name: 'Finds fixes', engine: 'Swarms', does: 'when something breaks, suggests ways to recover, ranked by how well each one actually works' },
 ];
 const groupOf = (id: DomainId) => (id === 'electronics' ? 0 : id === 'software' || id === 'database' ? 1 : id === 'fleet' ? 3 : 2);
 
@@ -75,7 +76,7 @@ const BUILT_WITH = [
   ['Gemini', 'designs and reviews'],
   ['TypeSafe Jev', 'picks the simulator'],
   ['Prune', 'routes the Gemini calls'],
-  ['Swarms', 'red team and councils'],
+  ['Swarms', 'weak spots and fixes'],
   ['Tiger Data', 'saves every run'],
   ['Auth0', 'sign-in and sharing'],
   ['Vultr', 'hosting'],
@@ -171,8 +172,8 @@ const CHAPTERS = [
   {
     kicker: 'Describe it',
     title: 'Say what you want, in your own words.',
-    body: 'A circuit, an app, a hospital on a busy night. The Interpreter picks the simulator that fits, and the Architect draws a first blueprint while you watch.',
-    by: 'Interpreter · Architect',
+    body: 'A circuit, an app, a hospital on a busy night. One agent works out what kind of system you mean, and another draws a first blueprint while you watch.',
+    by: 'Understands your request · Designs it',
     image: '/landing/draft.jpg',
     alt: 'A first draft of an emergency room drawn as a blue blueprint while it is checked',
   },
@@ -180,15 +181,15 @@ const CHAPTERS = [
     kicker: 'The simulator settles it',
     title: 'Nothing reaches you until it runs.',
     body: 'A real simulator runs every draft and sends it back with what failed. Only a design that passes every check turns solid.',
-    by: 'Validator · Reviewer',
+    by: 'Tests it · Checks it matches',
     image: '/landing/verified.jpg',
     alt: 'The verified emergency room running, with ambulances, beds, a scanner and people',
   },
   {
     kicker: 'Break it on purpose',
     title: 'Then break it, and see what recovers.',
-    body: 'Knock out a part while it runs. The Recovery Council proposes fixes, and the simulator ranks them by what they actually do.',
-    by: 'Red Team · Recovery Council',
+    body: 'Knock out a part while it runs, or send a rush of people through it. One agent suggests ways to recover, and the simulator ranks them by what they actually do.',
+    by: 'Looks for weak spots · Finds fixes',
     image: '/landing/break.jpg',
     alt: 'A power grid running: a solar field, a substation and a city',
   },
@@ -268,6 +269,8 @@ function Refusal() {
 export function Landing() {
   const [text, setText] = useState('');
   const verified = useVerified();
+  // The kind of system whose panel is open, from its tile
+  const [panel, setPanel] = useState<DomainId | null>(null);
   const hero = useHero();
   const building = useStore((s) => s.building);
   const messages = useStore((s) => s.messages);
@@ -275,13 +278,8 @@ export function Landing() {
   const submit = (prompt: string) => {
     if (prompt.trim() && !building) void buildEnvironment(prompt.trim());
   };
-  // Examples build straight away; typing in the box is how to change one first
-  const use = (example: string) => {
-    setText(example);
-    submit(example);
-  };
   const kinds = domainList();
-  // Each tile offers a design that passed every check before when there is one: it opens instantly with no model calls
+  // Each tile names one design of its kind; the panel it opens lists them all
   const exampleOf = (id: DomainId) => verified.find((v) => v.domain === id)?.prompt ?? DOMAINS[id].examples[0];
   if (building) return <Building />;
   return (
@@ -312,25 +310,19 @@ export function Landing() {
           <div>
             <span className="eyebrow eyebrow-green">How it works</span>
             <h2 id="how-title">
-              Six agents argue.
-              <br />
-              The simulator settles it.
+              Six AI helpers check each other.
+              <br />A simulator has the last word.
             </h2>
           </div>
-          <p>Agents propose. Nothing ships until the simulator runs it and every check passes.</p>
+          <p>They suggest; the simulator decides. Nothing reaches you until it has run and every test passes.</p>
         </div>
         <div className="relay">
-          <span className="relay-track" aria-hidden>
-            <span className="relay-token" />
-          </span>
           <ol className="agent-cards">
             {TEAM.map((agent, i) => (
               <li key={agent.name} style={{ '--i': i } as CSSProperties}>
                 <span className="agent-top">
                   <span className="agent-n">{String(i + 1).padStart(2, '0')}</span>
-                  <span className="agent-engine" data-engine={agent.engine}>
-                    {agent.engine}
-                  </span>
+                  <span className="agent-engine">{agent.engine}</span>
                 </span>
                 <b>{agent.name}</b>
                 <span className="agent-does">{sentence(agent.does)}</span>
@@ -356,7 +348,7 @@ export function Landing() {
         <ul className="kind-tiles">
           {kinds.map((d) => (
             <li key={d.id}>
-              <button onClick={() => use(exampleOf(d.id))}>
+              <button onClick={() => setPanel(d.id)} aria-haspopup="dialog">
                 <span className="kind-top">
                   <span className="kind-icon" data-group={groupOf(d.id)} aria-hidden>
                     <svg width="24" height="24" viewBox="0 0 24 24">
@@ -367,7 +359,7 @@ export function Landing() {
                 </span>
                 <b>{d.label}</b>
                 <span className="kind-example">{exampleOf(d.id)}</span>
-                {verified.some((v) => v.domain === d.id) && <span className="kind-ready">Opens instantly</span>}
+                <span className="kind-ready">See designs →</span>
               </button>
             </li>
           ))}
@@ -379,6 +371,8 @@ export function Landing() {
         <PromptForm id="describe-again" text={text} setText={setText} submit={submit} />
         <p>If it can’t model what you describe, it says so instead of guessing.</p>
       </section>
+
+      {panel && <SystemPanel domain={panel} onClose={() => setPanel(null)} />}
 
       <footer className="landing-footer">
         <Wordmark />

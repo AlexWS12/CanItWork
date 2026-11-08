@@ -253,3 +253,19 @@
     text-overflow: ellipsis;
   }
 }
+
+/* The logo is the way home */
+.home-link {
+  display: inline-flex;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.status .home-link {
+  margin-right: auto;
+}
+
+.home-link:hover .logo-solid {
+  fill: var(--color-accent-hover);
+}
