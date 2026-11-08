@@ -15,6 +15,8 @@ export interface Metric {
   label: string;
   value: string | number;
   tone?: 'warn' | 'danger';
+  // A breakdown behind the headline number, such as every station's load
+  detail?: Array<{ label: string; value: string; tone?: 'warn' | 'danger' }>;
 }
 
 export const IncidentSchema = z.object({

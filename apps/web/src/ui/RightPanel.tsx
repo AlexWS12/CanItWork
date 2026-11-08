@@ -2,39 +2,67 @@ import type { Finding, StepEvent, Usage } from '@tv/core';
 import { BuildGuidePanel } from './BuildGuide';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { scrollBehavior } from '../motion';
+import { breakThing } from '../actions';
+import { plainFinding } from '../explain';
 import { useStore } from '../store';
 import { AGENT_LABEL, ENGINE_LABEL, engineLine } from './labels';
+import { PruneShowcase, compact, usd } from './PruneSavings';
 import './RightPanel.css';
 
-function Scoreboard({ findings }: { findings: Finding[] }) {
-  const held = findings.filter((f) => f.verdict === 'confirmed').length;
+// The Red Team's attacks, as tests a non-engineer can read and replay
+function StressTests({ findings }: { findings: Finding[] }) {
+  const explanation = useStore((s) => s.explanation);
+  const recovering = useStore((s) => s.recovering);
+  const [about, setAbout] = useState(false);
+  const broke = findings.filter((f) => f.verdict === 'confirmed').length;
+  // Weak points first: they are what someone would act on
+  const ordered = [...findings].sort((a, b) => (a.verdict === b.verdict ? 0 : a.verdict === 'confirmed' ? -1 : 1));
   return (
-    <div className="scoreboard">
-      <div className="score-tile" data-verdict="confirmed">
-        <b>{held}</b>
-        <span>{held === 1 ? 'claim held' : 'claims held'}</span>
-      </div>
-      <div className="score-tile" data-verdict="refuted">
-        <b>{findings.length - held}</b>
-        <span>refuted</span>
-      </div>
-    </div>
-  );
-}
-
-function Claims({ findings }: { findings: Finding[] }) {
-  return (
-    <ul className="claims" aria-label="Claims tested in the simulator">
-      {findings.map((f) => (
-        <li key={f.claim} className="claim" data-verdict={f.verdict}>
-          <span className="verdict">{f.verdict === 'confirmed' ? 'Confirmed' : 'Refuted'}</span>
-          <span>
-            {f.claim}
-            <small className="delta">{f.evidence}</small>
-          </span>
-        </li>
-      ))}
-    </ul>
+    <section className="stress" aria-labelledby="stress-title">
+      <header className="stress-head">
+        <span className="kicker" id="stress-title">
+          Stress tests · Red Team
+        </span>
+        <button className="stress-about" aria-expanded={about} onClick={() => setAbout(!about)}>
+          {about ? 'Close' : 'What is this?'}
+        </button>
+      </header>
+      <p className="stress-verdict" data-broke={broke > 0}>
+        We tried to break your design {findings.length} {findings.length === 1 ? 'way' : 'ways'}. <b>{broke ? `${broke} found a weak spot.` : 'It held up every time.'}</b>
+      </p>
+      {about && (
+        <p className="stress-explain">
+          An AI agent plays the attacker and guesses how your design could fail. The simulator then runs each guess for real, so only failures it actually sees count as weak spots.
+        </p>
+      )}
+      <ul className="stress-list">
+        {ordered.map((f) => {
+          const plain = plainFinding(f, explanation);
+          const weak = f.verdict === 'confirmed';
+          return (
+            <li key={f.claim} className="stress-card" data-weak={weak}>
+              <span className="stress-badge">{weak ? 'Weak spot' : 'Held up'}</span>
+              <b className="stress-title">{plain.title}</b>
+              <p className="stress-impact">{plain.impact}</p>
+              <p className="stress-advice">{plain.advice}</p>
+              <div className="stress-actions">
+                <button className="stress-run" disabled={recovering} onClick={() => void breakThing(f.incident)}>
+                  {weak ? 'Watch it happen, then fix it' : 'Try it yourself'}
+                </button>
+                <details>
+                  <summary>Technical detail</summary>
+                  <small>
+                    {f.claim}
+                    <br />
+                    {f.evidence}
+                  </small>
+                </details>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -74,12 +102,7 @@ function Agents() {
   }, [steps.length]);
   return (
     <div className="agents">
-      {findings.length > 0 && (
-        <>
-          <Scoreboard findings={findings} />
-          <Claims findings={findings} />
-        </>
-      )}
+      {findings.length > 0 && <StressTests findings={findings} />}
       <ol className="trace" aria-label="Agent steps">
         {steps.map((step) => (
           <TraceLine key={step.id} step={step} />
@@ -90,24 +113,35 @@ function Agents() {
   );
 }
 
-const money = (n: number | null) => (n === null ? '—' : `$${n.toFixed(n < 0.01 ? 5 : 4)}`);
-
 function UsageRow({ usage }: { usage: Usage }) {
   const [open, setOpen] = useState(false);
+  const saved = usage.costSavedUsd ?? 0;
   return (
     <>
       <button className="usage-row" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span>{usage.feature}</span>
-        <span className="tag" data-engine={usage.engine}>
-          {ENGINE_LABEL[usage.engine]}
+        <span className="tag" data-engine={usage.engine} data-via={usage.via}>
+          {usage.via === 'prune' ? 'Prune' : ENGINE_LABEL[usage.engine]}
         </span>
-        <span className="num">{usage.inputTokens + usage.outputTokens}</span>
-        <span className="num">{money(usage.costUsd)}</span>
+        <span className="num">{compact(usage.inputTokens + usage.outputTokens)}</span>
+        <span className="num" data-saved={saved > 0}>
+          {saved > 0 ? `−${usd(saved)}` : usage.costUsd !== null ? usd(usage.costUsd) : '—'}
+        </span>
       </button>
       {open && (
         <pre className="receipt">
           {JSON.stringify(
-            { model: usage.model, via: usage.via, routedModel: usage.routedModel, cacheHit: usage.cacheHit, saved: usage.costSavedUsd, receipt: usage.receipt },
+            {
+              model: usage.model,
+              via: usage.via,
+              routedModel: usage.routedModel,
+              tokensSaved: usage.tokensSaved,
+              costWithoutPrune: usage.costWithoutUsd,
+              saved: usage.costSavedUsd,
+              cacheHit: usage.cacheHit,
+              optimizations: usage.optimizations,
+              receipt: usage.receipt,
+            },
             null,
             2,
           )}
@@ -119,36 +153,24 @@ function UsageRow({ usage }: { usage: Usage }) {
 
 function UsageLedger() {
   const usage = useStore((s) => s.usage);
-  const tokens = usage.reduce((sum, u) => sum + u.inputTokens + u.outputTokens, 0);
-  const cost = usage.reduce((sum, u) => sum + (u.costUsd ?? 0), 0);
-  const saved = usage.reduce((sum, u) => sum + (u.costSavedUsd ?? 0), 0);
-  const cached = usage.filter((u) => u.cacheHit).length;
-  if (!usage.length) {
-    return <p className="empty">No model calls yet. Every Gemini and Swarms call appears here with its tokens, cost and receipt.</p>;
-  }
   return (
     <div className="ledger">
-      <div className="ledger-totals">
-        <div>
-          <b>{tokens.toLocaleString()}</b>
-          <span>tokens</span>
-        </div>
-        <div>
-          <b>{money(cost)}</b>
-          <span>spent</span>
-        </div>
-        <div>
-          <b>{money(saved)}</b>
-          <span>saved by Prune</span>
-        </div>
-        <div>
-          <b>{cached}</b>
-          <span>cache hits</span>
-        </div>
-      </div>
-      {usage.map((u, i) => (
-        <UsageRow key={i} usage={u} />
-      ))}
+      <PruneShowcase />
+      {usage.length ? (
+        <>
+          <div className="usage-head" aria-hidden>
+            <span>Agent call</span>
+            <span>Route</span>
+            <span className="num">Tokens</span>
+            <span className="num">Cost</span>
+          </div>
+          {usage.map((u, i) => (
+            <UsageRow key={i} usage={u} />
+          ))}
+        </>
+      ) : (
+        <p className="empty">No model calls yet. Every Gemini and Swarms call appears here with its tokens, cost and Prune receipt.</p>
+      )}
     </div>
   );
 }

@@ -1232,18 +1232,17 @@ export class CircuitRun implements Run {
     const healthy = outputs.filter((p) => this.isHealthy(p)).length;
     const worst = this.worstLoad();
     let supply = 0;
+    // A USB-powered board's pins draw from the computer, which the rails don't see, so its zero reading means "not measured" rather than "off"
+    let measured = false;
     for (const part of this.spec.parts) {
-      const keys =
-        part.type === 'battery' || part.custom?.sources.some((source) => !source.from)
-          ? [part.id]
-          : part.type === 'arduino' && this.usbPowered(part)
-            ? [`${part.id}.5V`, `${part.id}.3V3`]
-            : [];
+      const own = part.type === 'battery' || part.custom?.sources.some((source) => !source.from);
+      const keys = own ? [part.id] : part.type === 'arduino' && this.usbPowered(part) ? [`${part.id}.5V`, `${part.id}.3V3`] : [];
+      if (own) measured = true;
       for (const key of keys) supply += this.readings.get(key)?.amps ?? 0;
     }
     const metrics: Metric[] = [
       { label: 'outputs working', value: `${healthy}/${outputs.length}`, tone: healthy < outputs.length ? 'danger' : undefined },
-      { label: 'supply current', value: milli(supply) },
+      ...(measured || supply > 0 ? [{ label: 'supply current', value: milli(supply) }] : []),
       { label: 'worst part load', value: `${worst}%`, tone: worst > 100 ? 'danger' : worst > 80 ? 'warn' : undefined },
       { label: 'parts burned', value: this.burned.size, tone: this.burned.size ? 'danger' : undefined },
     ];
