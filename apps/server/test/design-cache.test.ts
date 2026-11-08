@@ -79,13 +79,15 @@ describe('verified design cache', () => {
     const features: string[] = [];
     mockFetch((_url, init) => {
       const body = String(init.body);
-      features.push(body.includes('You route requests') ? 'interpreter' : body.includes('previous design') ? 'repair' : 'architect');
+      features.push(
+        body.includes('You route requests') ? 'interpreter' : body.includes('You are the Reviewer') ? 'reviewer' : body.includes('previous design') ? 'repair' : 'architect',
+      );
       return body.includes('You route requests') ? json(openAiReply(JSON.stringify({ domain: 'warehouse', reason: 'r' }))) : json(openAiReply(JSON.stringify(draft)));
     });
     const { events, emit } = collect();
     await build('A warehouse with six robots', emit);
     expect(events.some((e) => e.type === 'step' && e.engine === 'cache')).toBe(false);
-    expect(features).toEqual(['interpreter', 'architect']);
+    expect(features).toEqual(['interpreter', 'architect', 'reviewer']);
     const environment = events.find((e) => e.type === 'environment');
     expect(environment?.type === 'environment' && (environment.environment.spec as { robots: number }).robots).toBe(6);
   });

@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest';
+import { electronics } from '../src/domains/electronics';
+import type { CircuitSpec } from '../src/domains/electronics/parts';
+
+const design = (blocks: unknown, parts: unknown[] = [{ id: 'batt', type: 'battery', volts: 5, maxAmps: 1 }]) =>
+  electronics.specSchema.parse({ parts, wires: [], layout: 'breadboard', blocks }) as CircuitSpec;
+const count = (spec: CircuitSpec, test: (p: CircuitSpec['parts'][number]) => boolean) => spec.parts.filter(test).length;
+const problems = (spec: CircuitSpec) => electronics.validate(electronics.compile(spec)).filter((i) => i.severity === 'error' || i.repair);
+
+describe('building blocks', () => {
+  it('expands a 16-bit adder into 20 gate chips, 32 switches and 17 LEDs that pass every test', () => {
+    const spec = design([{ id: 'calc', kind: 'adder', bits: 16 }]);
+    const built = electronics.compile(spec);
+    expect(count(built, (p) => p.type === 'custom')).toBe(20);
+    expect(count(built, (p) => p.type === 'switch')).toBe(32);
+    expect(count(built, (p) => p.type === 'led')).toBe(17);
+    expect(problems(spec)).toEqual([]);
+    expect(electronics.proof!(built)).toMatch(/^10 of 10 behaviour tests pass/);
+  });
+
+  it('subtracts through the same gates when the mode switch is on', () => {
+    const spec = design([{ id: 'calc', kind: 'adder_subtractor', bits: 8 }]);
+    const built = electronics.compile(spec);
+    expect(built.parts.some((p) => p.id === 'swSub')).toBe(true);
+    expect(built.tests!.some((t) => t.name === '255 - 1')).toBe(true);
+    expect(problems(spec)).toEqual([]);
+    expect(electronics.proof!(built)).toMatch(/^12 of 12 behaviour tests pass/);
+  });
+
+  it('tests a small adder exhaustively', () => {
+    const built = electronics.compile(design([{ id: 'calc', kind: 'adder', bits: 2 }]));
+    expect(built.tests).toHaveLength(16);
+    expect(problems(design([{ id: 'calc', kind: 'adder', bits: 2 }]))).toEqual([]);
+  });
+
+  it('prefixes part ids when a design has more than one block, and adds a battery if none is given', () => {
+    const built = electronics.compile(
+      design(
+        [
+          { id: 'left', kind: 'adder', bits: 2 },
+          { id: 'right', kind: 'adder', bits: 2 },
+        ],
+        [],
+      ),
+    );
+    const ids = built.parts.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('left_swA0');
+    expect(ids).toContain('right_ledCout');
+    expect(built.parts.filter((p) => p.type === 'battery')).toHaveLength(1);
+  });
+
+  it('forgives how a design refers to a block: wires to the block itself are dropped, prefixed part names resolve', () => {
+    const spec = electronics.specSchema.parse({
+      parts: [{ id: 'batt', type: 'battery', volts: 5, maxAmps: 1 }],
+      wires: [{ from: 'batt.pos', to: 'calc.batt_pos' }],
+      layout: 'breadboard',
+      blocks: [{ id: 'calc', kind: 'adder', bits: 2 }],
+      tests: [{ name: 'one plus nothing', set: { calc_swA0: 1 }, on: ['calc.ledS0'], off: ['calc_ledS1', 'ledCout'] }],
+    }) as CircuitSpec;
+    const built = electronics.compile(spec);
+    expect(built.wires.some((w) => w.to.startsWith('calc.'))).toBe(false);
+    expect(built.tests![0]).toMatchObject({ set: { swA0: 1 }, on: ['ledS0'], off: ['ledS1', 'ledCout'] });
+    expect(problems(spec)).toEqual([]);
+  });
+
+  it('leaves a design without blocks untouched, and refuses a design with neither parts nor blocks', () => {
+    const plain = design(undefined);
+    expect(electronics.compile(plain)).toBe(plain);
+    expect(electronics.specSchema.safeParse({ parts: [], wires: [] }).success).toBe(false);
+  });
+});

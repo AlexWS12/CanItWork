@@ -37,8 +37,10 @@ export const VIEWS: Record<DomainId, View> = {
   electronics: {
     Scene: Bench,
     camera(environment) {
-      const { width, depth } = benchExtent(environment.spec as CircuitSpec);
-      const distance = Math.max(width / 0.44, depth / 0.46, 26);
+      const { width, depth } = benchExtent(DOMAINS.electronics.compile(environment.spec) as CircuitSpec);
+      // Several breadboards need more room between the side panels.
+      const wide = width > 30;
+      const distance = Math.max(width / (wide ? 0.3 : 0.44), depth / (wide ? 0.38 : 0.46), 26);
       return [0, distance * 0.84, distance * 0.54];
     },
   },

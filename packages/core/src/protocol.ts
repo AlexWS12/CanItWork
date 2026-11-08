@@ -16,7 +16,7 @@ export interface Usage {
   feature: string;
 }
 
-export type AgentId = 'interpreter' | 'architect' | 'validator' | 'simulator' | 'redteam' | 'council' | 'editor' | 'analyst';
+export type AgentId = 'interpreter' | 'architect' | 'validator' | 'reviewer' | 'simulator' | 'redteam' | 'council' | 'editor' | 'analyst';
 
 export interface StepEvent {
   type: 'step';

@@ -2,6 +2,7 @@ import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../
 import { countOf } from '../warehouse';
 import { CircuitPatchSchema, CircuitRun, wireId } from './circuit';
 import { CircuitSpecSchema, GPIO, PINS, isOutput, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './parts';
+import { blockDoc, expandBlocks } from './blocks';
 import { netsOf } from './nets';
 import { aliasPins, compile, namesIn, type Expr } from './sketch';
 
@@ -406,6 +407,8 @@ function observed(spec: CircuitSpec, run: CircuitRun, id: string): boolean | nul
 export function runTests(spec: CircuitSpec) {
   const failures: string[] = [];
   const traces: string[] = [];
+  // Outputs seen on in any test row, so the coverage check doesn't call an LED dead that a test lit.
+  const lit = new Set<string>();
   let passed = 0;
   // A test with no inputs on a clocked circuit only samples wherever the clock happens to be, so it proves nothing.
   const clocked = spec.parts.some((p) => p.custom?.state) || Boolean(spec.program?.some((r) => r.every));
@@ -414,6 +417,7 @@ export function runTests(spec: CircuitSpec) {
     const run = new CircuitRun(spec, 1, true);
     for (const [target, value] of Object.entries(test.set)) run.inject({ type: 'set_reading', target, value });
     for (let t = 0; t < TEST_TICKS; t++) run.step();
+    for (const id of test.on) if (observed(spec, run, id) === true) lit.add(id);
     const bad: Array<[string, string]> = [
       ...test.on.flatMap((id): Array<[string, string]> => (observed(spec, run, id) === false ? [[id, `${id} should be on but is off`]] : [])),
       ...test.off.flatMap((id): Array<[string, string]> => (observed(spec, run, id) === true ? [[id, `${id} should be off but is on`]] : [])),
@@ -428,7 +432,7 @@ export function runTests(spec: CircuitSpec) {
     failures.push(`Test ${test.name ? `"${test.name}"` : i + 1} (${inputs || 'no inputs'}): ${bad.map(([, m]) => m).join(', ')}`);
     if (traces.length < 3) traces.push(`In that test ${traceOutput(spec, run, bad[0][0].split('.')[0])}`);
   }
-  return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces };
+  return { passed, total: (spec.tests ?? []).filter((t) => !clocked || Object.keys(t.set).length).length, failures, traces, lit };
 }
 
 const hasLogic = (spec: CircuitSpec) =>
@@ -466,7 +470,7 @@ function checkTests(spec: CircuitSpec): Issue[] {
       repair: true,
     });
   }
-  const { failures, total, traces } = runTests(spec);
+  const { failures, total, traces, lit } = runTests(spec);
   // Report a few in full, so a repair has concrete rows to fix without drowning in them.
   if (failures.length)
     issues.push({
@@ -508,13 +512,16 @@ function validateCircuit(spec: CircuitSpec): Issue[] {
     });
   }
   for (const [key, message] of burned) issues.push({ severity: 'warning', message, target: key.split('.')[0], repair: true });
+  // A wide design has more inputs than the settings explored above, so an output a behaviour test lit isn't dead; tests only run if needed.
+  let lit: Set<string> | null = null;
+  const litByTests = () => (lit ??= runTests(spec).lit);
   const shown = new Set(actionsOf(spec).flatMap((a) => ('show' in a ? [a.show] : [])));
   const sensed = spec.parts.some((p) => sensorOf(p));
   for (const part of spec.parts) {
     const overload = overloads.get(part.id);
     if (overload) {
       issues.push({ severity: 'warning', message: overload, target: part.id, repair: true });
-    } else if (isOutput(part) && !burned.has(part.id) && !ran.has(part.id)) {
+    } else if (isOutput(part) && !burned.has(part.id) && !ran.has(part.id) && !litByTests().has(part.id)) {
       const display = part.custom?.actuator?.quantity === 'text' && !shown.has(part.id);
       const message = display
         ? `${part.id} is a display, but no program rule shows anything on it`
@@ -829,6 +836,7 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   specDoc: `{
   "parts": [{"id": unique string, "type": type, "measures"?: world id, "ohms"?: number, "volts"?: number, "maxAmps"?: number, "farads"?: number, "usb"?: boolean, "color"?: "red"|"yellow"|"green"|"blue"|"white"}],
   "wires": [{"from": "PartId.pin", "to": "PartId.pin"}],
+  ${blockDoc}
   "drive": [{"pin": "U1.D13", "mode": "high"|"low"|"blink"|"pwm"|"angle", "value"?: number, "period"?: ticks}],
   "vars"?: {"name": starting number},
   "world"?: [{"id": name, "label": string, "unit": string, "start": number, "min": number, "max": number, "drift"?: change per second on its own, "toward"?: {"value": ambient level, "rate": share of the gap closed per second}, "effects"?: [{"from": part id, "rate": change per second at that part's full output}], "target"?: {"min": number, "max": number}}],
@@ -886,7 +894,7 @@ A burned part stays dead until replace_part, and that includes the board (use it
     { name: 'PowerEngineer', brief: 'supply voltage, current budget and motor power' },
     { name: 'FirmwareEngineer', brief: 'the sketch logic, sensor handling and fail-safe behaviour' },
   ],
-  compile: (spec) => spec,
+  compile: expandBlocks,
   validate: validateCircuit,
   proof: (spec) => {
     const facts: string[] = [];

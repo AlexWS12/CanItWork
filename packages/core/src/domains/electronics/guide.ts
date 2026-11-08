@@ -1,4 +1,4 @@
-import { dipRows, layoutBreadboard, STRADDLES, type Spot } from './breadboard';
+import { boardOf, dipRows, layoutBreadboard, localColumn, STRADDLES, type Spot } from './breadboard';
 import { pinsOf, type CircuitSpec, type Part } from './parts';
 
 // Turns a verified design into what a person needs to build it: a bill of materials and numbered steps.
@@ -87,9 +87,12 @@ const realPinout = (part: Part) => part.type !== 'custom' || part.package !== 'd
 const ROWS_A = 'abcde';
 const ROWS_B = 'fghij';
 
-function hole(spot: Spot) {
-  if (spot.kind === 'rail') return `the ${spot.side} ${spot.rail === '+' ? '+' : '−'} rail`;
-  return `${spot.half === 'A' ? ROWS_A[spot.row] : ROWS_B[spot.row]}${spot.col}`;
+// With several boards, a hole is named by its board and the column printed on that board.
+let boards = 1;
+function hole(spot: Spot, withBoard = true) {
+  const on = boards > 1 && withBoard ? `board ${boardOf(spot.col) + 1} ` : '';
+  if (spot.kind === 'rail') return `the ${on}${spot.side} ${spot.rail === '+' ? '+' : '−'} rail`;
+  return `${on}${spot.half === 'A' ? ROWS_A[spot.row] : ROWS_B[spot.row]}${boards > 1 ? localColumn(spot.col) : spot.col}`;
 }
 
 const LEG_NAMES: Partial<Record<Part['type'], Record<string, string>>> = {
@@ -99,32 +102,40 @@ const LEG_NAMES: Partial<Record<Part['type'], Record<string, string>>> = {
   pot: { a: 'one end', wiper: 'wiper (middle)', b: 'other end' },
 };
 
-function bomOf(spec: CircuitSpec, jumpers: number): BomLine[] {
+function bomOf(spec: CircuitSpec, jumpers: number, boardCount = 1): BomLine[] {
   const counts = new Map<string, number>();
   for (const part of spec.parts) counts.set(describeForBom(part), (counts.get(describeForBom(part)) ?? 0) + 1);
   const lines = [...counts].map(([item, qty]) => ({ qty, item })).sort((a, b) => a.item.localeCompare(b.item));
-  if (spec.layout === 'breadboard') lines.unshift({ qty: 1, item: 'solderless breadboard' });
+  if (spec.layout === 'breadboard') lines.unshift({ qty: boardCount, item: boardCount > 1 ? 'full-size solderless breadboards (830 points)' : 'solderless breadboard' });
   if (jumpers) lines.push({ qty: jumpers, item: 'jumper wires' });
   return lines;
 }
 
 function breadboardSteps(spec: CircuitSpec) {
   const layout = layoutBreadboard(spec);
+  boards = layout.boards;
   const steps: string[] = [];
   const label = (id: string) => {
     const part = spec.parts.find((p) => p.id === id);
     return part ? `${id} (${describeForBom(part)})` : id;
   };
-  steps.push(`Lay the breadboard with columns numbered 1 to ${layout.columns} left to right, rows a-e above the centre channel and f-j below it.`);
+  if (boards > 1)
+    steps.push(
+      `Lay ${boards} full-size breadboards side by side, numbered 1 to ${boards} from left to right, each with its columns numbered from 1 at its left end, rows a-e above the centre channel and f-j below it. Join each board's top and bottom + and − rails to the next board's with short jumpers (red for +, black for −), so every board shares the supply.`,
+    );
+  else steps.push(`Lay the breadboard with columns numbered 1 to ${layout.columns} left to right, rows a-e above the centre channel and f-j below it.`);
 
   for (const part of spec.parts.filter(STRADDLES)) {
     const chip = layout.chips.get(part.id);
     if (!chip) continue;
     const { near, far } = dipRows(part);
-    const pinMap = [...near.map((pin) => `${hole(layout.spots.get(`${part.id}.${pin}`)!)} ${pin}`), ...far.map((pin) => `${hole(layout.spots.get(`${part.id}.${pin}`)!)} ${pin}`)];
-    const orient = part.type === 'seven_segment' ? `with its ${near[0]} pin in f${chip.col}` : `notch to the left, so pin 1 sits in f${chip.col}`;
+    // The step already names the chip's board, so its pins don't repeat it.
+    const pinMap = [...near, ...far].map((pin) => `${hole(layout.spots.get(`${part.id}.${pin}`)!, false)} ${pin}`);
+    const first = hole({ kind: 'strip', col: chip.col, half: 'B', row: 0 }, false);
+    const orient = part.type === 'seven_segment' ? `with its ${near[0]} pin in ${first}` : `notch to the left, so pin 1 sits in ${first}`;
+    const start = boards > 1 ? localColumn(chip.col) : chip.col;
     steps.push(
-      `Press ${label(part.id)} across the centre channel, ${orient} and it spans columns ${chip.col}-${chip.col + chip.half - 1}. Pins: ${pinMap.join(', ')}.${
+      `Press ${label(part.id)} across the centre channel${boards > 1 ? ` of board ${boardOf(chip.col) + 1}` : ''}, ${orient} and it spans columns ${start}-${start + chip.half - 1}. Pins: ${pinMap.join(', ')}.${
         realPinout(part) ? '' : ` This design lists only ${pinsOf(part).length} of its pins, so check the datasheet pinout and move each wire to the real pin before powering it.`
       }`,
     );
@@ -162,7 +173,8 @@ function breadboardSteps(spec: CircuitSpec) {
   }
   if (supplyPart?.type === 'battery') steps.push(`Connect ${label(supplyPart.id)} last, once everything else is in place.`);
   if (spec.program?.length) steps.push('Upload the sketch to the board, then power it.');
-  return { steps, jumpers: layout.wireEnds.filter(Boolean).length };
+  // Four rail jumpers join each pair of neighbouring boards.
+  return { steps, jumpers: layout.wireEnds.filter(Boolean).length + (boards - 1) * 4, boards };
 }
 
 function benchSteps(spec: CircuitSpec) {
@@ -177,12 +189,12 @@ function benchSteps(spec: CircuitSpec) {
     steps.push(`From ${id}${part ? ` (${describeForBom(part)})` : ''}: connect ${list.join('; ')}.`);
   }
   if (spec.program?.length) steps.push('Upload the sketch, then power the board.');
-  return { steps, jumpers: spec.wires.length };
+  return { steps, jumpers: spec.wires.length, boards: 1 };
 }
 
 export function buildGuide(spec: CircuitSpec): BuildGuide {
-  const { steps, jumpers } = spec.layout === 'breadboard' ? breadboardSteps(spec) : benchSteps(spec);
-  return { bom: bomOf(spec, jumpers), steps };
+  const { steps, jumpers, boards: boardCount } = spec.layout === 'breadboard' ? breadboardSteps(spec) : benchSteps(spec);
+  return { bom: bomOf(spec, jumpers, boardCount), steps };
 }
 
 export function guideText(name: string, guide: BuildGuide) {

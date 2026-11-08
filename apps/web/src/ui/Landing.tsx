@@ -16,6 +16,7 @@ const TEAM = [
   { name: 'Interpreter', engine: 'Jev + Gemini', does: 'works out which simulator fits what you described, or says none does' },
   { name: 'Architect', engine: 'Gemini', does: 'designs the system; with the Design Council on, three Swarms architects compete and the simulator picks the winner' },
   { name: 'Validator', engine: 'Simulator', does: 'runs the design and sends it back with what failed until it passes' },
+  { name: 'Reviewer', engine: 'Gemini', does: 'checks the design against what you asked for and sends back anything it shrank or left out' },
   { name: 'Red Team', engine: 'Swarms', does: 'predicts how the design breaks; the simulator confirms or refutes every claim' },
   { name: 'Recovery Council', engine: 'Swarms', does: 'proposes fixes after a failure; the simulator ranks them by what they actually do' },
 ];

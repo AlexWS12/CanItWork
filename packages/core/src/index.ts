@@ -9,7 +9,7 @@ export { CircuitRun } from './domains/electronics/circuit';
 export { FleetRun, type FleetSpec } from './domains/fleet';
 export type { Unit as FleetUnit, Target as FleetTarget } from './domains/fleet/sim';
 export { runTests } from './domains/electronics';
-export { LEADED, STRADDLES, dipRows, layoutBreadboard, type BoardLayout, type Spot } from './domains/electronics/breadboard';
+export { BOARD_COLUMNS, LEADED, STRADDLES, boardOf, dipRows, layoutBreadboard, localColumn, type BoardLayout, type Spot } from './domains/electronics/breadboard';
 export { buildGuide, guideText, type BuildGuide } from './domains/electronics/guide';
 export { netsOf } from './domains/electronics/nets';
 export { PINS, pinsOf, sensorOf, withUnit, type CircuitSpec, type Part } from './domains/electronics/parts';

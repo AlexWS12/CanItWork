@@ -375,7 +375,8 @@ function Wires({ spec, ends }: { spec: CircuitSpec; ends: Ends }) {
         const end = ends(i);
         if (!end) return null;
         const { a, b, color, low } = end;
-        const height = low ? 0.32 + a.distanceTo(b) * 0.07 : 0.9 + a.distanceTo(b) * 0.16;
+        // Breadboard jumpers stay low, even long ones between boards, so a big build reads as wiring rather than a canopy.
+        const height = low ? 0.32 + Math.min(1.1, a.distanceTo(b) * 0.07) : 0.9 + a.distanceTo(b) * 0.16;
         const curve = low
           ? new THREE.CubicBezierCurve3(a, a.clone().setY(height), b.clone().setY(height), b)
           : new THREE.QuadraticBezierCurve3(a, a.clone().lerp(b, 0.5).setY(height), b);
@@ -533,14 +534,30 @@ function WorldPanel({ spec }: { spec: CircuitSpec }) {
   );
 }
 
-function Decorations({ part, at, size, y, quiet }: { part: Part; at: THREE.Vector3 | [number, number, number]; size?: number; y?: number; quiet?: boolean }) {
+function Decorations({
+  part,
+  at,
+  size,
+  y,
+  quiet,
+  crowded,
+}: {
+  part: Part;
+  at: THREE.Vector3 | [number, number, number];
+  size?: number;
+  y?: number;
+  quiet?: boolean;
+  crowded?: boolean;
+}) {
   const position: [number, number, number] = Array.isArray(at) ? at : [at.x, 0, at.z];
   const tagY = y ?? (part.type === 'arduino' ? 1.4 : 1.35);
+  // On a crowded board only chips keep a tag, and just their part number; a switch's lever and an LED's glow already show their state.
+  const text = crowded ? (part.type === 'custom' ? describePart(part).split(' ')[0] : null) : describePart(part);
   return (
     <group position={position}>
       <FaultRing part={part} size={size} />
-      {!quiet && <Tag text={describePart(part)} tint={part.type === 'arduino' || part.package === 'module' ? '#22d3ee' : '#ffb347'} y={tagY} />}
-      {hasLiveValue(part) && <LiveTag part={part} y={tagY + 0.6} />}
+      {!quiet && text && <Tag text={text} tint={part.type === 'arduino' || part.package === 'module' ? '#22d3ee' : '#ffb347'} y={tagY} />}
+      {hasLiveValue(part) && !(crowded && (part.type === 'switch' || part.type === 'led' || part.type === 'button')) && <LiveTag part={part} y={tagY + 0.6} />}
       <ClaimPin id={part.id} position={[0, 0.5, 0]} />
     </group>
   );
@@ -606,7 +623,14 @@ function BreadboardScene({ spec }: { spec: CircuitSpec }) {
         layout={layout}
         onPart={toggleInput}
         decorate={(part, at, size) => (
-          <Decorations part={part} at={at} size={size} y={part.type === 'custom' ? 1.1 : 0.95} quiet={part.type === 'resistor' || part.type === 'capacitor'} />
+          <Decorations
+            part={part}
+            at={at}
+            size={size}
+            y={part.type === 'custom' ? 1.1 : 0.95}
+            quiet={part.type === 'resistor' || part.type === 'capacitor'}
+            crowded={spec.parts.length > 40}
+          />
         )}
       />
       {spec.parts

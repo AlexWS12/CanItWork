@@ -72,6 +72,43 @@ const CASES: Case[] = [
     prompt: '2 bit calculator on a breadboard',
     checks: [noMcu, breadboard, ['logic gates', has(/74|xor|and|adder|logic|gate/)], ['input switches', has(/switch|button|dip/)], ['output leds', has(/led/)], selfTested(16)],
   },
+  // Wide arithmetic: far too many gates to wire by hand, so the design has to scale up rather than shrink the request.
+  {
+    id: 'e-wide-16',
+    domain: 'electronics',
+    prompt: 'Build a 16 bit calculator on a breadboard with logical gates',
+    checks: [
+      noMcu,
+      breadboard,
+      ['logic gate chips', has(/74|xor|and|gate/)],
+      ['32 input switches', (s) => parts(s).filter((p) => p.type === 'switch').length >= 32],
+      ['17 output LEDs', (s) => parts(s).filter((p) => p.type === 'led').length >= 17],
+      selfTested(8),
+    ],
+  },
+  {
+    id: 'e-wide-8',
+    domain: 'electronics',
+    prompt: 'An 8-bit adder built from logic gates with switches and LEDs',
+    checks: [
+      noMcu,
+      ['16 input switches', (s) => parts(s).filter((p) => p.type === 'switch').length >= 16],
+      ['9 output LEDs', (s) => parts(s).filter((p) => p.type === 'led').length >= 9],
+      selfTested(8),
+    ],
+  },
+  {
+    id: 'e-wide-sub',
+    domain: 'electronics',
+    prompt: 'A 4-bit calculator that can add and subtract, made from logic chips on a breadboard',
+    checks: [
+      noMcu,
+      breadboard,
+      ['8 number switches and a mode switch', (s) => parts(s).filter((p) => p.type === 'switch').length >= 9],
+      ['5 output LEDs', (s) => parts(s).filter((p) => p.type === 'led').length >= 5],
+      selfTested(8),
+    ],
+  },
   {
     id: 'e-led',
     domain: 'electronics',
@@ -595,7 +632,8 @@ async function runCase(c: Case) {
   const env = find('environment')?.environment;
   const refusal = crash ?? find('refusal')?.refusal.reason;
   const usage = events.flatMap((e) => (e.type === 'usage' ? [e.usage] : []));
-  const spec = env?.spec as Spec;
+  // Score the circuit as built: a design's building blocks expand into their real parts first.
+  const spec = env ? (DOMAINS[env.domain].compile(env.spec) as Spec) : (undefined as unknown as Spec);
   const results = spec
     ? c.checks.map(([name, test]) => {
         let ok = false;

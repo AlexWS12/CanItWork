@@ -233,12 +233,40 @@ describe('agent pipelines', () => {
       const body = String(init.body);
       bodies.push(body);
       if (body.includes('You route requests')) return json(openAiReply(JSON.stringify({ domain: 'electronics', reason: 'r' })));
+      if (body.includes('You are the Reviewer')) return json(openAiReply(JSON.stringify({ shortfalls: [] })));
       return json(openAiReply(JSON.stringify({ name: 'n', summary: 's', spec: drafts.shift() })));
     });
     const { events, emit } = collect();
     await build('an led on an arduino', emit);
     expect(bodies.at(-1)).toContain('never turns on');
     expect((environmentOf(events)?.spec as { drive: unknown[] }).drive).toHaveLength(1);
+  });
+
+  it('sends a design that shrinks the request back to the Architect with what the Reviewer found', async () => {
+    process.env.GEMINI_API_KEY = 'g';
+    const parts = [
+      { id: 'B1', type: 'battery', volts: 5, maxAmps: 1 },
+      { id: 'D1', type: 'led' },
+      { id: 'R1', type: 'resistor', ohms: 220 },
+    ];
+    const wires = [
+      { from: 'B1.pos', to: 'R1.a' },
+      { from: 'R1.b', to: 'D1.anode' },
+      { from: 'D1.cathode', to: 'B1.neg' },
+    ];
+    const bodies: string[] = [];
+    mockFetch((_, init) => {
+      const body = String(init.body);
+      bodies.push(body);
+      if (body.includes('You route requests')) return json(openAiReply(JSON.stringify({ domain: 'electronics', reason: 'r' })));
+      if (body.includes('You are the Reviewer')) return json(openAiReply(JSON.stringify({ shortfalls: ['The user asked for three LEDs but the design has one'] })));
+      return json(openAiReply(JSON.stringify({ name: 'n', summary: 's', spec: { parts, wires, drive: [] } })));
+    });
+    const { events, emit } = collect();
+    await build('three leds on a battery', emit);
+    const reviewer = events.find((e) => e.type === 'step' && e.agent === 'reviewer' && e.status === 'done');
+    expect(reviewer && reviewer.type === 'step' && reviewer.detail).toContain('three LEDs');
+    expect(bodies.some((b) => b.includes('previous design') && b.includes('Short of the request: The user asked for three LEDs'))).toBe(true);
   });
 
   it('refuses when the design step fails, rather than showing a template', async () => {

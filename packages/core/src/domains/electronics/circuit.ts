@@ -780,10 +780,13 @@ export class CircuitRun implements Run {
     const totals = new Map<string, { amps: number; volts: number }>();
     const on = new Set<string>();
     const logic = new Map<string, boolean>();
+    // Each round settles one more gate in a chain, so a 16-bit ripple carry needs about 33; rounds stop early once nothing changes.
+    const gates = this.spec.parts.reduce((sum, p) => sum + (p.custom?.drivers.length ?? 0), 0);
+    const rounds = Math.min(240, 14 + 2 * gates);
     for (const segment of this.segments()) {
       let v: number[] = [];
       let elements: Element[] = [];
-      for (let iteration = 0; iteration < 14; iteration++) {
+      for (let iteration = 0; iteration < rounds; iteration++) {
         elements = this.elements(on, logic, h, segment.low);
         v = nodal(
           size,

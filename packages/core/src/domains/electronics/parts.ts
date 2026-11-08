@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BlockSchema } from './blocks';
 
 const PART_TYPES = [
   'arduino',
@@ -218,36 +219,39 @@ export const QuantitySchema = z.object({
 });
 export type Quantity = z.infer<typeof QuantitySchema>;
 
-export const CircuitSpecSchema = z.object({
-  parts: z.array(PartSchema).min(1).max(40),
-  wires: z.array(z.object({ from: z.string(), to: z.string() })).max(140),
-  drive: z
-    .array(
-      z.object({
-        pin: z.string(),
-        mode: z.enum(['high', 'low', 'blink', 'pwm', 'angle']),
-        value: z.number().optional(),
-        period: z.number().int().min(2).max(200).optional(),
-      }),
-    )
-    .default([]),
-  program: z.array(RuleSchema).max(20).optional(),
-  vars: z.record(z.string().regex(VARIABLE), z.number()).optional(),
-  world: z.array(QuantitySchema).max(8).optional(),
-  layout: z.enum(['bench', 'breadboard']).optional(),
-  // Expected behaviour, checked in simulation: set these inputs (switches, buttons, sensors), then these outputs must be on or off.
-  tests: z
-    .array(
-      z.object({
-        name: z.string().max(60).optional(),
-        set: z.record(z.string(), z.number()).default({}),
-        on: z.array(z.string()).default([]),
-        off: z.array(z.string()).default([]),
-      }),
-    )
-    .max(32)
-    .optional(),
-});
+export const CircuitSpecSchema = z
+  .object({
+    parts: z.array(PartSchema).max(40),
+    blocks: z.array(BlockSchema).max(4).optional(),
+    wires: z.array(z.object({ from: z.string(), to: z.string() })).max(140),
+    drive: z
+      .array(
+        z.object({
+          pin: z.string(),
+          mode: z.enum(['high', 'low', 'blink', 'pwm', 'angle']),
+          value: z.number().optional(),
+          period: z.number().int().min(2).max(200).optional(),
+        }),
+      )
+      .default([]),
+    program: z.array(RuleSchema).max(20).optional(),
+    vars: z.record(z.string().regex(VARIABLE), z.number()).optional(),
+    world: z.array(QuantitySchema).max(8).optional(),
+    layout: z.enum(['bench', 'breadboard']).optional(),
+    // Expected behaviour, checked in simulation: set these inputs (switches, buttons, sensors), then these outputs must be on or off.
+    tests: z
+      .array(
+        z.object({
+          name: z.string().max(60).optional(),
+          set: z.record(z.string(), z.number()).default({}),
+          on: z.array(z.string()).default([]),
+          off: z.array(z.string()).default([]),
+        }),
+      )
+      .max(32)
+      .optional(),
+  })
+  .refine((spec) => spec.parts.length > 0 || (spec.blocks?.length ?? 0) > 0, { message: 'A design needs at least one part or block', path: ['parts'] });
 export type CircuitSpec = z.infer<typeof CircuitSpecSchema>;
 
 const DIGITAL = ['D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13'];

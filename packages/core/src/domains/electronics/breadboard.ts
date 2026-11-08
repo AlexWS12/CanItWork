@@ -7,6 +7,11 @@ import { pinsOf, type CircuitSpec, type Part } from './parts';
 
 const REACH = 7;
 const CHIP_GAP = 3;
+/** A full-size breadboard has 63 columns; a bigger circuit continues on the next board, so nothing straddles a board's edge. */
+export const BOARD_COLUMNS = 63;
+export const boardOf = (col: number) => Math.floor(col / BOARD_COLUMNS);
+/** A hole's column on its own board, counted from 1 as printed on the board. */
+export const localColumn = (col: number) => col % BOARD_COLUMNS;
 
 // Pins split into two rows like a DIP: the first half along the near side left to right, the rest along the far side right to left, so pin 1 is bottom left.
 export function dipRows(part: Part) {
@@ -27,6 +32,8 @@ export const STRADDLES = (part: Part) =>
 
 export interface BoardLayout {
   columns: number;
+  /** How many full-size boards the circuit needs, side by side. */
+  boards: number;
   spots: Map<string, Spot>;
   chips: Map<string, { col: number; half: number }>;
   // Parts that sit beside the board (batteries, boards, motors), in order.
@@ -78,16 +85,18 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
   let cursor = 2;
   for (const part of spec.parts.filter(STRADDLES)) {
     const { near, far, half } = dipRows(part);
+    if (boardOf(cursor + half) !== boardOf(cursor) || localColumn(cursor) === 0) cursor = (boardOf(cursor) + 1) * BOARD_COLUMNS + 2;
     chips.set(part.id, { col: cursor, half });
     near.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(cursor + i, 'B', nets.find(`${part.id}.${pin}`), 0)));
     far.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(cursor + i, 'A', nets.find(`${part.id}.${pin}`), 4)));
     cursor += half + CHIP_GAP;
   }
 
-  const free = (col: number, half: Half) => col >= 1 && !strips.has(stripKey(col, half));
-  const nearestFree = (around: number, half: Half, avoid = -1): number => {
-    for (let d = 0; d < 200; d++) {
-      for (const col of [around + d, around - d]) if (col !== avoid && free(col, half)) return col;
+  // A board's first column is its edge, so it is never used.
+  const free = (col: number, half: Half) => col >= 1 && localColumn(col) !== 0 && !strips.has(stripKey(col, half));
+  const nearestFree = (around: number, half: Half, avoid = -1, board?: number): number => {
+    for (let d = 0; d < 400; d++) {
+      for (const col of [around + d, around - d]) if (col !== avoid && free(col, half) && (board === undefined || boardOf(col) === board)) return col;
     }
     return around;
   };
@@ -99,7 +108,7 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
     if (pins.length === 3) {
       const half: Half = flip++ % 2 ? 'A' : 'B';
       let col: number = nearestFree(cursor, half);
-      while (!free(col + 1, half) || !free(col + 2, half)) col = nearestFree(col + 1, half);
+      while (!free(col + 1, half) || !free(col + 2, half) || boardOf(col + 2) !== boardOf(col)) col = nearestFree(col + 1, half);
       pins.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(col + i, half, nets.find(`${part.id}.${pin}`))));
       cursor = Math.max(cursor, col + 4);
       continue;
@@ -116,7 +125,9 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
         continue;
       }
       const home = (anchors.get(net) ?? []).find(
-        (a) => (strips.get(stripKey(a.col, a.half))?.used ?? 5) < 5 && (!ref || (Math.abs(a.col - ref.col) <= REACH && !(a.col === ref.col && a.half === ref.half))),
+        (a) =>
+          (strips.get(stripKey(a.col, a.half))?.used ?? 5) < 5 &&
+          (!ref || (Math.abs(a.col - ref.col) <= REACH && boardOf(a.col) === boardOf(ref.col) && !(a.col === ref.col && a.half === ref.half))),
       );
       if (home && !rail) {
         spots.set(key, claim(home.col, home.half, net));
@@ -124,7 +135,8 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
         continue;
       }
       const half: Half = ref?.half ?? (flip++ % 2 ? 'A' : 'B');
-      const col: number = ref ? nearestFree(ref.col + 2, half, ref.col) : nearestFree(cursor, half);
+      // A part's leads stay on one board.
+      const col: number = ref ? nearestFree(ref.col + 2, half, ref.col, boardOf(ref.col)) : nearestFree(cursor, half);
       spots.set(key, claim(col, half, net));
       if (!ref) cursor = Math.max(cursor, col + 1);
       ref = { col, half };
@@ -161,5 +173,6 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
     return [a, b] as [Spot | string, Spot | string];
   });
   for (const s of spots.values()) if (s.kind === 'rail') railsUsed.add(`${s.side}${s.rail}`);
-  return { columns, spots, chips, offBoard, wireEnds, supply, railsUsed };
+  const boards = boardOf(Math.max(0, ...used)) + 1;
+  return { columns, boards, spots, chips, offBoard, wireEnds, supply, railsUsed };
 }
