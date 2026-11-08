@@ -1,12 +1,13 @@
 import { Grid, Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { linkKey, netOrder, type NetNode, type NetRun, type NetSpec } from '@tv/core';
+import { linkKey, netOrder, type Environment, type NetNode, type NetRun, type NetSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Tag, pick } from '../shared';
 import './Queues.css';
+import { Tower, floorsOf, towerHeight } from './Tower';
 
 // Queues as you'd see them: a row of counters per station with staff behind them, people (or cars) waiting in snaking lines,
 // lanes with traffic lights, elevator cars in their shafts, and people walking between stations as they are served.
@@ -44,6 +45,15 @@ export function queuesExtent(spec: NetSpec) {
   const xs = ps.map((p) => p.x);
   const zs = ps.map((p) => p.z);
   return { width: Math.max(...xs) - Math.min(...xs) + LAYER_GAP * 1.4, depth: Math.max(...zs) - Math.min(...zs) + ROW_GAP * 1.2 };
+}
+
+// Where the elevator bank stands and how high it reaches, so the camera can frame the whole building.
+export function towerFocus(environment: Environment) {
+  const spec = environment.spec as NetSpec;
+  const node = spec.nodes?.find((n) => n.kind === 'elevator');
+  if (!node) return null;
+  const at = queuesLayout(spec).get(node.id);
+  return { x: at?.x ?? 0, z: at?.z ?? 0, height: towerHeight(floorsOf(environment, node)) };
 }
 
 const role = (run: NetRun, node: NetNode) => run.role(node);
@@ -140,37 +150,6 @@ function Lanes({ node }: { node: NetNode }) {
         <cylinderGeometry args={[0.05, 0.05, 0.9, 8]} />
         <meshStandardMaterial color="#475569" />
       </mesh>
-    </group>
-  );
-}
-
-function Elevators({ node }: { node: NetNode }) {
-  const n = servers(node);
-  const cars = useRef<Array<THREE.Mesh | null>>([]);
-  useFrame(({ clock }) => {
-    const run = net();
-    const state = run?.states.get(node.id);
-    const moving = state && !state.down && state.utilization > 0.05;
-    cars.current.forEach((car, i) => {
-      if (!car) return;
-      const t = clock.elapsedTime * 0.5 + i * 1.7;
-      car.position.y = moving ? 0.6 + (Math.sin(t) * 0.5 + 0.5) * 3.6 : 0.6;
-    });
-  });
-  return (
-    <group>
-      {Array.from({ length: n }, (_, i) => (
-        <group key={i} position={[0, 0, counterZ(n, i) * 1.2]}>
-          <mesh position={[0, 2.4, 0]}>
-            <boxGeometry args={[0.9, 4.8, 0.9]} />
-            <meshStandardMaterial color="#1e293b" transparent opacity={0.35} />
-          </mesh>
-          <mesh ref={(m) => (cars.current[i] = m)} position={[0, 0.6, 0]} castShadow>
-            <boxGeometry args={[0.75, 1, 0.75]} />
-            <meshStandardMaterial color="#94a3b8" metalness={0.6} roughness={0.3} />
-          </mesh>
-        </group>
-      ))}
     </group>
   );
 }
@@ -305,7 +284,7 @@ function Paths({ spec, positions }: { spec: NetSpec; positions: Map<string, THRE
   );
 }
 
-function StationLabel({ node }: { node: NetNode }) {
+function StationLabel({ node, x = 0, y = 3.1 }: { node: NetNode; x?: number; y?: number }) {
   const label = useRef<HTMLDivElement>(null);
   useFrame(() => {
     const run = net();
@@ -321,7 +300,7 @@ function StationLabel({ node }: { node: NetNode }) {
     el.style.display = text ? '' : 'none';
   });
   return (
-    <Html position={[0, 3.1, 0]} center zIndexRange={[10, 0]}>
+    <Html position={[x, y, 0]} center zIndexRange={[10, 0]}>
       <div ref={label} className="queue-label" />
     </Html>
   );
@@ -329,12 +308,19 @@ function StationLabel({ node }: { node: NetNode }) {
 
 export function Queues() {
   useStore((s) => s.structure);
+  const environment = useStore((s) => s.environment);
   const run = net();
   const structure = useStore.getState().structure;
   const spec = useMemo(() => (run ? ({ ...run.spec, edges: [...run.spec.edges] } as NetSpec) : null), [run, structure]);
   const positions = useMemo(() => (spec ? queuesLayout(spec) : new Map<string, THREE.Vector3>()), [spec]);
   if (!spec || !run) return null;
   const { width, depth } = queuesExtent(spec);
+  // An exit fed only by elevators is the building's upper floors, which the tower already shows, so it isn't drawn again on the ground.
+  const lifts = new Set(spec.nodes.filter((n) => n.kind === 'elevator').map((n) => n.id));
+  const upstairs = new Set(
+    spec.nodes.filter((n) => run.role(n) === 'sink' && spec.edges.some((e) => e.to === n.id) && spec.edges.every((e) => e.to !== n.id || lifts.has(e.from))).map((n) => n.id),
+  );
+  const ground = upstairs.size ? { ...spec, edges: spec.edges.filter((e) => !upstairs.has(e.to)) } : spec;
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
@@ -342,11 +328,11 @@ export function Queues() {
         <meshStandardMaterial color="#141b28" roughness={0.85} />
       </mesh>
       <Grid args={[width + 10, depth + 10]} cellSize={1} cellThickness={0.3} cellColor="#1d2738" sectionSize={4} sectionThickness={0.6} sectionColor="#283349" fadeDistance={120} />
-      <Paths spec={spec} positions={positions} />
-      <Walkers spec={spec} positions={positions} />
+      <Paths spec={ground} positions={positions} />
+      <Walkers spec={ground} positions={positions} />
       {spec.nodes.map((node) => {
         const at = positions.get(node.id);
-        if (!at) return null;
+        if (!at || upstairs.has(node.id)) return null;
         const kind = role(run, node);
         const cars = node.kind === 'lane';
         return (
@@ -356,13 +342,17 @@ export function Queues() {
             ) : node.kind === 'lane' ? (
               <Lanes node={node} />
             ) : node.kind === 'elevator' ? (
-              <Elevators node={node} />
+              <Tower node={node} environment={environment} />
             ) : (
               <Counters node={node} />
             )}
             {kind === 'stage' && <Line node={node} cars={cars} />}
-            <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3.7} />
-            <StationLabel node={node} />
+            {node.kind === 'elevator' ? (
+              <Tag text={`${node.label ?? node.id} · ${floorsOf(environment, node)} floors`} tint="#9fd8ff" y={towerHeight(floorsOf(environment, node)) + 0.9} />
+            ) : (
+              <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3.7} />
+            )}
+            <StationLabel node={node} {...(node.kind === 'elevator' ? { x: -3.4, y: 2.2 } : {})} />
             <ClaimPin id={node.id} position={[0, 1.2, 0]} />
           </group>
         );
