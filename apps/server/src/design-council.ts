@@ -40,6 +40,8 @@ export async function runDesignCouncil<D>(opts: {
   system: string;
   schema: z.ZodType<D>;
   score: (draft: D) => { score: number; issues: Issue[] } | null;
+  // Turns a reply that failed the schema into a valid draft (one cheap model call), or null.
+  mend?: (raw: unknown, problem: string) => Promise<D | null>;
   onUsage: (usage: Usage) => void;
   emit: (event: StreamEvent) => void;
 }): Promise<{ winner: Candidate<D>; candidates: Candidate<D>[] }> {
@@ -60,7 +62,17 @@ export async function runDesignCouncil<D>(opts: {
 
   const candidates: Candidate<D>[] = [];
   for (const reply of replies) {
-    const parsed = opts.schema.safeParse(reply.json);
+    let parsed = opts.schema.safeParse(reply.json);
+    let mended = false;
+    if (!parsed.success && opts.mend) {
+      // Most rejected replies are a field or two off the schema, so mend them rather than lose a designer.
+      const problem = JSON.stringify(parsed.error.issues.slice(0, 5));
+      const fixed = await opts.mend(reply.json, problem).catch(() => null);
+      if (fixed) {
+        parsed = opts.schema.safeParse(fixed);
+        mended = parsed.success;
+      }
+    }
     if (!parsed.success) {
       const first = parsed.error.issues[0];
       const why = first ? ` (${first.path.join('.')}: ${first.message})` : '';
@@ -79,7 +91,7 @@ export async function runDesignCouncil<D>(opts: {
     }
     const errors = scored.issues.filter((i) => i.severity === 'error').length;
     const open = scored.issues.filter((i) => i.repair).length;
-    const verdict = errors ? `rejected (${errors} error${errors > 1 ? 's' : ''})` : `${Math.round(scored.score)}${open ? ` with ${open} to fix` : ''}`;
+    const verdict = `${errors ? `rejected (${errors} error${errors > 1 ? 's' : ''})` : `${Math.round(scored.score)}${open ? ` with ${open} to fix` : ''}`}${mended ? ', mended' : ''}`;
     candidates.push({ author: reply.agent, draft: parsed.data, score: errors ? -1e6 + scored.score : scored.score, issues: scored.issues, verdict });
   }
   for (const s of STRATEGIES) {

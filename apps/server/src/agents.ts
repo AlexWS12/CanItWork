@@ -278,6 +278,18 @@ async function councilDesign(prompt: string, domain: Domain, emit: Emit, step: S
         system: architectPrompt(domain),
         schema: draftSchema(domain) as unknown as z.ZodType<Draft>,
         score: (draft) => scoreDraft(domain, draft),
+        mend: hasGemini()
+          ? async (raw, problem) =>
+              (await chatJson({
+                feature: 'design-council-mend',
+                schema: draftSchema(domain),
+                onUsage: onUsage(emit),
+                system: architectPrompt(domain),
+                user: `Another architect wrote this design for "${prompt}", but it doesn't match the schema: ${problem}
+Design: ${JSON.stringify(raw).slice(0, 12000)}
+Return the same design, corrected to match the schema exactly. Change nothing else.`,
+              })) as Draft
+          : undefined,
         onUsage: onUsage(emit),
         emit,
       });
