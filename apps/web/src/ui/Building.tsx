@@ -55,26 +55,42 @@ function Prompt() {
   );
 }
 
+// Collapsed to the best match by default; the full list is one click away for anyone curious
 function DomainOdds() {
   const odds = useStore((s) => s.domainOdds);
+  const [open, setOpen] = useState(false);
   if (!odds) return null;
   const rows = domainList()
     .map((d) => ({ id: d.id, label: d.label, p: odds[d.id] ?? 0 }))
     .sort((a, b) => b.p - a.p);
+  const [top] = rows;
+  const pct = (p: number) => `${Math.round(p * 100)}%`;
   return (
-    <div className="odds">
-      <span className="kicker">Which simulator fits · Jev</span>
-      <div className="odds-grid">
-        {rows.map((row, i) => (
-          <div key={row.id} className="odds-row" data-top={i === 0}>
-            <span>{row.label}</span>
-            <div className="odds-track">
-              <div style={{ width: `${Math.round(row.p * 100)}%` }} />
+    <div className="odds" data-open={open}>
+      <button className="odds-summary" aria-expanded={open} aria-controls="odds-grid" onClick={() => setOpen(!open)}>
+        <span className="kicker">Best simulator for this · Jev</span>
+        <span className="odds-top">
+          <b>{top.label}</b>
+          <span className="odds-track" aria-hidden>
+            <div style={{ width: pct(top.p) }} />
+          </span>
+          <span className="num">{pct(top.p)} match</span>
+          <span className="odds-toggle">{open ? 'Hide' : `Compare all ${rows.length}`}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="odds-grid" id="odds-grid">
+          {rows.slice(1).map((row) => (
+            <div key={row.id} className="odds-row">
+              <span>{row.label}</span>
+              <div className="odds-track">
+                <div style={{ width: pct(row.p) }} />
+              </div>
+              <span className="num">{row.p < 0.01 ? '<1%' : pct(row.p)}</span>
             </div>
-            <span className="num">{row.p.toFixed(2)}</span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

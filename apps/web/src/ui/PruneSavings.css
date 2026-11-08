@@ -1,0 +1,213 @@
+/* Prune savings showcase at the top of the Usage tab */
+.prune {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-teal-line);
+  border-radius: var(--radius-card);
+  background: linear-gradient(180deg, var(--color-teal-fill), transparent 70%);
+}
+
+.prune-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.prune-head h3 {
+  margin: 0;
+  color: var(--color-teal);
+}
+
+.prune-scope {
+  display: flex;
+  gap: var(--space-half);
+}
+
+.prune-scope button {
+  min-height: 0;
+  padding: var(--space-half) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.prune-scope button[aria-pressed='true'] {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}
+
+.prune-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.prune-hero b {
+  font: 600 40px / 1 var(--font-mono);
+  color: var(--color-teal);
+  font-variant-numeric: tabular-nums;
+}
+
+.prune-hero b[data-zero='true'] {
+  color: var(--color-muted);
+}
+
+.prune-hero span {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-md);
+}
+
+.prune-hero small {
+  color: var(--color-muted);
+  font: var(--text-xs) var(--font-mono);
+}
+
+.prune-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.prune-bar {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 72px;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.prune-track {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-fill);
+  overflow: hidden;
+}
+
+.prune-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 600ms ease;
+}
+
+.prune-track [data-kind='without'] {
+  background: var(--color-line-strong);
+}
+
+.prune-track [data-kind='with'] {
+  background: var(--color-teal);
+}
+
+.prune-stats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+}
+
+.prune-stats dt {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.prune-stats dd {
+  margin: 0;
+  font: 500 var(--text-lg) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.prune-stats small {
+  color: var(--color-teal);
+  font-size: var(--text-xs);
+}
+
+.prune-scale,
+.prune-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.prune-scale b {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+}
+
+.prune-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.prune-ops li {
+  padding: var(--space-half) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-fill);
+  font-size: var(--text-xs);
+}
+
+.prune-ops span {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+}
+
+.prune-warn {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+/* Top bar counter */
+.prune-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  background: var(--color-fill-subtle);
+  color: var(--color-muted);
+  font: var(--text-xs) var(--font-mono);
+  white-space: nowrap;
+}
+
+.prune-pill[data-live='true'] {
+  border-color: var(--color-teal-line);
+  color: var(--color-text);
+}
+
+.prune-pill b {
+  color: var(--color-teal);
+  font-weight: 600;
+}
+
+.prune-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.prune-pill[data-live='true'] .prune-dot {
+  background: var(--color-teal);
+  box-shadow: 0 0 6px var(--color-teal-glow);
+}
+
+.prune-idle {
+  color: var(--color-muted);
+}

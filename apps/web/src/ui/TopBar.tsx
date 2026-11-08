@@ -4,9 +4,13 @@ import { shareRun, startOver } from '../actions';
 import { shortHash } from '../share';
 import { useStore } from '../store';
 import { ticks } from './labels';
+import { PrunePill } from './PruneSavings';
 import './TopBar.css';
 
 const CHECK_LABEL: Record<KeyCheck, string> = { ok: 'key works', failing: 'key failing', unchecked: 'key not checked' };
+
+// Key problems stay in each chip's tooltip; ?debug spells them out on screen
+const debug = new URLSearchParams(location.search).has('debug');
 
 type Chip = [name: string, on: boolean, how: string, check: KeyCheck | undefined];
 
@@ -16,7 +20,6 @@ const chipsOf = (status: ProviderStatus | null | undefined): Chip[] =>
         ['Gemini', status.gemini !== 'off', status.gemini, status.checks?.gemini],
         ['Jev', status.typesafe, status.typesafe ? 'TypeSafe' : 'off', status.checks?.typesafe],
         ['Swarms', status.swarms, status.swarms ? 'hosted' : 'off', status.checks?.swarms],
-        ['Prune', status.prune, status.prune ? 'gateway' : 'off', status.checks?.prune],
       ]
     : [];
 
@@ -31,9 +34,9 @@ function Integrations({ variant }: { variant: 'chip' | 'dot' }) {
       {chips.map(([name, on, how, check]) => {
         const label = `${name}: ${how}${on && check ? `, ${CHECK_LABEL[check]}` : ''}`;
         return (
-          <span key={name} className={variant} data-on={on} data-check={on ? check : undefined} title={label}>
+          <span key={name} className={variant} data-on={on} data-check={on && (debug || check !== 'failing') ? check : undefined} title={label}>
             <span className="integration-name">{name}</span>
-            {on && check === 'failing' ? <span className="chip-note"> key failing</span> : <span className="sr-only">{label.slice(name.length)}</span>}
+            {on && check === 'failing' && debug ? <span className="chip-note"> key failing</span> : <span className="sr-only">{label.slice(name.length)}</span>}
           </span>
         );
       })}
@@ -73,6 +76,7 @@ export function TopBar() {
       <div className="status">
         <span className="wordmark">CanItWork</span>
         <Integrations variant="chip" />
+        <PrunePill />
       </div>
     );
   }
@@ -88,6 +92,7 @@ export function TopBar() {
       <div className="topbar-center">
         <StatePill />
       </div>
+      <PrunePill />
       <Integrations variant="dot" />
       <ShareButton />
       <button className="new-system" onClick={startOver}>

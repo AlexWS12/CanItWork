@@ -3,6 +3,7 @@ import { Html } from '@react-three/drei';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { useRef } from 'react';
 import * as THREE from 'three';
+import { plainFinding } from '../explain';
 import { select, useStore } from '../store';
 
 export const pick = (id: string) => (e: ThreeEvent<MouseEvent>) => {
@@ -37,20 +38,22 @@ export function ClaimPin({ id, position = [0, 0, 0] }: { id: string; position?: 
     if (pin.current.dataset.side !== side) pin.current.dataset.side = side;
   });
   const findings = useStore((s) => s.findings);
+  const explanation = useStore((s) => s.explanation);
   const sheetOpen = useStore((s) => Boolean(s.report) && s.reportOpen);
   const pinned = findings.filter(targetOf).slice(0, MAX_PINS);
   const index = pinned.findIndex((f) => targetOf(f) === id);
   if (index < 0 || sheetOpen) return null;
   const finding = pinned[index];
   const confirmed = finding.verdict === 'confirmed';
+  const plain = plainFinding(finding, explanation);
   return (
     <group ref={anchor} position={position}>
       <Html zIndexRange={[20, 11]} pointerEvents="none">
         <div ref={pin} className="claim-pin" data-verdict={finding.verdict}>
           <button className="claim-card" onClick={() => select(id)}>
-            <span className="claim-kicker">Red Team · {confirmed ? 'Confirmed' : 'Refuted'}</span>
+            <span className="claim-kicker">Stress test · {confirmed ? 'Weak spot' : 'Held up'}</span>
             <span>
-              {finding.claim} {finding.evidence}
+              {plain.title} {plain.impact}
             </span>
           </button>
           <span className="claim-leader" aria-hidden />

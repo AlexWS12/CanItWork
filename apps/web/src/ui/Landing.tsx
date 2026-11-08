@@ -74,10 +74,10 @@ export function Landing() {
   const submit = (prompt: string) => {
     if (prompt.trim() && !building) void buildEnvironment(prompt.trim());
   };
-  // Examples fill the input rather than building, so they can be edited first
+  // Examples build straight away; typing in the box is how to change one first
   const use = (example: string) => {
     setText(example);
-    input.current?.focus();
+    submit(example);
   };
   const domain = selected ? DOMAINS[selected] : null;
   if (building) return <Building />;

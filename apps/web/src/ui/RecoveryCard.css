@@ -38,67 +38,180 @@
   font-size: var(--text-sm);
 }
 
-/* The sheet: chart on the left, the race on the right */
-.recovery.sheet {
-  left: var(--gutter);
-  right: var(--gutter);
-  bottom: var(--gutter);
-  height: 470px;
-  max-height: calc(100dvh - var(--top-h) - var(--gutter) * 2);
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+/* The card: a plain verdict first, details on request. It sits over the centre of the scene and leaves the dock and side panels visible */
+.recovery.card {
+  left: calc(var(--panel-left-w) + var(--gutter) * 2);
+  right: calc(var(--panel-right-w) + var(--gutter) * 2);
+  bottom: calc(var(--dock-h) + var(--gutter) * 2 + 36px);
+  max-height: calc(100dvh - var(--top-h) - var(--dock-h) - var(--gutter) * 4 - 36px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
   border: var(--rule-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sheet);
-  overflow: hidden;
+  overflow-y: auto;
+  z-index: 3;
 }
 
-.sheet-chart,
-.sheet-race {
+.rc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.rc-head .kicker {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.rc-toggle {
+  min-height: 0;
+  padding: var(--space-half) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.rc-headline {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.rc-outcomes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.rc-outcomes > div {
   display: flex;
   flex-direction: column;
-  padding: var(--space-6) 28px;
-  min-height: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill-subtle);
+  min-width: 0;
 }
 
-.sheet-chart {
-  gap: 14px;
-  border-right: var(--rule);
+.rc-outcomes b {
+  font: 500 var(--text-xl) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-outcomes span {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-outcomes [data-kind='unmitigated'] b {
+  color: var(--color-danger-soft);
+}
+
+.rc-outcomes [data-kind='fix'] {
+  background: var(--color-teal-fill);
+}
+
+.rc-outcomes [data-kind='fix'] b {
+  color: var(--color-teal);
+}
+
+.rc-unit {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-muted);
+  font: var(--text-xs) var(--font-mono);
+}
+
+.rc-cost {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.effort {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+  background: var(--color-teal-fill);
+}
+
+.effort[data-effort='medium'] {
+  color: var(--color-accent);
+  background: var(--color-accent-fill);
+}
+
+.effort[data-effort='high'] {
+  color: var(--color-danger-soft);
+  background: var(--color-danger-fill-strong);
+}
+
+.race-name small .effort {
+  margin-right: var(--space-1);
+}
+
+.rc-note,
+.rc-why {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.rc-note {
+  padding: var(--space-2);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+}
+
+.rc-why b {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.rc-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  padding-top: var(--space-3);
+  border-top: var(--rule);
+}
+
+.rc-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .sheet-summary {
-  margin-top: auto;
-  font-size: var(--text-base);
+  margin: 0;
+  font-size: var(--text-sm);
   text-wrap: pretty;
 }
 
 .sheet-by {
   color: var(--color-muted);
-}
-
-.sheet-race {
-  gap: var(--space-4);
-  overflow-y: auto;
-}
-
-.sheet-race > header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-4);
-}
-
-.sheet-race > header > div {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-half);
-}
-
-.sheet-race h3 {
-  font-size: var(--text-2xl);
-  font-weight: 600;
-  line-height: 1.15;
-  text-wrap: balance;
 }
 
 .sheet-close {
@@ -252,7 +365,6 @@ button.race-row:hover:not(:disabled) {
 }
 
 .sheet-actions {
-  margin-top: auto;
   display: flex;
   gap: 10px;
   align-items: center;
@@ -292,22 +404,18 @@ button.race-row:hover:not(:disabled) {
   }
 }
 
-@media (max-width: 900px) {
-  .recovery.sheet {
-    top: calc(var(--top-h) + var(--gutter));
-    height: auto;
-    max-height: none;
+/* Narrow screens: the side panels are tabs, so the card spans the width */
+@media (max-width: 1100px) {
+  .rc-details {
     grid-template-columns: minmax(0, 1fr);
-    overflow-y: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .recovery.card {
+    top: calc(var(--top-h) + var(--gutter));
+    bottom: auto;
+    max-height: calc(100dvh - var(--top-h) - var(--gutter) * 2);
     z-index: 4;
-  }
-
-  .sheet-chart {
-    border-right: 0;
-    border-bottom: var(--rule);
-  }
-
-  .sheet-race {
-    overflow-y: visible;
   }
 }
