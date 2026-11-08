@@ -1,14 +1,40 @@
-import { breakThing } from '../actions';
+import { componentIds, isEditable } from '@tv/core';
+import { useEffect } from 'react';
+import { breakThing, editComponent } from '../actions';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import './Inspector.css';
+
+const isMac = /mac|iphone|ipad/i.test(navigator.platform);
 
 export function Inspector() {
   const selected = useStore((s) => s.selected);
   useStore((s) => s.telemetry.tick);
   const set = useStore((s) => s.set);
+  const environment = useStore((s) => s.environment);
+  const busy = useStore((s) => s.editing || s.chatting);
+  // Links and parts a patch added at runtime aren't in the spec, so only spec components can be edited
+  const editable = Boolean(environment && selected && isEditable(environment.domain) && componentIds(environment.domain, environment.spec).includes(selected));
+
+  useEffect(() => {
+    if (!editable || !selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        void editComponent({ op: 'remove', id: selected });
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        void editComponent({ op: 'duplicate', id: selected });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editable, selected]);
+
   const view = selected ? runner.run?.inspect(selected) : null;
-  if (!view) return null;
+  if (!view || !selected) return null;
   return (
     <div className="inspector">
       <header>
@@ -34,6 +60,17 @@ export function Inspector() {
           {action.label}
         </button>
       ))}
+      {editable && (
+        <div className="edit-actions">
+          <button className="action" disabled={busy} onClick={() => void editComponent({ op: 'duplicate', id: selected })} title={`Duplicate (${isMac ? '⌘' : 'Ctrl+'}D)`}>
+            Duplicate
+          </button>
+          <button className="action" disabled={busy} onClick={() => void editComponent({ op: 'remove', id: selected })} title="Delete (Delete key)">
+            Delete
+          </button>
+          <p className="edit-hint">Drag to move. The agents check every duplicate or delete.</p>
+        </div>
+      )}
     </div>
   );
 }

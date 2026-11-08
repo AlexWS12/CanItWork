@@ -36,7 +36,12 @@ const EMPTY_TELEMETRY: Telemetry = { tick: 0, stats: [], breakables: [], running
 interface State {
   environment: Environment | null;
   environmentKey: number;
+  // Bumped when a design is rebuilt in place, which remounts the scene but keeps the camera
+  rebuilds: number;
   structure: number;
+  // Components just added by an edit or from chat, highlighted for a moment
+  fresh: string[];
+  editing: boolean;
   refusal: Refusal | null;
   building: boolean;
   prompt: string;
@@ -70,7 +75,10 @@ interface State {
 export const useStore = create<State>((set) => ({
   environment: null,
   environmentKey: 0,
+  rebuilds: 0,
   structure: 0,
+  fresh: [],
+  editing: false,
   refusal: null,
   building: false,
   prompt: '',
@@ -117,6 +125,7 @@ export const useStore = create<State>((set) => ({
       selected: null,
       entities: [],
       domainOdds: null,
+      fresh: [],
       telemetry: EMPTY_TELEMETRY,
     }),
 }));

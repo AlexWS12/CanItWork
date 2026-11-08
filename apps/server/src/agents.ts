@@ -1,6 +1,8 @@
 import {
   DOMAINS,
   IncidentSchema,
+  componentDiff,
+  editSpec,
   defaultCompare,
   domainList,
   evaluate,
@@ -20,6 +22,7 @@ import {
   type StepEvent,
   type StreamEvent,
   type TimedEvent,
+  type SpecEdit,
   type Usage,
 } from '@tv/core';
 import { choice, noul, type Questions } from '@typesafe-ai/sdk';
@@ -689,7 +692,7 @@ export async function chat(input: LiveState & { message: string; metrics: unknow
   const rules = () =>
     step('editor', 'rules', 'Interpreting your request', async () => {
       const options = domain.createRun(model, 1).breakables();
-      return ruleChat(message, domain, model, options) as Intent;
+      return ruleChat(message, domain, model, options, environment.spec) as Intent;
     });
   const intent: Intent = !hasGemini()
     ? await rules()
@@ -702,7 +705,7 @@ export async function chat(input: LiveState & { message: string; metrics: unknow
               onUsage: onUsage(emit),
               system: `You are the Editor of a live ${domain.label.toLowerCase()} environment. Choose one intent and reply with JSON only:
 {"intent":"patch","patches":[Patch],"reply":"one sentence"} to change the running environment now.
-{"intent":"respec","spec":Spec,"reply":"one sentence"} for a structural change, with the complete new spec.
+{"intent":"respec","spec":Spec,"reply":"one sentence"} for a structural change, with the complete new spec. Use this to add, remove or rewire components: keep every existing component and its id unless asked otherwise, give each new component a new unique id and a label, and connect it into the flow so it does work.
 {"intent":"inject","incident":Incident} when the user tells you to break something now.
 {"intent":"whatif","incident":Incident} when the user asks what would happen, without changing anything.
 {"intent":"optimize"} when asked to improve or find the best setup.
@@ -735,7 +738,8 @@ ${domain.specDoc}`,
         const after = baselineOf(domain, next, domain.horizon, []);
         detail(`${before.score} → ${after.score} ${before.scoreLabel}`);
       });
-      emit({ type: 'reply', text: intent.reply ?? 'Rebuilt.', action: { kind: 'rebuild', environment: { ...environment, spec: intent.spec } } });
+      const { added } = componentDiff(environment.domain, environment.spec, intent.spec);
+      emit({ type: 'reply', text: intent.reply ?? 'Rebuilt.', action: { kind: 'rebuild', environment: { ...environment, spec: intent.spec }, added } });
       return;
     }
     case 'inject':
@@ -772,6 +776,75 @@ ${domain.specDoc}`,
       break;
   }
   replyNone(intent.reply ?? 'I can change this environment, inject failures, test what-ifs or look for a better setup. Try one of those.');
+}
+
+const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
+
+// A component the user deleted or duplicated in the 3D view. The Validator checks the edited design, the simulator
+// compares it with the current one, and the Editor says what the change did. A design with errors is sent back unchanged.
+export async function edit(input: { environment: Environment; edit: SpecEdit }, emit: Emit) {
+  const { environment } = input;
+  const domain = DOMAINS[environment.domain];
+  const step = stepper(emit);
+  const verb = input.edit.op === 'remove' ? 'Removing' : 'Duplicating';
+  const replyNone = (text: string) => emit({ type: 'reply', text, action: { kind: 'none' } });
+
+  const checked = await step('validator', 'simulator', `${verb} ${input.edit.id}`, async (detail) => {
+    const result = editSpec(environment.domain, environment.spec, input.edit);
+    if (!result.ok) {
+      detail(result.reason);
+      return { ok: false as const, reason: result.reason };
+    }
+    const next = domain.compile(result.spec);
+    const issues = domain.validate(next);
+    const error = issues.find((i) => i.severity === 'error');
+    if (error) {
+      detail(error.message);
+      return { ok: false as const, reason: error.message };
+    }
+    detail(issues.length ? `${issues.length} warning${issues.length === 1 ? '' : 's'}` : 'Design still valid');
+    return { ok: true as const, result, next, warning: issues[0]?.message };
+  });
+  if (!checked.ok) return replyNone(`I kept the design as it was: ${checked.reason.replace(/\.$/, '')}.`);
+  const { result, next, warning } = checked;
+
+  const scores = await step('simulator', 'simulator', 'Comparing before and after', async (detail) => {
+    const before = baselineOf(domain, domain.compile(environment.spec), domain.horizon, []);
+    const after = baselineOf(domain, next, domain.horizon, []);
+    const pct = before.score ? Math.round(((after.score - before.score) / before.score) * 1000) / 10 : 0;
+    detail(`${before.score} → ${after.score} ${before.scoreLabel} (${signed(pct)}%)`);
+    return { before, after, pct };
+  });
+
+  const { before, after, pct } = scores;
+  const what = input.edit.op === 'remove' ? `Removed ${result.label}` : `Added ${result.label}, a copy of ${input.edit.id}`;
+  const effect =
+    Math.abs(pct) < 1
+      ? `${before.scoreLabel} holds at ${after.score}`
+      : `${before.scoreLabel} ${pct > 0 ? 'rises' : 'falls'} from ${before.score} to ${after.score} (${signed(pct)}%)`;
+  const ruled = `${what}. ${effect.charAt(0).toUpperCase()}${effect.slice(1)}.${warning ? ` Watch out: ${warning.replace(/\.$/, '')}.` : ''}`;
+
+  const text = !hasGemini()
+    ? ruled
+    : await step('editor', 'gemini', 'Explaining the change', async () => {
+        const out = await chatJson({
+          feature: 'editor',
+          schema: z.object({ reply: z.string() }),
+          onUsage: onUsage(emit),
+          system: `You are the Editor of a live ${domain.label.toLowerCase()} environment. The user just changed the design by hand in the 3D view. In at most two short sentences of plain words, say what the change did to the system, using only the measured numbers, and if it made things worse, the one thing to watch. Reply with JSON only: {"reply":"..."}`,
+          user: JSON.stringify({
+            change: what,
+            design: domain.describe(next).slice(0, 1200),
+            before: { score: before.score, label: before.scoreLabel, metrics: before.metrics.slice(0, 6) },
+            after: { score: after.score, label: after.scoreLabel, metrics: after.metrics.slice(0, 6) },
+            warning,
+          }),
+        });
+        return out.reply;
+      }).catch(() => ruled);
+
+  const added = input.edit.op === 'duplicate' ? [result.id] : [];
+  emit({ type: 'reply', text, action: { kind: 'rebuild', environment: { ...environment, spec: result.spec }, added } });
 }
 
 export function describeFailure(error: unknown) {

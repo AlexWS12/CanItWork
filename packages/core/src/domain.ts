@@ -132,6 +132,8 @@ export interface Environment {
   summary: string;
   spec: unknown;
   unmodelled: string[];
+  /** Where the user dragged components in the 3D view, as [x, z] by component id. Cosmetic: no simulator reads it. */
+  layout?: Record<string, [number, number]>;
 }
 
 export function evaluate(domain: Domain, model: unknown, scenario: Scenario): Evaluation {

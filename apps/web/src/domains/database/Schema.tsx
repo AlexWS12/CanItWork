@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, pick } from '../shared';
+import { ClaimPin, Movable, useArranged } from '../shared';
 
 const engine = () => runner.run as SchemaRun | null;
 const WIDTH = 5.6;
@@ -164,8 +164,8 @@ function Card({ table, at }: { table: Table; at: THREE.Vector3 }) {
   });
 
   return (
-    <group position={at}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} onClick={pick(table.name)} castShadow receiveShadow>
+    <Movable id={table.name} position={at}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} castShadow receiveShadow>
         <planeGeometry args={[WIDTH, height]} />
         <meshBasicMaterial map={texture} toneMapped={false} />
       </mesh>
@@ -178,7 +178,7 @@ function Card({ table, at }: { table: Table; at: THREE.Vector3 }) {
         <meshBasicMaterial color="#22d3ee" toneMapped={false} />
       </mesh>
       <ClaimPin id={table.name} position={[0, 0.1, 0]} />
-    </group>
+    </Movable>
   );
 }
 
@@ -256,7 +256,7 @@ export function Schema() {
   useStore((s) => s.structure);
   const run = engine();
   const spec = run?.spec ?? null;
-  const positions = useMemo(() => (spec ? layout(spec) : new Map<string, THREE.Vector3>()), [spec]);
+  const positions = useArranged(useMemo(() => (spec ? layout(spec) : new Map<string, THREE.Vector3>()), [spec]));
   if (!spec) return null;
   return (
     <group>
