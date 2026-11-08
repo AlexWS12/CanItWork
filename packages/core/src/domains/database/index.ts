@@ -135,6 +135,79 @@ function baseSchema(prompt: string): DatabaseSpec {
   };
 }
 
+// What the Architect's repairs left, fixed without a model. Each fix keeps the schema the user asked for: a foreign key takes the
+// type of the key it points at, a reference to a missing column points at that table's primary key, and an index, partition key,
+// filter or join that names a missing column is dropped or moved to one that exists.
+function mend(spec: DatabaseSpec, issues: Issue[]) {
+  if (!issues.some((i) => i.severity === 'error' || i.repair)) return null;
+  const next = structuredClone(spec);
+  const notes: string[] = [];
+  const table = (name: string) => next.tables.find((t) => t.name === name);
+  const has = (t: Table | undefined, column: string) => Boolean(t?.columns.some((c) => c.name === column));
+  const seen = new Set<string>();
+  for (const t of next.tables) {
+    if (seen.has(t.name)) {
+      let name = `${t.name}_2`;
+      while (seen.has(name) || next.tables.some((o) => o !== t && o.name === name)) name += '_2';
+      notes.push(`renamed the second ${t.name} table to ${name}`);
+      t.name = name;
+    }
+    seen.add(t.name);
+  }
+  for (const t of next.tables) {
+    for (const col of t.columns) {
+      if (!col.references) continue;
+      const parent = table(col.references.table);
+      if (!parent) {
+        notes.push(`dropped ${t.name}.${col.name}'s reference to ${col.references.table}, which isn't a table`);
+        delete col.references;
+        continue;
+      }
+      let target = parent.columns.find((c) => c.name === col.references!.column);
+      if (!target) {
+        target = parent.columns.find((c) => c.primary);
+        if (!target) {
+          notes.push(`dropped ${t.name}.${col.name}'s reference to ${parent.name}, which has no key to point at`);
+          delete col.references;
+          continue;
+        }
+        notes.push(`pointed ${t.name}.${col.name} at ${parent.name}.${target.name}`);
+        col.references.column = target.name;
+      }
+      if (target.type !== col.type) {
+        notes.push(`made ${t.name}.${col.name} ${target.type} to match ${parent.name}.${target.name}`);
+        col.type = target.type;
+      }
+    }
+    const indexes = t.indexes.filter((ix) => ix.every((c) => has(t, c)));
+    if (indexes.length < t.indexes.length) notes.push(`dropped ${t.name}'s indexes on columns it doesn't have`);
+    t.indexes = indexes;
+    if ((t.partitionBy && !has(t, t.partitionBy)) || ((t.partitions ?? 1) > 1 && !t.partitionBy)) {
+      const filtered = next.workload.filter((q) => q.table === t.name && q.kind === 'read').flatMap((q) => q.where.filter((c) => has(t, c)))[0];
+      const key = filtered ?? t.columns.find((c) => c.primary)?.name;
+      if (key) {
+        notes.push(`partitioned ${t.name} by ${key}`);
+        t.partitionBy = key;
+      } else {
+        delete t.partitionBy;
+        delete t.partitions;
+      }
+    }
+  }
+  const workload = next.workload.filter((q) => table(q.table));
+  if (workload.length < next.workload.length) notes.push('dropped queries on tables that don’t exist');
+  next.workload = workload;
+  for (const q of next.workload) {
+    const t = table(q.table);
+    const where = q.where.filter((c) => has(t, c));
+    const joins = q.joins.filter((j) => has(t, j.local) && has(table(j.table), j.foreign));
+    if (where.length < q.where.length || joins.length < q.joins.length) notes.push(`dropped ${q.name}'s filters and joins on columns that don't exist`);
+    q.where = where;
+    q.joins = joins;
+  }
+  return notes.length ? { spec: next, notes } : null;
+}
+
 function hypotheses(spec: DatabaseSpec): Hypothesis[] {
   const out: Hypothesis[] = [];
   for (const query of spec.workload) {
@@ -312,5 +385,6 @@ Give every entity the user names or describes its own table, including link tabl
     spec: buildSchema,
     hypotheses,
     recoveries,
+    mend,
   },
 };

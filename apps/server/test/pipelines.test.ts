@@ -306,16 +306,24 @@ describe('agent pipelines', () => {
 
   it('refuses a design that still fails the checks after repairs', async () => {
     process.env.GEMINI_API_KEY = 'g';
-    const bad = { tables: [{ name: 'a', rows: 1, columns: [{ name: 'id', type: 'int', references: { table: 'ghost', column: 'id' } }], indexes: [] }], workload: [] };
+    // Nothing sends traffic: no mend invents a client, so this stays broken however often it is repaired.
+    const bad = {
+      traffic: 10,
+      nodes: [
+        { id: 'api', kind: 'service' },
+        { id: 'db', kind: 'database' },
+      ],
+      edges: [{ from: 'api', to: 'db' }],
+    };
     mockFetch((_, init) =>
       String(init.body).includes('You route requests')
-        ? json(openAiReply(JSON.stringify({ domain: 'database', reason: 'r' })))
+        ? json(openAiReply(JSON.stringify({ domain: 'software', reason: 'r' })))
         : json(openAiReply(JSON.stringify({ name: 'n', summary: 's', spec: bad }))),
     );
     const { events, emit } = collect();
-    await build('a schema', emit);
+    await build('a backend', emit);
     expect(environmentOf(events)).toBeNull();
-    expect(refusalOf(events)?.reason).toContain("doesn't exist");
+    expect(refusalOf(events)?.reason).toContain('add a client');
   });
 
   it('runs the Architect on Gemini and the Red Team on Swarms, and scores claims with the simulator', async () => {

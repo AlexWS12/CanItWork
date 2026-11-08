@@ -154,26 +154,42 @@ function mend(spec: SystemSpec, issues: Issue[], stated: number[]) {
       notes.push(`ran ${name(node)} in all ${node.zones.length} of its zones`);
     }
   }
-  if (issues.some((i) => /over capacity/.test(i.message)) && topoOrder(next).length === next.nodes.length) {
+  // A loop stops the checks before they measure load, so once one is broken the load is measured here too.
+  const sizing = issues.some((i) => /over capacity/.test(i.message)) || issues.some((i) => /has a cycle/.test(i.message));
+  if (sizing && topoOrder(next).length === next.nodes.length) {
     const fitted = new Set<string>();
-    const loadOf = (spec: SystemSpec) => {
-      const run = new SystemRun(spec, 1);
+    // Each component's real demand: the traffic that reaches it when nothing upstream is a bottleneck and nothing is retried.
+    // Sizing on the load the checks see instead chases its own tail, because one failing component sets off retries that
+    // multiply the load on everything above it.
+    const demandOf = () => {
+      const open = structuredClone(next);
+      open.retries = 0;
+      for (const n of open.nodes) if (n.kind !== 'client') n.capacity = 1e9;
+      const run = new SystemRun(open, 1);
       for (let i = 0; i < 30; i++) run.step();
-      return (id: string) => run.states.get(id)?.utilization ?? 0;
+      return (id: string) => run.states.get(id)?.inflow ?? 0;
     };
+    const overloaded = () => {
+      const run = new SystemRun(next, 1);
+      for (let i = 0; i < 30; i++) run.step();
+      return next.nodes.filter((n) => n.kind !== 'client' && (run.states.get(n.id)?.utilization ?? 0) > 1);
+    };
+    // One pass sizes everything from demand; a second catches what the run's jitter and retries still tip over.
     for (let pass = 0; pass < 3; pass++) {
-      // What the checks flag is the load with retries, but it is sized on the load without them: a component past capacity has
-      // its failed calls retried, which inflates its load beyond what it needs to carry once it is big enough.
-      const flagged = loadOf(next);
-      const bare = loadOf({ ...next, retries: 0 });
-      const hot = next.nodes.filter((n) => n.kind !== 'client' && flagged(n.id) > 1);
-      if (!hot.length) break;
+      const flagged = overloaded();
+      if (!flagged.length) break;
+      const demand = demandOf();
+      // Everything whose real demand passes its capacity, not only what the checks flag: a component behind a bottleneck looks
+      // fine until the bottleneck is fixed, then fails and sets off retries all the way up.
+      const capacityOf = (n: SystemNode) => (n.replicas ?? 1) * (n.capacity ?? DEFAULT_CAPACITY[n.kind]);
+      const hot = next.nodes.filter((n) => n.kind !== 'client' && (flagged.includes(n) || demand(n.id) > capacityOf(n) * 0.9));
       for (const node of hot) {
-        const load = Math.max(bare(node.id), 0.75);
         const replicas = node.replicas ?? 1;
-        const wanted = Math.max(replicas + 1, Math.ceil((replicas * load) / 0.7));
+        const perReplica = node.capacity ?? DEFAULT_CAPACITY[node.kind];
+        const needed = (demand(node.id) * (1 + 0.1 * pass)) / 0.7;
+        const wanted = Math.max(replicas + 1, Math.ceil(needed / perReplica));
         if (node.kind !== 'external' && !said(node.replicas) && wanted <= 50) node.replicas = wanted;
-        else if (!said(node.capacity)) node.capacity = Math.ceil(((node.capacity ?? DEFAULT_CAPACITY[node.kind]) * load) / 0.7);
+        else if (!said(node.capacity)) node.capacity = Math.max(perReplica + 1, Math.ceil(needed / replicas));
         else continue;
         fitted.add(name(node));
       }
@@ -220,7 +236,7 @@ function recoveries(spec: SystemSpec, incident: Incident | undefined): RecoveryO
     patches: [{ op: 'set_retries', retries: 0 }],
   };
   if (incident?.type === 'traffic_spike') {
-    const busiest = spec.nodes.filter((n) => n.kind === 'service').map((n) => ({ op: 'scale', node: n.id, replicas: (n.replicas ?? 1) * 3 }));
+    const busiest = spec.nodes.filter((n) => n.kind === 'service').map((n) => ({ op: 'scale', node: n.id, replicas: Math.min(50, (n.replicas ?? 1) * 3) }));
     return [{ author: 'Capacity rules', title: 'Scale every service', rationale: 'Add replicas to absorb the spike.', patches: busiest }, stopRetries];
   }
   if (incident?.type === 'zone_down') {
