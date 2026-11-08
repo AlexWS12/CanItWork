@@ -29,7 +29,7 @@ Thirteen domains, each with its own simulator and 3D view.
 
 | Domain | Simulator | View |
 |---|---|---|
-| Software systems | Traffic, capacity, latency, retries, timeouts and cascading failures, with circuit breakers, rate limits and autoscaling that boots replicas under load | Racks, databases and queues with live packets |
+| Software systems | Traffic, capacity, latency, retries, timeouts and cascading failures | Racks, databases and queues with live packets |
 | Databases | Query cost, indexes, data growth, locks and broken dependencies | Table cards with keys and relationships |
 
 Paste your own file instead of describing the system: `CREATE TABLE` SQL (Postgres or MySQL dumps, with keys, indexes, `ALTER TABLE` and partitions) builds the database exactly as written, and a Docker Compose file or Kubernetes manifests build the architecture, with each service's kind read from its image and its calls from `depends_on` and connection strings. No model reads the structure; the Architect only estimates what a file can't say (row counts and queries, or traffic and capacity), keeping any number you write beside it.
