@@ -665,8 +665,9 @@ async function runCase(c: Case) {
   const env = find('environment')?.environment;
   const refusal = crash ?? find('refusal')?.refusal.reason;
   const usage = events.flatMap((e) => (e.type === 'usage' ? [e.usage] : []));
-  // Score the circuit as built: a design's building blocks expand into their real parts first.
-  const spec = env ? (DOMAINS[env.domain].compile(env.spec) as Spec) : (undefined as unknown as Spec);
+  // Score the circuit as built: an electronics design's building blocks expand into their real parts first. Only electronics:
+  // other domains compile into a different shape (a warehouse into its floor plan), which the checks don't read.
+  const spec = env ? ((env.domain === 'electronics' ? DOMAINS[env.domain].compile(env.spec) : env.spec) as Spec) : (undefined as unknown as Spec);
   const results = spec
     ? c.checks.map(([name, test]) => {
         let ok = false;

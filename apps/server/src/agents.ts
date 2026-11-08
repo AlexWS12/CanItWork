@@ -518,6 +518,25 @@ export async function build(prompt: string, emit: Emit) {
       return result;
     });
   }
+  // Whatever the repairs left, the domain may fix without a model: a loop in a flow, or an overload whose rates the user never
+  // stated. It is kept only if it leaves fewer problems, and the trace says exactly what changed.
+  if (toRepair().length && domain.rules.mend) {
+    const stated = (prompt.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+    const mended = domain.rules.mend(draft.spec, issues, stated);
+    if (mended) {
+      const candidate = { ...draft, spec: mended.spec };
+      const after = check(candidate);
+      const left = after.filter((i) => i.severity === 'error' || i.repair).length;
+      if (left < toRepair().length) {
+        await step('validator', 'simulator', 'Settling what the repairs left', async (detail) => {
+          const note = mended.notes.join('; ');
+          detail(`${note.charAt(0).toUpperCase()}${note.slice(1)}${left ? `; still open: ${after.find((i) => i.severity === 'error' || i.repair)!.message}` : ''}`);
+        });
+        draft = candidate;
+        issues = after;
+      }
+    }
+  }
   if (errorsOf().length) {
     if (cached) forget(prompt);
     emit({ type: 'refusal', refusal: { reason: `I couldn't build a valid design: ${errorsOf().slice(0, 3).join('; ')}.`, closest: id } });
