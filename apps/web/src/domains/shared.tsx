@@ -1,17 +1,54 @@
 import { isEditable, type Finding } from '@tv/core';
-import { Html } from '@react-three/drei';
+import { Grid, Html } from '@react-three/drei';
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { finishMove, moveComponent } from '../actions';
 import { plainFinding } from '../explain';
 import { reducedMotion } from '../motion';
+import { LOOK } from '../scene/look';
 import { select, useStore } from '../store';
 
 export const pick = (id: string) => (e: ThreeEvent<MouseEvent>) => {
   e.stopPropagation();
   select(id);
 };
+
+interface FloorProps {
+  width: number;
+  depth: number;
+  position?: [number, number, number];
+  cell?: number;
+  section?: number;
+  color?: string;
+  metalness?: number;
+  roughness?: number;
+  fade?: number;
+}
+
+// The floor a system stands on. Clicking it clears the selection, and the camera frames what stands on it, not the floor itself.
+export function Floor({ width, depth, position = [0, 0, 0], cell = 1, section = 5, color = LOOK.floor, metalness = 0.1, roughness = 0.85, fade = 110 }: FloorProps) {
+  const floor = useMemo(() => ({ floor: true }), []);
+  return (
+    <group position={position}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)} userData={floor}>
+        <planeGeometry args={[width, depth]} />
+        <meshStandardMaterial color={color} roughness={roughness} metalness={metalness} />
+      </mesh>
+      <Grid
+        args={[width, depth]}
+        cellSize={cell}
+        cellThickness={0.4}
+        cellColor={LOOK.grid}
+        sectionSize={section}
+        sectionThickness={0.8}
+        sectionColor={LOOK.section}
+        fadeDistance={fade}
+        userData={floor}
+      />
+    </group>
+  );
+}
 
 export function Tag({ text, tint, y = 1.1 }: { text: string; tint: string; y?: number }) {
   return (

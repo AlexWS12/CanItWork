@@ -1,11 +1,10 @@
-import { Grid } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { edgeKey, topoOrder, type SystemNode, type SystemRun, type SystemSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Movable, Tag, useArranged } from '../shared';
+import { ClaimPin, Floor, Movable, Tag, useArranged } from '../shared';
 
 const system = () => runner.run as SystemRun | null;
 const LAYER_GAP = 7;
@@ -296,11 +295,7 @@ export function Topology() {
   if (!spec) return null;
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[70, 44]} />
-        <meshStandardMaterial color="#121a29" roughness={0.6} metalness={0.3} />
-      </mesh>
-      <Grid args={[70, 44]} cellSize={1} cellThickness={0.4} cellColor="#1f2c44" sectionSize={LAYER_GAP} sectionThickness={0.8} sectionColor="#2d3f5f" fadeDistance={110} />
+      <Floor width={70} depth={44} section={LAYER_GAP} />
       <Links spec={spec} positions={positions} />
       <ZoneLegend zones={zones} z={legendZ} />
       {spec.nodes.map((node) => {

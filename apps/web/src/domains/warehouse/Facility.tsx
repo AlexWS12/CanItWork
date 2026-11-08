@@ -1,11 +1,11 @@
 import type { World } from '@tv/core';
-import { Grid } from '@react-three/drei';
+
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Floor, Tag, pick } from '../shared';
 import { COLORS, ZONE_TINTS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
@@ -346,21 +346,7 @@ export function Facility({ world }: { world: World }) {
   const size = useMemo(() => [world.cols + 1, world.rows + 1] as const, [world]);
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={size as unknown as [number, number]} />
-        <meshStandardMaterial color={COLORS.floor} metalness={0.4} roughness={0.55} />
-      </mesh>
-      <Grid
-        position={[0, 0, 0]}
-        args={size as unknown as [number, number]}
-        cellSize={1}
-        cellThickness={0.5}
-        cellColor="#2a3852"
-        sectionSize={5}
-        sectionThickness={0.9}
-        sectionColor="#3c4f74"
-        fadeDistance={80}
-      />
+      <Floor width={size[0]} depth={size[1]} color={COLORS.floor} metalness={0.4} roughness={0.55} fade={80} />
       <Outline world={world} />
       <Zones world={world} />
       <Shelves world={world} />

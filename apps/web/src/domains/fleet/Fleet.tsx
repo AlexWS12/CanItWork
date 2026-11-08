@@ -1,11 +1,11 @@
-import { Grid, Html } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import type { FleetRun, FleetSpec, FleetUnit } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Floor, Tag, pick } from '../shared';
 import './Fleet.css';
 
 // The field seen from above: units coloured by role over a coverage map that fills in as scouts sweep it, radio links between
@@ -308,11 +308,7 @@ export function Fleet() {
   const d = spec.area.depth * s;
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[w + 6, d + 6]} />
-        <meshStandardMaterial color="#0f1622" roughness={0.8} />
-      </mesh>
-      <Grid args={[w, d]} cellSize={1} cellThickness={0.3} cellColor="#1c2638" sectionSize={5} sectionThickness={0.6} sectionColor="#273449" fadeDistance={120} />
+      <Floor width={w + 6} depth={d + 6} fade={120} />
       <Coverage spec={spec} s={s} />
       <Obstacles spec={spec} s={s} />
       <Base spec={spec} s={s} />

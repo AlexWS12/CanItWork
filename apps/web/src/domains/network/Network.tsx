@@ -1,11 +1,10 @@
-import { Grid } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { linkKey, netOrder, type NetRun, type NetSpec } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { Movable, Tag, pick, useArranged } from '../shared';
+import { Floor, Movable, Tag, pick, useArranged } from '../shared';
 import { NET_STYLES, styleOf, type Shape } from './styles';
 
 const net = () => runner.run as NetRun | null;
@@ -299,7 +298,8 @@ function Links({ spec, positions, flowTint }: { spec: NetSpec; positions: Map<st
     const run = net();
     if (!run) return;
     if (runner.running) phase.current += dt * runner.speed * 0.45;
-    const peak = Math.max(EPSILON, ...[...run.links.values()].map((l) => l.flow));
+    let peak = EPSILON;
+    for (const link of run.links.values()) peak = Math.max(peak, link.flow);
     let n = 0;
     curves.forEach(({ curve, key }, i) => {
       const link = run.links.get(key);
@@ -350,11 +350,7 @@ export function Network() {
   const width = Math.max(70, positions.size * 4);
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow onClick={() => select(null)}>
-        <planeGeometry args={[width, 48]} />
-        <meshStandardMaterial color="#121a29" roughness={0.6} metalness={0.3} />
-      </mesh>
-      <Grid args={[width, 48]} cellSize={1} cellThickness={0.4} cellColor="#1f2c44" sectionSize={LAYER_GAP} sectionThickness={0.8} sectionColor="#2d3f5f" fadeDistance={110} />
+      <Floor width={width} depth={48} section={LAYER_GAP} />
       <Links spec={spec} positions={positions} flowTint={style?.flow ?? '#5eead4'} />
       {spec.nodes.map((node) => {
         const at = positions.get(node.id);
