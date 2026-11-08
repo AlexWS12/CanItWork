@@ -12,6 +12,7 @@ import { showcase } from './design-cache';
 import { admit } from './integrations/limit';
 import { hasGemini, pruneBypass } from './llm';
 import { mountRooms } from './rooms';
+import { anchor, anchorOf, solanaEnabled } from './integrations/solana';
 import { listedRuns, mountRuns, storageKind } from './runs';
 import { summary } from './spend';
 import { checkedStatus, providerStatus } from './status';
@@ -61,6 +62,25 @@ app.get('/api/auth/config', (c) => {
 });
 
 mountRuns(app);
+
+// A run's proof hash, anchored in a Solana memo: anyone can check when it existed without trusting this server.
+// Only a 64-character hex hash is accepted, and each one is written once.
+const HEX_HASH = /^[0-9a-f]{64}$/;
+app.get('/api/anchor/:hash', (c) => {
+  const found = anchorOf(c.req.param('hash'));
+  return found ? c.json(found) : c.json({ error: 'Not anchored yet' }, 404);
+});
+app.post('/api/anchor', async (c) => {
+  if (!solanaEnabled()) return c.json({ error: 'Solana anchoring is off' }, 503);
+  const { hash } = await c.req.json<{ hash?: string }>().catch(() => ({ hash: undefined }));
+  if (!hash || !HEX_HASH.test(hash)) return c.json({ error: 'That is not a proof hash' }, 400);
+  try {
+    return c.json(await anchor(hash));
+  } catch (err) {
+    console.warn('[solana] anchor failed:', (err as Error).message);
+    return c.json({ error: 'Solana did not answer, try again shortly' }, 502);
+  }
+});
 mountRooms(app);
 
 function agentStream(run: (emit: Emit) => Promise<void>) {
