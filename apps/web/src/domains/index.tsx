@@ -3,6 +3,7 @@ import type { ComponentType } from 'react';
 import { Schema, schemaExtent } from './database/Schema';
 import { Bench, benchExtent } from './electronics/Bench';
 import { Network, networkExtent } from './network/Network';
+import { Queues, queuesExtent } from './queues/Queues';
 import { Fleet } from './fleet/Fleet';
 import { Topology, topologyExtent } from './software/Topology';
 import { Warehouse } from './warehouse/Warehouse';
@@ -63,7 +64,13 @@ export const VIEWS: Record<DomainId, View> = {
     },
   },
   power: network,
-  queues: network,
+  queues: {
+    Scene: Queues,
+    camera(environment) {
+      const { width, depth } = queuesExtent(environment.spec as NetSpec);
+      return tilted(Math.max(26, width * 0.95, depth * 1.4));
+    },
+  },
   water: network,
   supply: network,
   hospital: network,
