@@ -111,6 +111,13 @@ export type ChatAction =
 
 export type StreamEvent =
   | StepEvent
+  /** Which simulator the build will use, as soon as the Interpreter decides, so the view can set the stage. */
+  | { type: 'domain'; domain: DomainId }
+  /**
+   * The design as it stands after each round (the first design, each repair, a mend), before it has passed every check.
+   * The view draws it as a blueprint; only `environment` is the design to run. `issues` is what the checks still found.
+   */
+  | { type: 'draft'; attempt: number; environment: Environment; issues: string[] }
   | { type: 'environment'; environment: Environment }
   | { type: 'refusal'; refusal: Refusal }
   | { type: 'findings'; findings: Finding[] }

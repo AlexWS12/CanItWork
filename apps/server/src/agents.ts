@@ -478,12 +478,22 @@ export async function build(prompt: string, emit: Emit) {
   const cached = await cachedDesign(prompt, step);
   const id = cached?.id ?? (await interpret(prompt, emit, step));
   if (!id) return;
+  emit({ type: 'domain', domain: id });
   const domain = DOMAINS[id];
   const first = cached?.draft ?? (await councilDesign(prompt, domain, emit, step)) ?? (await architect(prompt, domain, emit, step));
   if (!first) return;
   let draft = first;
 
   const check = (candidate: Draft) => domain.validate(domain.compile(candidate.spec));
+  // Each round's design goes to the view as a blueprint, so a never-seen system takes shape on screen while it is checked
+  let round = 0;
+  const sketch = (found: Issue[]) =>
+    emit({
+      type: 'draft',
+      attempt: round++,
+      environment: { domain: id, name: draft.name, summary: draft.summary, spec: draft.spec, unmodelled: draft.unmodelled },
+      issues: found.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message),
+    });
   let issues = await step('validator', 'simulator', 'Checking the design', async (detail) => {
     const found = check(draft);
     detail(
@@ -496,6 +506,7 @@ export async function build(prompt: string, emit: Emit) {
     );
     return found;
   });
+  sketch(issues);
   // A design from the verified cache already matched this exact request, so only fresh designs are reviewed.
   if (!cached && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
   const errorsOf = () => issues.filter((i) => i.severity === 'error').map((i) => i.message);
@@ -531,6 +542,7 @@ export async function build(prompt: string, emit: Emit) {
       );
       return result;
     });
+    if (draft !== previous) sketch(issues);
   }
   // Whatever the repairs left, the domain may fix without a model: a loop in a flow, or an overload whose rates the user never
   // stated. It is kept only if it leaves fewer problems, and the trace says exactly what changed.
@@ -550,6 +562,7 @@ export async function build(prompt: string, emit: Emit) {
         });
         draft = candidate;
         issues = after;
+        sketch(issues);
       }
     }
   }

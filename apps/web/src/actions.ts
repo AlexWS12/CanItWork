@@ -240,23 +240,63 @@ export async function fetchSpend() {
   }
 }
 
+// A draft is loaded so its view can draw it, but held still: it hasn't passed the checks, so nothing it does would mean anything yet.
+function loadDraft(environment: Environment) {
+  try {
+    runner.load(environment);
+  } catch {
+    return; // A draft too broken to compile simply isn't drawn; the next round may be
+  }
+  runner.running = false;
+  store().set({ environment, blueprint: true, environmentKey: store().environmentKey + 1, selected: null });
+}
+
+// Takes a draft off screen when the build ends without a design to run.
+function dropBlueprint() {
+  if (!store().blueprint) return;
+  runner.clear();
+  store().set({ environment: null, blueprint: false });
+}
+
 export async function buildEnvironment(prompt: string) {
-  store().set({ building: true, prompt, entities: [], domainOdds: null, steps: [], findings: [], report: null, appliedId: null, refusal: null });
+  // A new request starts on an empty stage: the last design no longer sits behind the build
+  if (useLive.getState().id) leaveLive();
+  runner.clear();
+  store().set({
+    building: true,
+    prompt,
+    environment: null,
+    stage: null,
+    blueprint: false,
+    entities: [],
+    domainOdds: null,
+    steps: [],
+    findings: [],
+    report: null,
+    appliedId: null,
+    refusal: null,
+  });
   store().addMessage({ role: 'user', text: prompt });
   try {
     await stream('/api/build', { prompt }, (event) => {
       common(event);
+      if (event.type === 'domain') store().set({ stage: event.domain });
+      if (event.type === 'draft') loadDraft(event.environment);
       if (event.type === 'environment') {
-        store().set({ entities: matchEntities(prompt, event.environment.spec) });
+        store().set({ entities: matchEntities(prompt, event.environment.spec), blueprint: false });
         loadEnvironment(event.environment);
       }
-      if (event.type === 'refusal') store().set({ refusal: event.refusal });
+      if (event.type === 'refusal') {
+        dropBlueprint();
+        store().set({ refusal: event.refusal });
+      }
       if (event.type === 'reply') reply(event.text);
     });
   } catch (error) {
     store().addMessage({ role: 'app', text: String(error) });
   }
-  store().set({ building: false });
+  dropBlueprint();
+  store().set({ building: false, stage: null });
   if (store().environment && !store().refusal) void explainRun(prompt);
 }
 

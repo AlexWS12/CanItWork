@@ -68,6 +68,58 @@ if (flag('stress')) {
   }
 }
 
+// --build: replays a build with a stubbed stream (domain, two drafts, the design), picturing each stage. No model is called.
+if (flag('build')) {
+  await page.evaluate(async () => {
+    const { environment } = await (await fetch('/api/examples/hospital')).json();
+    const first = {
+      ...environment,
+      spec: {
+        ...environment.spec,
+        nodes: environment.spec.nodes.slice(0, 4),
+        edges: environment.spec.edges.filter((e) => environment.spec.nodes.slice(0, 4).some((n) => n.id === e.to)),
+      },
+    };
+    const script = [
+      [300, { type: 'step', id: 's1', agent: 'interpreter', engine: 'jev', title: 'Identifying the domain', status: 'done', ms: 300 }],
+      [100, { type: 'domain', domain: 'hospital' }],
+      [2500, { type: 'draft', attempt: 0, environment: first, issues: ['Triage is over capacity'] }],
+      [2500, { type: 'draft', attempt: 1, environment, issues: [] }],
+      [2500, { type: 'environment', environment }],
+      [100, { type: 'done' }],
+    ];
+    const real = window.fetch.bind(window);
+    window.fetch = (url, init) => {
+      const encoder = new TextEncoder();
+      // The Explainer would spend a model call after the build; it gets an empty answer instead
+      if (String(url).includes('/api/explain'))
+        return Promise.resolve(new Response(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`), { headers: { 'content-type': 'text/event-stream' } }));
+      if (!String(url).includes('/api/build')) return real(url, init);
+      const body = new ReadableStream({
+        async start(controller) {
+          for (const [wait, event] of script) {
+            await new Promise((r) => setTimeout(r, wait));
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          }
+          controller.close();
+        },
+      });
+      return Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } }));
+    };
+    void window.__tv.actions.buildEnvironment('An emergency room on a busy night, never seen before');
+  });
+  for (const [ms, name] of [
+    [1200, 'build-1-stage'],
+    [2500, 'build-2-draft'],
+    [2500, 'build-3-repaired'],
+    [3500, 'build-4-design'],
+  ]) {
+    await page.waitForTimeout(ms);
+    await page.screenshot({ path: path.join(out, `${name}.png`) });
+    console.log(`saved ${name}`);
+  }
+}
+
 writeFileSync(path.join(out, 'stats.json'), JSON.stringify(stats, null, 2));
 await browser.close();
 console.log(`Saved to ${out}`);

@@ -224,6 +224,15 @@ describe('agent pipelines', () => {
     const environment = environmentOf(events);
     expect(environment?.domain).toBe('database');
     expect(environment?.unmodelled).toEqual(['triggers']);
+
+    // The view sees the domain first, then each round's design as a blueprint, then the design that passed
+    const kinds = events.map((e) => e.type).filter((t) => t === 'domain' || t === 'draft' || t === 'environment');
+    expect(kinds).toEqual(['domain', 'draft', 'draft', 'environment']);
+    const sketches = events.flatMap((e) => (e.type === 'draft' ? [e] : []));
+    expect(sketches.map((d) => d.attempt)).toEqual([0, 1]);
+    expect(sketches[0].issues.join()).toContain('ghost');
+    expect(sketches[1].issues).toEqual([]);
+    expect(sketches[1].environment.domain).toBe('database');
   });
 
   it('asks the Architect to fix outputs that can never turn on', async () => {

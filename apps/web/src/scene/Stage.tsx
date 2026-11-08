@@ -43,7 +43,8 @@ function clearArea(width: number, height: number) {
   const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
   const visible = (r: DOMRect | undefined) => r && r.width > 0 && r.height > 0;
   const left = rect('.panel.left');
-  const right = rect('.panel.right');
+  // While building, the agents rail covers the right of the screen instead of the right panel
+  const right = rect('.panel.right') ?? rect('.build-agents');
   const top = rect('.topbar');
   const dock = rect('.transport');
   const x0 = visible(left) && left!.right < width / 2 ? left!.right : 0;
@@ -88,6 +89,10 @@ function fit(camera: THREE.PerspectiveCamera, bounds: THREE.Box3, direction: THR
 export function Stage({ content }: { content: React.RefObject<THREE.Group> }) {
   const environment = useStore((s) => s.environment);
   const key = useStore((s) => s.environmentKey);
+  // Before any design exists, the stage the Interpreter chose is framed instead
+  const stage = useStore((s) => (s.environment ? null : s.stage));
+  // The screen layout changes when a build ends (agents rail out, panels in), so the camera refits then too
+  const building = useStore((s) => s.building);
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
   const controls = useThree((s) => s.controls) as Controls | null;
   const size = useThree((s) => s.size);
@@ -99,9 +104,10 @@ export function Stage({ content }: { content: React.RefObject<THREE.Group> }) {
 
   // Frame once the view has mounted, and again when late pieces (grow-in shelves, loaded models) have settled, unless the person moved the camera.
   useEffect(() => {
-    if (!environment) return;
+    const domain = environment?.domain ?? stage;
+    if (!domain) return;
     touched.current = false;
-    const direction = new THREE.Vector3(...VIEWS[environment.domain].direction).normalize();
+    const direction = new THREE.Vector3(...VIEWS[domain].direction).normalize();
     const frame = () => {
       if (touched.current || !content.current) return;
       const bounds = contentBounds(content.current);
@@ -136,7 +142,7 @@ export function Stage({ content }: { content: React.RefObject<THREE.Group> }) {
     };
     const timers = [80, 600, 1600].map((ms) => setTimeout(frame, ms));
     return () => timers.forEach(clearTimeout);
-  }, [key, environment === null, camera, controls, size.width, size.height]);
+  }, [key, environment === null, stage, building, camera, controls, size.width, size.height]);
 
   // Any hand on the camera stops reframing and the idle orbit
   useEffect(() => {

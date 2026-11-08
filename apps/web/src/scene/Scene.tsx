@@ -8,6 +8,7 @@ import { VIEWS } from '../domains';
 import { reducedMotion } from '../motion';
 import { runner } from '../runner';
 import { useStore } from '../store';
+import { BlueprintLook, EmptyStage } from './Blueprint';
 import { Stage, framingOffset } from './Stage';
 
 // Hands the renderer to the development tools that capture and measure the canvas.
@@ -56,7 +57,11 @@ export function Scene() {
       <Clock />
       {import.meta.env.DEV && <DevRenderer content={content} />}
       <ViewShift />
-      <group ref={content}>{View && <View key={`${key}:${rebuilds}`} />}</group>
+      <group ref={content}>
+        {View && <View key={`${key}:${rebuilds}`} />}
+        <EmptyStage />
+      </group>
+      <BlueprintLook />
       <OrbitControls makeDefault enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} />
       {/* The composer renders the scene, so it carries the anti-aliasing; the canvas's own would be lost */}
       <EffectComposer multisampling={4}>
