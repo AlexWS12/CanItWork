@@ -36,6 +36,8 @@ export const QuerySchema = z.object({
   where: z.array(z.string()).default([]),
   joins: z.array(z.object({ table: z.string(), local: z.string(), foreign: z.string() })).default([]),
   perSecond: z.number().positive().max(100000),
+  // How many times the app runs it for one request: above 1 is an N+1 loop, one query per row of an earlier result.
+  repeats: z.number().int().min(1).max(1000).optional(),
 });
 export type Query = z.infer<typeof QuerySchema>;
 
@@ -43,6 +45,8 @@ export const DatabaseSpecSchema = z.object({
   tables: z.array(TableSchema).min(1).max(16),
   workload: z.array(QuerySchema).max(20).default([]),
   replicas: z.number().int().min(0).max(8).optional(),
+  // Connections the app may hold to each database node at once.
+  pool: z.number().int().min(5).max(10000).optional(),
 });
 export type DatabaseSpec = z.infer<typeof DatabaseSpecSchema>;
 
@@ -52,6 +56,15 @@ export const DatabasePatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('archive_rows'), table: z.string(), fraction: z.number().min(0.05).max(0.95) }),
   z.object({ op: z.literal('restore_column'), table: z.string(), column: z.string() }),
   z.object({ op: z.literal('unlock_table'), table: z.string() }),
+  z.object({ op: z.literal('set_pool'), size: z.number().int().min(5).max(10000) }),
+  z.object({ op: z.literal('add_pooler') }),
+  z.object({ op: z.literal('recycle_connections') }),
+  z.object({ op: z.literal('reads_to_primary') }),
+  z.object({ op: z.literal('resync_replica') }),
+  z.object({ op: z.literal('batch_query'), query: z.string() }),
   z.object({ op: z.literal('repartition'), table: z.string(), partitions: z.number().int().min(1).max(32), by: z.string().optional() }),
 ]);
+/** Connections each node allows when a design doesn't say: Postgres's default max_connections. */
+export const DEFAULT_POOL = 100;
+
 export type DatabasePatch = z.infer<typeof DatabasePatchSchema>;
