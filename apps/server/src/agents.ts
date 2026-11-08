@@ -672,15 +672,19 @@ export async function recover(input: LiveState, emit: Emit) {
   const unmitigated = evaluate(domain, model, { seed, ticks, events });
   const winner = ranked[0] ?? null;
   const unit = reference.scoreLabel;
-  const fallback = winner
-    ? `${winner.title} scores ${winner.evaluation.score} ${unit}, against ${unmitigated.score} doing nothing and ${reference.score} with no incident.`
-    : 'No recovery options were available for this incident.';
-
-  let summary = fallback;
-  let headline: string | undefined;
-  let tradeoff: string | undefined;
   // Fixes this close to the best are a tie in practice, so the cheapest of them is the one to recommend
   const tolerance = Math.max(1, reference.score * 0.01);
+  // When even the best fix doesn't beat doing nothing by more than that, recommending it would make things no better, or worse.
+  const nothingHelps = Boolean(winner) && winner!.evaluation.score <= unmitigated.score + tolerance;
+  const fallback = !winner
+    ? 'No recovery options were available for this incident.'
+    : nothingHelps
+      ? `None of the ${ranked.length} fixes beats doing nothing: the best, ${winner.title}, scores ${winner.evaluation.score} ${unit} against ${unmitigated.score} doing nothing, so leave it as it is.`
+      : `${winner.title} scores ${winner.evaluation.score} ${unit}, against ${unmitigated.score} doing nothing and ${reference.score} with no incident.`;
+
+  let summary = fallback;
+  let headline: string | undefined = nothingHelps ? `Doing nothing is best: no fix beats ${unmitigated.score} ${unit.replace(/^%\s*/, '% ')}` : undefined;
+  let tradeoff: string | undefined;
   const tied = winner ? ranked.filter((c) => c.evaluation.score >= winner.evaluation.score - tolerance) : [];
   let valueId: string | null = winner?.id ?? null;
   if (winner && hasGemini()) {
@@ -698,12 +702,14 @@ export async function recover(input: LiveState, emit: Emit) {
         system: `You are the Analyst. Explain to the non-technical person who runs this system what happened and what to do, in everyday words with no simulator jargon. Use only the numbers provided.
 For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars".
 The options listed in "tied" score within a point of each other, so the result is the same in practice: pick the one with the lowest effort among them and recommend it. If doing nothing scores within a couple of points of no incident, say plainly that this problem barely hurt and a fix is optional.
+If "nothingHelps" is true, no option scores better than doing nothing: recommend leaving things as they are, say that every option scores the same as or worse than doing nothing, never describe an option as a way to recover, and set "pick" to "Do nothing".
 Reply with JSON only: {"pick":"exact title of the recommended option","headline":"one sentence recommendation, such as Add a third cashier for the rush: almost nobody walks out","summary":"two plain sentences on why the recommended option is the best choice, against the others and doing nothing","tradeoff":"one sentence on what the recommended option costs or asks of them","options":[{"title":"exact title","effort":"low|medium|high","cost":"short phrase"}]}`,
         user: JSON.stringify({
           incident,
           measure: unit,
           noIncident: reference.score,
           doNothing: unmitigated.score,
+          nothingHelps,
           tied: tied.map((c) => c.title),
           options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, rationale: c.rationale, changes: JSON.stringify(c.patches).slice(0, 400) })),
         }),
@@ -713,8 +719,9 @@ Reply with JSON only: {"pick":"exact title of the recommended option","headline"
         if (candidate) Object.assign(candidate, { effort: option.effort, cost: option.cost });
       }
       const picked = tied.find((c) => c.title === result.pick);
-      if (picked) valueId = picked.id;
-      headline = result.headline;
+      if (picked && !nothingHelps) valueId = picked.id;
+      // The rule-based headline stands when nothing helps, so a model that still names a fix can't turn it into advice.
+      headline = nothingHelps ? headline : result.headline;
       tradeoff = result.tradeoff;
       return result.summary;
     }).catch(() => fallback);
