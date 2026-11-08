@@ -7,6 +7,12 @@ import { liveLink, startLive, useLive } from '../live';
 import { VISIBILITY_LABEL, signInKeepingRun } from './Account';
 import './SharePanel.css';
 
+const SAVED_NOTE: Record<Visibility, string> = {
+  public: 'Anyone with this short link can open it.',
+  private: 'Only you can open this short link.',
+  people: 'Only you and the people you named can open this short link, once signed in.',
+};
+
 // A QR code holds about 2.9 KB at its lowest error correction; past that a phone camera can't read it reliably.
 const QR_LIMIT = 2900;
 const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/;
@@ -113,7 +119,7 @@ export function ShareButton() {
             {liveId
               ? 'Anyone who opens this invite joins the live session: they see this run and every change anyone makes, as it happens.'
               : saved
-                ? `Saved to your account. ${VISIBILITY_LABEL[saved.visibility]} can open this short link.`
+                ? `Saved to your account. ${SAVED_NOTE[saved.visibility]}`
                 : 'The link holds the whole run, so it replays tick by tick on any device and checks its proof hash.'}
           </p>
           <div className="share-actions">

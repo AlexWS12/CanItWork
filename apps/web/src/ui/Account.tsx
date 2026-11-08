@@ -187,10 +187,20 @@ export function MySystems() {
   );
 }
 
-// Shown when a saved run's link can't be opened: why, and what to do about it.
+// Shown when a saved run's link can't be opened, or a sign-in didn't finish: why, and what to do about it.
 export function LockedRunNotice() {
   const locked = useAuth((s) => s.locked);
   const account = useAuth((s) => s.account);
+  const failure = useAuth((s) => s.failure);
+  if (failure)
+    return (
+      <div className="locked-run" role="alert">
+        <p>
+          <b>Sign-in didn&apos;t finish.</b> Auth0 said: {failure}
+        </p>
+        <button onClick={() => useAuth.setState({ failure: null })}>Dismiss</button>
+      </div>
+    );
   if (!locked) return null;
   const dismiss = () => useAuth.setState({ locked: null });
   return (

@@ -22,9 +22,11 @@ interface AuthState {
   account: Account | null;
   locked: LockedRun | null;
   mySystems: boolean;
+  /** Why the last sign-in didn't finish, shown until dismissed. */
+  failure: string | null;
 }
 
-export const useAuth = create<AuthState>(() => ({ enabled: false, ready: false, account: null, locked: null, mySystems: false }));
+export const useAuth = create<AuthState>(() => ({ enabled: false, ready: false, account: null, locked: null, mySystems: false, failure: null }));
 
 let client: Auth0Client | null = null;
 // Auth0 matches its allowed URLs exactly, so the site root is sent as "http://localhost:5173" with no trailing slash.
@@ -42,11 +44,18 @@ export async function initAuth() {
       useRefreshTokens: true,
       authorizationParams: { redirect_uri: home(), scope: 'openid profile email', ...(config.audience ? { audience: config.audience } : {}) },
     });
-    // Coming back from Auth0's page: finish signing in, then put back the link that was open before.
+    // Coming back from Auth0's page: finish signing in, then put back the link that was open before. A failed sign-in
+    // comes back the same way, with the reason, and keeps the run too.
     const params = new URLSearchParams(location.search);
-    if (params.has('code') && params.has('state')) {
-      const { appState } = await client.handleRedirectCallback<{ hash?: string }>();
-      window.history.replaceState(null, '', `${location.pathname}${appState?.hash ?? ''}`);
+    if (params.has('state') && (params.has('code') || params.has('error'))) {
+      try {
+        const { appState } = await client.handleRedirectCallback<{ hash?: string }>();
+        window.history.replaceState(null, '', `${location.pathname}${appState?.hash ?? ''}`);
+      } catch (error) {
+        const hash = (error as { appState?: { hash?: string } }).appState?.hash ?? '';
+        window.history.replaceState(null, '', `${location.pathname}${hash}`);
+        useAuth.setState({ failure: params.get('error_description') ?? (error instanceof Error ? error.message : 'Sign-in did not finish') });
+      }
     }
     const user = (await client.isAuthenticated()) ? await client.getUser() : null;
     useAuth.setState({ enabled: true, ready: true, account: user ? { name: user.name ?? user.nickname, email: user.email, picture: user.picture } : null });

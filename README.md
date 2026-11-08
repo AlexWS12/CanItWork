@@ -98,7 +98,8 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 | `ARCHITECT_REPAIR_MODEL` | Model for repairing a design the Validator sent back. It falls back to `ARCHITECT_MODEL` |
 | `RATE_LIMIT_PER_HOUR` | AI builds, chats and recoveries allowed per visitor an hour on a public deploy. Cached examples never count |
 | `PORT` | API port. Defaults to 8787 |
-| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | Turn on sign-in with Auth0: the tenant domain, a Single Page Application's client ID and the API identifier. None of them is secret. Without them, sign-in stays hidden |
+| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID` | Turn on sign-in with Auth0: the tenant domain and a Single Page Application's client ID, whose allowed callback, logout and web origin URLs include where the app runs. Neither is secret. Without them, sign-in stays hidden |
+| `AUTH0_AUDIENCE` | Optional Auth0 API identifier: with it, tokens are checked locally against the tenant's keys; without it, the server asks Auth0 once per sign-in |
 | `DATABASE_URL` | Postgres connection string, such as Tiger Data's, for saved runs. Without it, runs are kept in `apps/server/.data/runs.json` |
 
 `GEMINI_API_KEY` takes several comma-separated keys and moves to the next on a quota error. If Prune's own Gemini key is out of quota or rejected, calls go direct for 10 minutes before trying Prune again. Every billed Gemini call is logged to `apps/server/.spend/ledger.jsonl`.

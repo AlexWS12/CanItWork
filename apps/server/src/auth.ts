@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from 'jose';
 
 // Sign-in through Auth0. The browser signs in with Auth0's own page and sends its access token with each request;
@@ -28,13 +29,30 @@ let testKeys: JWTVerifyGetKey | null = null;
 export function useKeysForTests(get: JWTVerifyGetKey | null) {
   testKeys = get;
   profiles.clear();
+  byToken.clear();
 }
 
 const profiles = new Map<string, { user: User; until: number }>();
+const byToken = new Map<string, { user: User | null; until: number }>();
+
+// Without an Auth0 API (no audience), Auth0 issues an access token only it can read, so the server asks Auth0 who it belongs to.
+// The answer is kept for ten minutes per token, so this costs one call per sign-in rather than one per request.
+async function userFromAuth0(domain: string, header: string): Promise<User | null> {
+  const key = createHash('sha256').update(header).digest('hex');
+  const cached = byToken.get(key);
+  if (cached && cached.until > Date.now()) return cached.user;
+  const res = await fetch(`https://${domain}/userinfo`, { headers: { authorization: header } }).catch(() => null);
+  const claims = res?.ok ? ((await res.json()) as Record<string, unknown>) : null;
+  const user = claims && typeof claims.sub === 'string' ? { sub: claims.sub, ...profileOf(claims) } : null;
+  if (byToken.size > 5000) byToken.clear();
+  byToken.set(key, { user, until: Date.now() + (user ? 10 * 60_000 : 30_000) });
+  return user;
+}
 
 export async function userFrom(header: string | undefined): Promise<User | null> {
   const config = authConfig();
   if (!config || !header?.startsWith('Bearer ')) return null;
+  if (!config.audience && !testKeys) return userFromAuth0(config.domain, header);
   try {
     if (!testKeys && keys?.domain !== config.domain) keys = { domain: config.domain, get: createRemoteJWKSet(new URL(`https://${config.domain}/.well-known/jwks.json`)) };
     const { payload } = await jwtVerify(header.slice(7), testKeys ?? keys!.get, {

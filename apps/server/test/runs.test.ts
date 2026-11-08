@@ -3,19 +3,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Hono } from 'hono';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useKeysForTests } from '../src/auth';
 import { mountRuns } from '../src/runs';
 
 const DOMAIN = 'canitwork-test.auth0.com';
 const AUDIENCE = 'https://canitwork.api';
 let sign: (claims: Record<string, unknown>) => Promise<string>;
+let localKeys: ReturnType<typeof createLocalJWKSet>;
 const dir = mkdtempSync(path.join(tmpdir(), 'runs-'));
 
 beforeAll(async () => {
   const { publicKey, privateKey } = await generateKeyPair('RS256');
   const jwk = { ...(await exportJWK(publicKey)), kid: 'test', alg: 'RS256' };
-  useKeysForTests(createLocalJWKSet({ keys: [jwk] }));
+  localKeys = createLocalJWKSet({ keys: [jwk] });
+  useKeysForTests(localKeys);
   sign = (claims) =>
     new SignJWT(claims)
       .setProtectedHeader({ alg: 'RS256', kid: 'test' })
@@ -94,6 +96,27 @@ describe('saved runs', () => {
     expect((await call('DELETE', `/api/runs/${id}`, await bob())).status).toBe(403);
     expect((await call('DELETE', `/api/runs/${id}`, await alice())).status).toBe(200);
     expect((await call('GET', `/api/runs/${id}`, await alice())).status).toBe(404);
+  });
+
+  it('without an Auth0 API, asks Auth0 who a token belongs to, and remembers the answer', async () => {
+    delete process.env.AUTH0_AUDIENCE;
+    useKeysForTests(null);
+    const userinfo = vi.fn(async (_url: string, init?: RequestInit) =>
+      new Headers(init?.headers).get('authorization') === 'Bearer opaque-token'
+        ? new Response(JSON.stringify({ sub: 'auth0|carol', email: 'carol@example.com', email_verified: true, name: 'Carol' }))
+        : new Response('Unauthorized', { status: 401 }),
+    );
+    vi.stubGlobal('fetch', userinfo);
+    try {
+      const me = await call('GET', '/api/me', 'opaque-token');
+      expect(await me.json()).toMatchObject({ sub: 'auth0|carol', email: 'carol@example.com', name: 'Carol' });
+      await call('GET', '/api/me', 'opaque-token');
+      expect(userinfo).toHaveBeenCalledTimes(1);
+      expect((await call('GET', '/api/me', 'forged-token')).status).toBe(401);
+    } finally {
+      vi.unstubAllGlobals();
+      useKeysForTests(localKeys);
+    }
   });
 
   it('turns sign-in off entirely when no Auth0 tenant is configured', async () => {
