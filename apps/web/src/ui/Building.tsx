@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { splitPrompt } from '../entities';
 import { reducedMotion } from '../motion';
 import { useStore } from '../store';
+import { Attachment, pastedFile } from './Attachment';
 import './Building.css';
 import { Wordmark } from './Wordmark';
 import { AGENT_LABEL, engineLine, stepTitle } from './labels';
@@ -40,6 +41,14 @@ function Prompt() {
     const id = setTimeout(() => setShown(shown + 1), REVEAL_MS);
     return () => clearTimeout(id);
   }, [shown, entities]);
+  // A pasted file would fill the screen, so it shows as a chip beside the person's own words
+  const file = pastedFile(prompt);
+  if (file)
+    return (
+      <div className="build-prompt build-prompt-file">
+        <Attachment file={file} expandable={false} />
+      </div>
+    );
   return (
     <p className="build-prompt">
       {splitPrompt(prompt, entities).map((piece, i) =>
