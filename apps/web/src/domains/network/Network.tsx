@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { Tag, pick } from '../shared';
+import { Movable, Tag, pick, useArranged } from '../shared';
 import { NET_STYLES, styleOf, type Shape } from './styles';
 
 const net = () => runner.run as NetRun | null;
@@ -344,7 +344,7 @@ export function Network() {
   const run = net();
   const structure = useStore.getState().structure;
   const spec = useMemo(() => (run ? ({ ...run.spec, edges: [...run.spec.edges] } as NetSpec) : null), [run, structure]);
-  const positions = useMemo(() => (spec ? networkLayout(spec) : new Map<string, THREE.Vector3>()), [spec]);
+  const positions = useArranged(useMemo(() => (spec ? networkLayout(spec) : new Map<string, THREE.Vector3>()), [spec]));
   if (!spec || !run) return null;
   const style = NET_STYLES[run.config.id];
   const width = Math.max(70, positions.size * 4);
@@ -361,11 +361,11 @@ export function Network() {
         if (!at) return null;
         const look = styleOf(run.config.id, node.kind);
         return (
-          <group key={node.id} position={at} onClick={pick(node.id)}>
+          <Movable key={node.id} id={node.id} position={at}>
             <Body shape={look.shape} tint={look.color} />
             <Status id={node.id} />
             <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3.4} />
-          </group>
+          </Movable>
         );
       })}
     </group>

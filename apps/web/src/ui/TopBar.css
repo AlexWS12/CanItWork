@@ -15,6 +15,11 @@
   scrollbar-width: none;
 }
 
+/* Joins the landing title intro (intro-in is in Landing.css) */
+:root[data-intro='playing'] .status {
+  animation: intro-in 400ms var(--ease-out) 2350ms both;
+}
+
 .wordmark {
   letter-spacing: 0.03em;
   font-weight: 600;

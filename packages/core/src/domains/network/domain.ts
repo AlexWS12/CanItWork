@@ -67,6 +67,7 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
     lostLabel: def.lostLabel,
     surge: def.surge,
     downVerb: def.downVerb,
+    tick: def.tick,
   };
   const kindNames = Object.keys(def.kinds) as [string, ...string[]];
   const role = (n: NetNode) => def.kinds[n.kind]?.role ?? 'stage';

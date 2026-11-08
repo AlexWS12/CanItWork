@@ -35,6 +35,8 @@ export interface RobotState {
   order: Order | null;
   carrying: boolean;
   failReason: 'fault' | 'battery' | null;
+  /** Taken out of service by a patch, so a repair can't bring it back. */
+  removed?: boolean;
   home: number;
   goal: number | null;
   path: number[];
@@ -245,6 +247,7 @@ export class Sim {
         const robot = this.robots.find((r) => r.id === patch.robotId);
         if (robot) {
           this.fail(robot, 'fault');
+          robot.removed = true;
           if (robot.order) robot.order.state = 'stranded';
           this.rebalanceZones();
         }
@@ -279,7 +282,7 @@ export class Sim {
       }
       case 'repair_robot': {
         const robot = this.robots.find((r) => r.id === event.robotId);
-        if (robot?.mode === 'failed') {
+        if (robot?.mode === 'failed' && !robot.removed) {
           robot.mode = 'idle';
           robot.failReason = null;
           robot.battery = Math.max(robot.battery, this.world.params.batteryCapacity * 0.5);

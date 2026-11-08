@@ -162,10 +162,10 @@ function breadboardSteps(spec: CircuitSpec) {
     steps.push(`Jumper W${i + 1}: ${where(ends[0])} to ${where(ends[1])} (${wire.from} to ${wire.to}).`);
   });
 
-  // The supply's own leads go to the rails it feeds.
-  const supplyPart = spec.parts.find((p) => layout.offBoard.includes(p.id) && (p.type === 'battery' || p.type === 'arduino'));
-  if (supplyPart) {
-    const [pos, neg] = supplyPart.type === 'battery' ? ['+ lead', '− lead'] : ['5V pin', 'GND pin'];
+  // The supply's own leads go to the rails it feeds: the same part the layout put on the rails, never a second guess at it.
+  const supplyPart = layout.source && spec.parts.find((p) => p.id === layout.source!.id);
+  if (supplyPart && layout.source) {
+    const [pos, neg] = supplyPart.type === 'battery' ? ['+ lead', '− lead'] : [`${layout.source.pos} pin`, `${layout.source.neg} pin`];
     for (const side of ['top', 'bottom'] as const) {
       const sides = [layout.railsUsed.has(`${side}+`) && `${pos} to the ${side} + rail`, layout.railsUsed.has(`${side}-`) && `${neg} to the ${side} − rail`].filter(Boolean);
       if (sides.length) steps.push(`Connect ${label(supplyPart.id)}: ${sides.join(', ')}.`);

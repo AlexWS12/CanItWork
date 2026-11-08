@@ -5,10 +5,15 @@ import { useStore } from '../store';
 import { ticks } from './labels';
 import { AccountButton } from './Account';
 import { LivePill } from './LivePill';
+import { PrunePill } from './PruneSavings';
 import { ShareButton } from './SharePanel';
+import { Wordmark } from './Wordmark';
 import './TopBar.css';
 
 const CHECK_LABEL: Record<KeyCheck, string> = { ok: 'key works', failing: 'key failing', unchecked: 'key not checked' };
+
+// Key problems stay in each chip's tooltip; ?debug spells them out on screen
+const debug = new URLSearchParams(location.search).has('debug');
 
 type Chip = [name: string, on: boolean, how: string, check: KeyCheck | undefined];
 
@@ -18,7 +23,6 @@ const chipsOf = (status: ProviderStatus | null | undefined): Chip[] =>
         ['Gemini', status.gemini !== 'off', status.gemini, status.checks?.gemini],
         ['Jev', status.typesafe, status.typesafe ? 'TypeSafe' : 'off', status.checks?.typesafe],
         ['Swarms', status.swarms, status.swarms ? 'hosted' : 'off', status.checks?.swarms],
-        ['Prune', status.prune, status.prune ? 'gateway' : 'off', status.checks?.prune],
       ]
     : [];
 
@@ -33,9 +37,9 @@ function Integrations({ variant }: { variant: 'chip' | 'dot' }) {
       {chips.map(([name, on, how, check]) => {
         const label = `${name}: ${how}${on && check ? `, ${CHECK_LABEL[check]}` : ''}`;
         return (
-          <span key={name} className={variant} data-on={on} data-check={on ? check : undefined} title={label}>
+          <span key={name} className={variant} data-on={on} data-check={on && (debug || check !== 'failing') ? check : undefined} title={label}>
             <span className="integration-name">{name}</span>
-            {on && check === 'failing' ? <span className="chip-note"> key failing</span> : <span className="sr-only">{label.slice(name.length)}</span>}
+            {on && check === 'failing' && debug ? <span className="chip-note"> key failing</span> : <span className="sr-only">{label.slice(name.length)}</span>}
           </span>
         );
       })}
@@ -68,13 +72,15 @@ export function TopBar() {
   const environment = useStore((s) => s.environment);
   const building = useStore((s) => s.building);
   const incident = useStore((s) => Boolean(s.report) && s.reportOpen);
+  const running = useStore((s) => s.telemetry.running);
   // The build screen has its own wordmark and nothing else belongs over it
   if (building) return null;
   if (!environment) {
     return (
       <div className="status">
-        <span className="wordmark">CanItWork</span>
+        <Wordmark />
         <Integrations variant="chip" />
+        <PrunePill />
         <AccountButton />
       </div>
     );
@@ -82,7 +88,8 @@ export function TopBar() {
   const domain = DOMAINS[environment.domain];
   return (
     <header className="topbar" data-incident={incident}>
-      <span className="wordmark">CanItWork</span>
+      {/* Same precedence as StatePill: an open incident, otherwise running or paused */}
+      <Wordmark state={incident ? 'incident' : running ? 'running' : 'paused'} />
       <span className="divider" aria-hidden />
       <div className="identity" title={environment.summary}>
         <b>{environment.name}</b>
@@ -91,6 +98,7 @@ export function TopBar() {
       <div className="topbar-center">
         <StatePill />
       </div>
+      <PrunePill />
       <Integrations variant="dot" />
       <LivePill />
       <ShareButton />
