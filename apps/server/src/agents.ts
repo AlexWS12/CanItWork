@@ -11,7 +11,9 @@ import {
   type Engine,
   type Environment,
   type Evaluation,
+  type Explanation,
   type Finding,
+  type Metric,
   type Hypothesis,
   type Incident,
   type RecoveryReport,
@@ -546,6 +548,21 @@ ${domain.patchDoc}`,
   );
 }
 
+const INCIDENT_WORDS: Record<string, string> = { node_down: 'Out of action', link_down: 'Connection cut', short_part: 'Short circuit', burn_part: 'Burned out' };
+
+// "node_down: espresso" as "Out of action: Espresso Machine", using the name the design gave it
+function describeIncident(domain: Domain, model: unknown, incident: Incident | undefined) {
+  if (!incident) return humanize(incident);
+  let name = incident.target;
+  try {
+    if (incident.target) name = domain.createRun(model, 1).inspect(incident.target)?.title ?? incident.target;
+  } catch {
+    // An unknown target keeps its id
+  }
+  const words = INCIDENT_WORDS[incident.type] ?? incident.type.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  return `${words}${name ? `: ${name}` : ''}`;
+}
+
 const humanize = (incident: Incident | undefined) => {
   if (!incident) return 'A recovery plan was requested';
   const words = incident.type.replace(/_/g, ' ');
@@ -567,7 +584,7 @@ export async function recover(input: LiveState, emit: Emit) {
   const step = stepper(emit);
   const incidents = events.flatMap((e) => ('incident' in e ? [e.incident] : []));
   const last = incidents[incidents.length - 1];
-  const incident = humanize(last);
+  const incident = describeIncident(domain, model, last);
   const ticks = Math.max(tick + Math.floor(domain.horizon * 0.6), domain.horizon);
   const applyAt = tick + domain.responseDelay;
 
@@ -596,27 +613,50 @@ export async function recover(input: LiveState, emit: Emit) {
     : 'No recovery options were available for this incident.';
 
   let summary = fallback;
+  let headline: string | undefined;
+  let tradeoff: string | undefined;
+  // Fixes this close to the best are a tie in practice, so the cheapest of them is the one to recommend
+  const tolerance = Math.max(1, reference.score * 0.01);
+  const tied = winner ? ranked.filter((c) => c.evaluation.score >= winner.evaluation.score - tolerance) : [];
+  let valueId: string | null = winner?.id ?? null;
   if (winner && hasGemini()) {
     summary = await step('analyst', 'gemini', 'Explaining the result', async () => {
       const result = await chatJson({
         feature: 'analyst',
-        schema: z.object({ summary: z.string() }),
+        schema: z.object({
+          summary: z.string(),
+          headline: z.string().optional(),
+          tradeoff: z.string().optional(),
+          pick: z.string().optional(),
+          options: z.array(z.object({ title: z.string(), effort: z.enum(['low', 'medium', 'high']), cost: z.string() })).optional(),
+        }),
         onUsage: onUsage(emit),
-        system:
-          'You are the Analyst. Explain in two plain sentences why the winning recovery beat the others. Use only the numbers provided. Reply with JSON only: {"summary":"..."}',
+        system: `You are the Analyst. Explain to the non-technical person who runs this system what happened and what to do, in everyday words with no simulator jargon. Use only the numbers provided.
+For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars".
+The options listed in "tied" score within a point of each other, so the result is the same in practice: pick the one with the lowest effort among them and recommend it. If doing nothing scores within a couple of points of no incident, say plainly that this problem barely hurt and a fix is optional.
+Reply with JSON only: {"pick":"exact title of the recommended option","headline":"one sentence recommendation, such as Add a third cashier for the rush: almost nobody walks out","summary":"two plain sentences on why the recommended option is the best choice, against the others and doing nothing","tradeoff":"one sentence on what the recommended option costs or asks of them","options":[{"title":"exact title","effort":"low|medium|high","cost":"short phrase"}]}`,
         user: JSON.stringify({
           incident,
           measure: unit,
           noIncident: reference.score,
           doNothing: unmitigated.score,
-          options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, metrics: c.evaluation.metrics })),
+          tied: tied.map((c) => c.title),
+          options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, rationale: c.rationale, changes: JSON.stringify(c.patches).slice(0, 400) })),
         }),
       });
+      for (const option of result.options ?? []) {
+        const candidate = ranked.find((c) => c.title === option.title);
+        if (candidate) Object.assign(candidate, { effort: option.effort, cost: option.cost });
+      }
+      const picked = tied.find((c) => c.title === result.pick);
+      if (picked) valueId = picked.id;
+      headline = result.headline;
+      tradeoff = result.tradeoff;
       return result.summary;
     }).catch(() => fallback);
   }
 
-  const report: RecoveryReport = { tick, incident, reference, unmitigated, candidates: ranked, winnerId: winner?.id ?? null, summary };
+  const report: RecoveryReport = { tick, incident, reference, unmitigated, candidates: ranked, winnerId: winner?.id ?? null, valueId, summary, headline, tradeoff };
   emit({ type: 'recovery', report });
 }
 
@@ -738,4 +778,45 @@ export function describeFailure(error: unknown) {
   if (error instanceof ShieldBlock) return error.message;
   if (error instanceof NoCredentials) return 'No credentials for that engine.';
   return shortError(error);
+}
+
+export interface ExplainInput {
+  prompt: string;
+  environment: Environment;
+  metrics: Metric[];
+  findings: Finding[];
+}
+
+// The Explainer turns the simulator's numbers and the Red Team's claims into plain words for whoever would run this system.
+// The app shows rule-based wording first, so this only upgrades it and never holds up a build.
+export async function explain(input: ExplainInput, emit: Emit) {
+  if (!hasGemini()) return;
+  const domain = DOMAINS[input.environment.domain];
+  const metrics = input.metrics.slice(0, 8).map((m) => ({ label: String(m.label).slice(0, 80), value: String(m.value).slice(0, 40) }));
+  const findings = input.findings.slice(0, 3).map((f) => ({ claim: f.claim.slice(0, 300), verdict: f.verdict, evidence: f.evidence.slice(0, 200) }));
+  const schema = z.object({
+    audience: z.string(),
+    headline: z.string(),
+    metrics: z.record(z.string(), z.string()),
+    findings: z.array(z.object({ claim: z.string(), title: z.string(), impact: z.string(), advice: z.string() })),
+  });
+  const step = stepper(emit);
+  const explanation = await step('explainer', 'gemini', 'Explaining the results in plain words', async (detail) => {
+    const result = await chatJson({
+      feature: 'explainer',
+      schema,
+      onUsage: onUsage(emit),
+      system: `You are the Explainer. A simulator modelled a ${domain.label.toLowerCase()} system that a non-technical person described. Explain the results to the person who would run this system day to day, such as a shop owner, a nurse manager or a hobbyist, in their own everyday words. Never use simulator jargon such as tick, node, incident, surge value, part ids, refuted or confirmed; name things the way the person did.
+Use only the numbers given. Reply with JSON only:
+{"audience":"who runs this, two or three words, such as bakery owner",
+"headline":"one sentence on how the system is doing right now",
+"metrics":{"<exact metric label>":"one short sentence: what this number means for them and whether higher or lower is better. It updates live, so never state or judge its current value"},
+"findings":[{"claim":"<the exact claim text>","title":"the risk in at most eight plain words","impact":"what the person would actually see happen, using the measured numbers","advice":"one practical thing they could do about it"}]}
+Give "metrics" an entry for every metric label, and "findings" one entry per claim in the same order. For a claim the simulator disproved, the impact says the design held up and the advice can be "No action needed".`,
+      user: JSON.stringify({ request: input.prompt.slice(0, 600), design: input.environment.summary.slice(0, 600), score: domain.label, metrics, findings }),
+    });
+    detail(result.audience);
+    return result;
+  }).catch(() => null);
+  if (explanation) emit({ type: 'explanation', explanation: explanation satisfies Explanation });
 }

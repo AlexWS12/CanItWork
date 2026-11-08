@@ -14,9 +14,30 @@ export interface Usage {
   routedModel: string | null;
   receipt: unknown;
   feature: string;
+  // Prune's receipt: tokens its prompt cleanup and output caps removed, the cost the call would have had without Prune, and what it did.
+  tokensSaved?: number | null;
+  costWithoutUsd?: number | null;
+  optimizations?: string[];
+  signed?: boolean;
 }
 
-export type AgentId = 'interpreter' | 'architect' | 'validator' | 'simulator' | 'redteam' | 'council' | 'editor' | 'analyst';
+// Every Gemini call this server has made, from the spend ledger, so savings outlive one page.
+export interface SpendSummary {
+  calls: number;
+  viaPrune: number;
+  direct: number;
+  tokens: number;
+  tokensSaved: number;
+  costUsd: number;
+  costWithoutUsd: number;
+  savedUsd: number;
+  cacheHits: number;
+  routed: number;
+  // Why calls skipped Prune, when they did, such as the vaulted Gemini key being rejected.
+  bypass: string | null;
+}
+
+export type AgentId = 'interpreter' | 'architect' | 'validator' | 'simulator' | 'redteam' | 'council' | 'editor' | 'analyst' | 'explainer';
 
 export interface StepEvent {
   type: 'step';
@@ -45,6 +66,9 @@ export interface Candidate {
   rationale: string;
   patches: unknown[];
   evaluation: Evaluation;
+  // The Analyst's estimate of what this fix asks of whoever runs the system
+  effort?: 'low' | 'medium' | 'high';
+  cost?: string;
 }
 
 export interface RecoveryReport {
@@ -55,6 +79,26 @@ export interface RecoveryReport {
   candidates: Candidate[];
   winnerId: string | null;
   summary: string;
+  // The Analyst's plain-language verdict and what the fix costs, when Gemini is connected
+  headline?: string;
+  tradeoff?: string;
+  // The recommended fix: the cheapest of those scoring within a point or so of the best. Null or missing means the top scorer
+  valueId?: string | null;
+}
+
+// The Explainer's plain-language reading of a run, in the words of whoever would run this system
+export interface ExplainedFinding {
+  claim: string;
+  title: string;
+  impact: string;
+  advice: string;
+}
+
+export interface Explanation {
+  audience: string;
+  headline: string;
+  metrics: Record<string, string>;
+  findings: ExplainedFinding[];
 }
 
 export interface Refusal {
@@ -70,6 +114,7 @@ export type StreamEvent =
   | { type: 'refusal'; refusal: Refusal }
   | { type: 'findings'; findings: Finding[] }
   | { type: 'recovery'; report: RecoveryReport }
+  | { type: 'explanation'; explanation: Explanation }
   | { type: 'usage'; usage: Usage }
   | { type: 'reply'; text: string; action: ChatAction }
   | { type: 'error'; message: string }

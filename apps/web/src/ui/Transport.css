@@ -66,32 +66,44 @@
 }
 
 .stat {
+  position: relative;
   display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: var(--space-2);
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-half);
   min-width: 0;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   background: var(--color-fill-subtle);
-  white-space: nowrap;
+  cursor: help;
 }
 
-.stat-text {
+.stat:hover,
+.stat:focus-visible {
+  background: var(--color-fill);
+}
+
+.stat-top {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
 }
 
 .stat b {
   font: 500 var(--text-2xl) / 1.1 var(--font-mono);
+  white-space: nowrap;
 }
 
-.stat span {
+/* The full label, on up to two lines rather than cut off */
+.stat-label {
   color: var(--color-muted);
   font-size: var(--text-xs);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .stat[data-primary='true'] b {
@@ -106,13 +118,172 @@
   color: var(--color-danger);
 }
 
-.stat .spark {
+.health {
   flex: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font: 600 10px var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-teal);
+  background: var(--color-teal-fill);
+}
+
+.health[data-health='watch'] {
+  color: var(--color-accent);
+  background: var(--color-accent-fill);
+}
+
+.health[data-health='problem'] {
+  color: var(--color-danger-soft);
+  background: var(--color-danger-fill-strong);
+}
+
+.stat .spark {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-2);
+  width: 56px;
+  height: 18px;
   color: var(--color-muted);
+  opacity: 0.7;
 }
 
 .stat[data-primary='true'] .spark {
   color: var(--color-teal);
+}
+
+/* What the number means, shown above the tile on hover or focus */
+.stat-help {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 5;
+  width: max(100%, 240px);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-solid);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  box-shadow: 0 8px 24px oklch(0% 0 0 / 0.4);
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.stat-help b {
+  display: block;
+  margin-bottom: var(--space-half);
+  font: 600 var(--text-xs) var(--font-mono);
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat:hover .stat-help,
+.stat:focus-visible .stat-help {
+  opacity: 1;
+  transform: none;
+}
+
+/* Every station behind the headline number */
+.stat-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--rule);
+}
+
+.stat-detail-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 60px 44px;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: var(--text-xs);
+}
+
+.stat-detail-row > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stat-detail-bar {
+  height: 5px;
+  border-radius: var(--radius-pill);
+  background: var(--color-fill-hover);
+  overflow: hidden;
+}
+
+.stat-detail-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-teal);
+}
+
+.stat-detail-row[data-tone='warn'] .stat-detail-bar > span {
+  background: var(--color-accent);
+}
+
+.stat-detail-row[data-tone='danger'] .stat-detail-bar > span {
+  background: var(--color-danger);
+}
+
+.stat-detail-row[data-tone='danger'] .num {
+  color: var(--color-danger-soft);
+}
+
+/* One plain sentence on how the system is doing, sitting on the dock's top edge */
+.dock-headline {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(720px, 90%);
+  margin: 0;
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-teal-line);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-opaque);
+  font-size: var(--text-md);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.dock-headline[data-health='watch'] {
+  border-color: var(--color-accent-line);
+}
+
+.dock-headline[data-health='problem'] {
+  border-color: var(--color-danger-line);
+}
+
+.health-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-teal);
+}
+
+[data-health='watch'] > .health-dot {
+  background: var(--color-accent);
+}
+
+[data-health='problem'] > .health-dot {
+  background: var(--color-danger);
 }
 
 .breakers {
@@ -152,7 +323,7 @@
   border-color: var(--color-danger);
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1100px) {
   .stat .spark {
     display: none;
   }
