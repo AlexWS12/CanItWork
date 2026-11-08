@@ -6,6 +6,7 @@ import { ticks } from './labels';
 import { AccountButton } from './Account';
 import { LivePill } from './LivePill';
 import { PrunePill } from './PruneSavings';
+import { SaveButton } from './SavePanel';
 import { ShareButton } from './SharePanel';
 import { Wordmark } from './Wordmark';
 import './TopBar.css';
@@ -140,6 +141,7 @@ export function TopBar() {
       </div>
       <StatusMenu />
       <LivePill />
+      <SaveButton />
       <ShareButton />
       <button className="new-system start-over" onClick={startOver}>
         New system

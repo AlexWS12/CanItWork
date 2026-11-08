@@ -158,6 +158,8 @@ const Sharing = z.object({
   people: z.array(z.string().trim().toLowerCase().email()).max(20).default([]),
 });
 const Body = Sharing.extend({
+  // What it is called in My systems; the system's own name when left out
+  name: z.string().trim().min(1).max(120).optional(),
   run: z.object({
     environment: z.object({ domain: z.string(), name: z.string() }).passthrough(),
     seed: z.number(),
@@ -183,13 +185,13 @@ export function mountRuns(app: Hono) {
     if (text.length > MAX_BYTES) return c.json({ error: 'This run is too large to save' }, 413);
     const parsed = Body.safeParse(JSON.parse(text || '{}'));
     if (!parsed.success) return c.json({ error: 'That is not a run' }, 400);
-    const { run, visibility, people } = parsed.data;
+    const { run, visibility, people, name } = parsed.data;
     const now = new Date().toISOString();
     const saved: SavedRun = {
       id: id(),
       owner: user.sub,
       ownerName: user.name ?? null,
-      name: run.environment.name.slice(0, 120),
+      name: name ?? run.environment.name.slice(0, 120),
       domain: run.environment.domain,
       visibility,
       people: visibility === 'people' ? people : [],
