@@ -107,6 +107,9 @@ export interface World {
   policy: Policy;
 }
 
+const CellSchema = z.object({ x: z.number().int(), y: z.number().int() });
+
+// The move ops are hand edits from the floor view. They stay out of patchDoc, so the agents keep to the fixes above.
 export const PatchSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('set_policy'),
@@ -118,6 +121,8 @@ export const PatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('remove_robot'), robotId: z.string() }),
   z.object({ op: z.literal('reassign_zone'), fromRobotId: z.string() }),
   z.object({ op: z.literal('set_demand'), orderEvery: z.number().min(1).max(200) }),
+  z.object({ op: z.literal('move_robot'), robotId: z.string(), to: CellSchema }),
+  z.object({ op: z.literal('move_shelf'), shelfId: z.string(), to: CellSchema }),
 ]);
 export type Patch = z.infer<typeof PatchSchema>;
 

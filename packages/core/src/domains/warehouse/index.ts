@@ -27,11 +27,13 @@ export class WarehouseRun implements Run {
   readonly sim: Sim;
   readonly log: TimedEvent[] = [];
 
-  constructor(
-    readonly world: World,
-    seed: number,
-  ) {
+  constructor(world: World, seed: number) {
     this.sim = new Sim(world, seed);
+  }
+
+  /** This run's own floor, which hand edits change as it goes. */
+  get world() {
+    return this.sim.world;
   }
 
   get tick() {
@@ -51,7 +53,15 @@ export class WarehouseRun implements Run {
 
   apply(patches: unknown[]) {
     this.log.push({ at: this.tick, patches });
-    this.sim.schedule({ type: 'apply_patch', at: this.tick, patches: patches as Patch[] });
+    this.sim.applyNow(patches as Patch[]);
+  }
+
+  check(patches: unknown[]) {
+    for (const patch of patches as Patch[]) {
+      const reason = this.sim.checkPatch(patch);
+      if (reason) return reason;
+    }
+    return null;
   }
 
   evaluation(): Evaluation {

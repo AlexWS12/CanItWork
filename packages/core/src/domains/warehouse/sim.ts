@@ -2,6 +2,7 @@ import { Grid, Traffic } from './planner';
 import { createRng, type Rng } from '../../rng';
 import { robotName } from './compile';
 import type { Metrics, Patch, Policy, SeriesPoint, Shelf, SimEvent, SimScenario, World } from './schema';
+import { validateWorld } from './validate';
 
 export const SERIES_STEP = 20;
 const THROUGHPUT_WINDOW = 5;
@@ -98,7 +99,9 @@ export class Sim {
   private spawnedRobots = 0;
   private shelfWeights: number[] | null;
 
-  constructor(world: World, seed: number, events: SimEvent[] = []) {
+  constructor(compiled: World, seed: number, events: SimEvent[] = []) {
+    // Hand edits move things on this run's floor, so it gets its own copy: runs compiled from one design never share a layout.
+    const world = structuredClone(compiled);
     this.shelfWeights = orderWeights(world);
     this.world = world;
     this.policy = { ...world.policy };
@@ -150,6 +153,15 @@ export class Sim {
   schedule(event: SimEvent) {
     this.pending.push(event);
     this.pending.sort((a, b) => a.at - b.at);
+  }
+
+  /**
+   * Applies patches at this tick straight away, after anything already due, so a paused floor shows an edit at once
+   * and lands it in the order a replay does.
+   */
+  applyNow(patches: Patch[]) {
+    while (this.pending.length && this.pending[0].at <= this.tick) this.applyEvent(this.pending.shift()!);
+    this.applyEvent({ type: 'apply_patch', at: this.tick, patches });
   }
 
   private cell(r: RobotState) {
@@ -259,7 +271,164 @@ export class Sim {
       case 'set_demand':
         this.orderEvery = patch.orderEvery;
         break;
+      case 'move_robot': {
+        const robot = this.robots.find((r) => r.id === patch.robotId);
+        if (robot && !this.checkPatch(patch)) this.moveRobot(robot, this.grid.idx(patch.to.x, patch.to.y));
+        break;
+      }
+      case 'move_shelf': {
+        const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+        if (shelf && !this.checkPatch(patch)) this.moveShelf(shelf, this.grid.idx(patch.to.x, patch.to.y));
+        break;
+      }
     }
+  }
+
+  /**
+   * Why a hand edit can't land on the floor as it stands, or null when it can. Applying runs the same check,
+   * so a replay refuses exactly what the live run refused.
+   */
+  checkPatch(patch: Patch): string | null {
+    if (patch.op !== 'move_robot' && patch.op !== 'move_shelf') return null;
+    const { to } = patch;
+    if (to.x < 0 || to.y < 0 || to.x >= this.world.cols || to.y >= this.world.rows) return "That's off the floor.";
+    const cell = this.grid.idx(to.x, to.y);
+    if (patch.op === 'move_robot') {
+      const robot = this.robots.find((r) => r.id === patch.robotId && !r.removed);
+      if (!robot) return `There is no robot ${patch.robotId}.`;
+      if (this.cell(robot) === cell) return null;
+      const why = this.blockedBy(cell) ?? this.keptClear(cell) ?? this.robotAt(cell, robot);
+      return why ?? this.layoutCheck(this.world, new Map([[robot.id, cell]]));
+    }
+    const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+    if (!shelf) return `There is no shelf ${patch.shelfId}.`;
+    const from = this.grid.idx(shelf.x, shelf.y);
+    if (from === cell) return null;
+    const why = this.blockedBy(cell) ?? this.keptClear(cell, shelf) ?? this.robotAt(cell);
+    if (why) return why;
+    const access = this.accessFor(shelf, cell);
+    if (!access) return 'There would be no open side to pick that shelf from.';
+    const world = structuredClone(this.world);
+    Object.assign(
+      world.shelves.find((s) => s.id === shelf.id)!,
+      { x: to.x, y: to.y, access },
+    );
+    return this.layoutCheck(world, new Map());
+  }
+
+  /** What stands on a blocked cell, as the reason nothing else can go there. */
+  private blockedBy(cell: number): string | null {
+    if (!this.grid.blocked[cell]) return null;
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const at = (c: { x: number; y: number }) => c.x === x && c.y === y;
+    const { world } = this;
+    if (world.walls.some(at)) return "That's outside the floor.";
+    if (world.shelves.some(at)) return 'A shelf already stands there.';
+    if (world.chargers.some(at)) return 'A charger stands there.';
+    if (world.conveyors.some((c) => c.path.some(at))) return 'The conveyor runs there.';
+    if (x >= world.sorter.x && y >= world.sorter.y) return 'The sorter stands there.';
+    return 'Something already stands there.';
+  }
+
+  /** Cells robots must be able to stand on to work, which nothing may cover. `shelf` may cover its own picking cell. */
+  private keptClear(cell: number, shelf?: Shelf): string | null {
+    const { world } = this;
+    const here = (c: { x: number; y: number }) => this.grid.idx(c.x, c.y) === cell;
+    if (world.shelves.some((s) => s !== shelf && here(s.access))) return 'Robots pick a shelf from there.';
+    if (world.chargers.some((c) => here(c.bay))) return 'Robots charge there.';
+    if (world.conveyors.some((c) => c.stations.some(here))) return 'Robots load the conveyor there.';
+    if (here(world.sorter.bypass)) return 'Robots hand packages to the sorter there.';
+    return null;
+  }
+
+  private robotAt(cell: number, except?: RobotState): string | null {
+    for (const r of this.robots) {
+      if (r === except || r.removed) continue;
+      if (this.cell(r) === cell) return `${r.name} is standing there.`;
+      if (r.home === cell) return `${r.name} parks there.`;
+    }
+    return null;
+  }
+
+  /**
+   * Where a shelf placed on `cell` is picked from: the side it faces now if that's open, else the first open side.
+   * Its old cell counts as open, since the shelf leaves it.
+   */
+  private accessFor(shelf: Shelf, cell: number): { x: number; y: number } | null {
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const from = this.grid.idx(shelf.x, shelf.y);
+    const facing = { x: x + shelf.access.x - shelf.x, y: y + shelf.access.y - shelf.y };
+    const sides = [facing, { x: x - 1, y }, { x: x + 1, y }, { x, y: y - 1 }, { x, y: y + 1 }];
+    return (
+      sides.find((side) => {
+        if (side.x < 0 || side.y < 0 || side.x >= this.world.cols || side.y >= this.world.rows) return false;
+        const c = this.grid.idx(side.x, side.y);
+        if (this.grid.blocked[c] && c !== from) return false;
+        return !this.keptClear(c, shelf) && !this.robots.some((r) => !r.removed && r.home === c);
+      }) ?? null
+    );
+  }
+
+  /**
+   * Runs the layout validator on a floor after an edit, with every robot where it stands now (or at `placed`),
+   * and returns the first problem the edit would add.
+   */
+  private layoutCheck(world: World, placed: Map<string, number>): string | null {
+    const robots = this.robots.filter((r) => !r.removed);
+    if (!robots.length) return null;
+    const cellOf = (r: RobotState) => placed.get(r.id) ?? this.cell(r);
+    const after: World = { ...world, robots: robots.map((r) => ({ id: r.id, name: r.name, home: { x: this.grid.x(cellOf(r)), y: this.grid.y(cellOf(r)) } })) };
+    const grid = new Grid(after);
+    const start = cellOf(robots[0]);
+    // A robot must still reach where it parks; the validator only sees where each one stands.
+    for (const r of robots) {
+      const home = placed.get(r.id) ?? r.home;
+      if (!grid.reachable(cellOf(r), home) || !grid.reachable(start, cellOf(r))) return `${r.name} would be boxed in.`;
+    }
+    const before: World = { ...this.world, robots: robots.map((r) => ({ id: r.id, name: r.name, home: { x: r.x, y: r.y } })) };
+    const errors = (w: World) =>
+      validateWorld(w)
+        .filter((i) => i.severity === 'error')
+        .map((i) => i.message);
+    const known = new Set(errors(before));
+    const added = errors(after).find((message) => !known.has(message));
+    return added ? `${added}.` : null;
+  }
+
+  private moveRobot(r: RobotState, cell: number) {
+    if (r.order && !r.carrying) {
+      r.order.state = 'queued';
+      this.queue.unshift(r.order);
+      r.order = null;
+    }
+    this.releaseCharger(r);
+    r.x = r.px = this.grid.x(cell);
+    r.y = r.py = this.grid.y(cell);
+    r.home = cell;
+    r.goal = null;
+    r.timer = 0;
+    // A carrier keeps its package and picks the nearest drop from its new spot; anyone else starts afresh.
+    if (r.mode !== 'failed') {
+      r.mode = r.carrying ? 'to_drop' : 'idle';
+      r.drop = null;
+    }
+    this.resetTraffic();
+  }
+
+  private moveShelf(shelf: Shelf, cell: number) {
+    const access = this.accessFor(shelf, cell)!;
+    this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), false);
+    shelf.x = this.grid.x(cell);
+    shelf.y = this.grid.y(cell);
+    shelf.access = access;
+    this.grid.setBlocked(cell, true);
+    // Orders hold the shelf itself, so queued ones follow it; robots on their way turn to its new face.
+    for (const r of this.robots) {
+      if (r.mode === 'to_shelf' && r.order?.shelf === shelf) this.setGoal(r, this.grid.idx(access.x, access.y));
+    }
+    this.resetTraffic();
   }
 
   private freeParkingCell(): number | null {

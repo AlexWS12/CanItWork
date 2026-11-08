@@ -64,6 +64,8 @@ export interface Run {
   step(): void;
   inject(incident: Incident): void;
   apply(patches: unknown[]): void;
+  /** Why these patches can't be applied to the run as it stands, or null; for domains that check hand edits. */
+  check?(patches: unknown[]): string | null;
   evaluation(): Evaluation;
   telemetry(): Metric[];
   breakables(): Breakable[];
