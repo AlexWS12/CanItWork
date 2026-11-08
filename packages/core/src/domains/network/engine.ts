@@ -4,6 +4,8 @@ import { linkKey, netOrder, type KindDef, type NetEdge, type NetNode, type NetPa
 
 const SERIES_STEP = 5;
 const TRIP_TICKS = 3;
+/** How far past its rating a line must be asked to carry before its protection trips it. */
+const TRIP_MARGIN = 0.1;
 const SMOOTHING = 0.15;
 const EPS = 1e-6;
 const BACKUP = 0.6;
@@ -437,14 +439,15 @@ export class NetRun implements Run {
     }
 
     if (this.config.trips) {
-      // A line at its rating while the area it feeds is still short is overloaded; held for a few ticks, it trips.
+      // A line at its rating while the area it feeds still wants well over that rating is overloaded; held for a few ticks, it trips.
+      // Running right at the rating is only a bottleneck, so a shortfall under TRIP_MARGIN of the rating leaves the line closed.
       for (const edge of this.spec.edges) {
         const link = this.links.get(linkKey(edge))!;
         if (!edge.capacity || link.down) continue;
         const target = this.node(edge.to);
         const state = this.states.get(edge.to)!;
         const short = target && this.role(target) === 'sink' ? state.demand - state.served : (this.need.get(edge.to) ?? 0);
-        link.overload = link.flow >= edge.capacity * 0.999 && short > 0.5 && served < wanted * 0.995 ? link.overload + 1 : 0;
+        link.overload = link.flow >= edge.capacity * 0.999 && short > Math.max(0.5, edge.capacity * TRIP_MARGIN) && served < wanted * 0.995 ? link.overload + 1 : 0;
         if (link.overload >= TRIP_TICKS) {
           link.down = true;
           link.tripped = true;
@@ -508,7 +511,14 @@ export class NetRun implements Run {
     switch (patch.op) {
       case 'scale': {
         const node = this.node(patch.node);
-        if (node) node.count = patch.count;
+        if (!node) break;
+        const before = node.count ?? 1;
+        node.count = patch.count;
+        // In flow mode a stage's links carry what it handles (more gates bring more taxi capacity), so they widen in proportion,
+        // or a capped link would hold the bigger stage to its old throughput. Grid lines keep their rating.
+        if (this.config.mode === 'flow' && before > 0) {
+          for (const edge of this.spec.edges) if (edge.capacity && (edge.from === node.id || edge.to === node.id)) edge.capacity *= patch.count / before;
+        }
         break;
       }
       case 'restore': {

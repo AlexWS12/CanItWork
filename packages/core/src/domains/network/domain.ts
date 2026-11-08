@@ -70,9 +70,13 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
   };
   const kindNames = Object.keys(def.kinds) as [string, ...string[]];
   const role = (n: NetNode) => def.kinds[n.kind]?.role ?? 'stage';
-  const steady = (spec: NetSpec) => {
+  const steady = (spec: NetSpec, incident?: Incident) => {
     const run = new NetRun(config, spec, 1);
     for (let i = 0; i < 20; i++) run.step();
+    if (incident) {
+      run.inject(incident);
+      for (let i = 0; i < 20; i++) run.step();
+    }
     return run;
   };
 
@@ -231,7 +235,11 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
       out.push({ author: 'Operations rules', title: 'Restore the link', rationale: 'Re-close it once the fault is clear.', patches: [{ op: 'restore_link', from, to }] });
       if (shed) out.push(shed);
     } else if (incident?.type === 'surge') {
-      const hot = spec.nodes.filter((n) => role(n) === 'stage' && run.states.get(n.id)!.utilization > 0.7);
+      // Judge what runs hot during the surge itself: a stage with room to spare on a normal day can be the one that overflows.
+      const surging = steady(spec, incident);
+      const hot = spec.nodes
+        .filter((n) => role(n) === 'stage' && surging.states.get(n.id)!.utilization > 0.7)
+        .sort((a, b) => surging.states.get(b.id)!.utilization - surging.states.get(a.id)!.utilization);
       if (hot.length)
         out.push({
           author: 'Capacity rules',
@@ -239,6 +247,19 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
           rationale: 'Double what is already running hot.',
           patches: hot.map((n) => ({ op: 'scale', node: n.id, count: Math.min(100, (n.count ?? 1) * 2) })),
         });
+      // Where demand is scored, the peak can outrun supply: bring one more unit online at the source with the most unused line room.
+      if (def.mode === 'demand') {
+        const room = (n: NetNode) =>
+          spec.edges.filter((e) => e.from === n.id).reduce((sum, e) => sum + (e.capacity ? Math.max(0, e.capacity - surging.links.get(linkKey(e))!.flow) : Infinity), 0);
+        const reserve = spec.nodes.filter((n) => role(n) === 'source' && !surging.states.get(n.id)!.down && room(n) > 0).sort((a, b) => room(b) - room(a))[0];
+        if (reserve)
+          out.push({
+            author: 'Capacity rules',
+            title: def.words.scale(name(reserve)),
+            rationale: 'Bring a reserve unit online to cover the peak.',
+            patches: [{ op: 'scale', node: reserve.id, count: Math.min(100, (reserve.count ?? 1) + 1) }],
+          });
+      }
       // Turning arrivals away counts against a flow score, so only offer shedding where demand is what's scored.
       if (shed && def.mode === 'demand') out.push(shed);
       const store = storeFor(run, spec);

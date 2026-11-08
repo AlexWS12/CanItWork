@@ -494,7 +494,12 @@ export class CircuitRun implements Run {
   private act(action: Action) {
     if ('show' in action) this.texts.set(action.show, this.format(action.text));
     else if ('set' in action) this.vars.set(action.set, this.calc(action.to));
-    else this.pinStates.set(action.pin, { mode: action.mode, value: action.value === undefined ? undefined : this.calc(action.value), period: action.period });
+    else {
+      // A dead sensor reads NaN; a pin computed from it holds its last value, as a servo holds its angle, rather than driving NaN volts.
+      const computed = action.value === undefined ? undefined : this.calc(action.value);
+      const value = computed === undefined || Number.isFinite(computed) ? computed : (this.pinStates.get(action.pin)?.value ?? 0);
+      this.pinStates.set(action.pin, { mode: action.mode, value, period: action.period });
+    }
   }
 
   private runProgram() {
@@ -837,7 +842,9 @@ export class CircuitRun implements Run {
             const bottom = at(pin(amp.low)) + amp.headroom;
             const wanted = at(pin(amp.low)) + amp.gain * (at(pin(amp.plus)) - at(pin(amp.minus)));
             const now = this.ampState.get(key) ?? 'linear';
-            const next = wanted > top ? 'high' : wanted < bottom ? 'low' : 'linear';
+            // Leaving one rail, try the linear region before the other rail: with feedback (a follower), jumping rail to rail
+            // flips for ever, so an op-amp that once saturated, such as while an input wire was loose, never settled back.
+            const next = wanted > top ? (now === 'low' ? 'linear' : 'high') : wanted < bottom ? (now === 'high' ? 'linear' : 'low') : 'linear';
             if (next !== now) {
               this.ampState.set(key, next);
               changed = true;
