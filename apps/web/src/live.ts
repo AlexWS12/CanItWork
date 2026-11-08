@@ -203,7 +203,7 @@ function handle(message: Message) {
     case 'event':
       if (!room) return;
       room.events.push(message.event);
-      runner.catchUp(room.environment, room.seed, room.events, message.event.at + 1);
+      runner.receive(room.environment, room.seed, room.events, message.event);
       // A fix is announced by the agent event that comes with it ("Ana applied: ..."), so only breaks and flips get a note here.
       if ('patches' in message.event) useStore.getState().bumpStructure();
       else note(`${message.by.name} ${describe(message.event)}.`);
