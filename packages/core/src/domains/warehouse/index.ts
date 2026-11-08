@@ -100,16 +100,18 @@ export class WarehouseRun implements Run {
       return {
         title: robot.name,
         rows: [
-          ['State', robot.mode.replace('_', ' ')],
+          ['State', robot.removed ? 'removed' : robot.mode.replace('_', ' ')],
           ['Battery', `${Math.round((robot.battery / world.params.batteryCapacity) * 100)}%`],
           ['Shelves owned', zone],
           ['Carrying', robot.carrying ? `Order ${robot.order?.id}` : 'Nothing'],
         ],
-        actions: [
-          failed
-            ? { label: 'Repair robot', incident: { type: 'repair_robot', target }, destructive: false }
-            : { label: 'Fail this robot', incident: { type: 'fail_robot', target }, destructive: true },
-        ],
+        actions: robot.removed
+          ? []
+          : [
+              failed
+                ? { label: 'Repair robot', incident: { type: 'repair_robot', target }, destructive: false }
+                : { label: 'Fail this robot', incident: { type: 'fail_robot', target }, destructive: true },
+            ],
       };
     }
     const belt = sim.belts.find((b) => b.id === target);

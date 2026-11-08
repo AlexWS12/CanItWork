@@ -34,6 +34,16 @@ export function validateWorld(world: World): Issue[] {
   const start = grid.idx(world.robots[0].home.x, world.robots[0].home.y);
   const reach = (x: number, y: number) => grid.reachable(start, grid.idx(x, y));
 
+  // Every robot, not just the first, must start on an open cell joined to the rest of the floor.
+  const onFloor = (x: number, y: number) => x >= 0 && y >= 0 && x < world.cols && y < world.rows;
+  const stuck = world.robots.filter((r) => !onFloor(r.home.x, r.home.y) || grid.blocked[grid.idx(r.home.x, r.home.y)] || !reach(r.home.x, r.home.y));
+  if (stuck.length) {
+    issues.push({ severity: 'error', message: `${stuck.map((r) => r.id).join(', ')} start${stuck.length === 1 ? 's' : ''} somewhere it can't move from` });
+  }
+  if (world.robots.length < world.spec.robots) {
+    issues.push({ severity: 'warning', message: `Only ${world.robots.length} of ${world.spec.robots} robots fit on this floor` });
+  }
+
   const unreachableShelves = world.shelves.filter((s) => !reach(s.access.x, s.access.y));
   if (unreachableShelves.length) {
     issues.push({ severity: 'error', message: `${unreachableShelves.length} shelves can't be reached` });
