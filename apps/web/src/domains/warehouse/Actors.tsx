@@ -209,9 +209,7 @@ export function Actors({ world }: { world: World }) {
   const count = warehouseSim()?.robots.length ?? 0;
   return (
     <group>
-      {Array.from({ length: count }, (_, i) => (
-        <Robot key={i} world={world} index={i} />
-      ))}
+      {Array.from({ length: count }, (_, i) => (warehouseSim()?.robots[i]?.gone ? null : <Robot key={i} world={world} index={i} />))}
       <Cargo world={world} />
     </group>
   );

@@ -10,7 +10,10 @@ export function Warehouse() {
   const run = runner.run as WarehouseRun | null;
   const structure = useStore.getState().structure;
   // Hand edits move things on the run's floor in place, so each change gets a fresh copy for the view to redraw from.
-  const world = useMemo(() => (run ? { ...run.world, shelves: run.world.shelves.map((s) => ({ ...s })) } : null), [run, structure]);
+  const world = useMemo(
+    () => (run ? { ...run.world, shelves: run.world.shelves.map((s) => ({ ...s })), chargers: run.world.chargers.map((c) => ({ ...c })) } : null),
+    [run, structure],
+  );
   if (!world) return null;
   return (
     <>

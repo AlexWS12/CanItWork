@@ -1,6 +1,6 @@
 import { componentIds, isEditable } from '@tv/core';
-import { useEffect } from 'react';
-import { breakThing, editComponent } from '../actions';
+import { useEffect, useState } from 'react';
+import { breakThing, editComponent, editFloor } from '../actions';
 import { runner } from '../runner';
 import { useStore } from '../store';
 import './Inspector.css';
@@ -13,6 +13,9 @@ export function Inspector() {
   const set = useStore((s) => s.set);
   const environment = useStore((s) => s.environment);
   const busy = useStore((s) => s.editing || s.chatting);
+  // Why the last hand edit from here was refused, until something else is selected
+  const [refusal, setRefusal] = useState<string | null>(null);
+  useEffect(() => setRefusal(null), [selected]);
   // Links and parts a patch added at runtime aren't in the spec, so only spec components can be edited
   const editable = Boolean(environment && selected && isEditable(environment.domain) && componentIds(environment.domain, environment.spec).includes(selected));
 
@@ -60,6 +63,28 @@ export function Inspector() {
           {action.label}
         </button>
       ))}
+      {view.edits?.length ? (
+        <div className="edit-actions floor-edits">
+          {view.edits.map((edit) => (
+            <button
+              key={edit.label}
+              className="action danger"
+              disabled={busy}
+              onClick={() => {
+                const reason = editFloor(edit.patches);
+                setRefusal(reason);
+                // A deleted thing has nothing left to inspect
+                if (!reason && !runner.run?.inspect(selected)) set({ selected: null });
+              }}
+            >
+              {edit.label}
+            </button>
+          ))}
+          <p className={refusal ? 'edit-hint edit-refusal' : 'edit-hint'} role={refusal ? 'alert' : undefined}>
+            {refusal ?? 'Drag it to move it on the floor.'}
+          </p>
+        </div>
+      ) : null}
       {editable && (
         <div className="edit-actions">
           <button className="action" disabled={busy} onClick={() => void editComponent({ op: 'duplicate', id: selected })} title={`Duplicate (${isMac ? '⌘' : 'Ctrl+'}D)`}>

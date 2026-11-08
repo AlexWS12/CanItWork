@@ -56,6 +56,8 @@ export interface Inspection {
   title: string;
   rows: Array<[string, string | number]>;
   actions: Array<{ label: string; incident: Incident; destructive: boolean }>;
+  /** Hand edits to the design as it runs, such as deleting this component; applied like any fix */
+  edits?: Array<{ label: string; patches: unknown[] }>;
 }
 
 export interface Run {

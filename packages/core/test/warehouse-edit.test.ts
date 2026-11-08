@@ -28,6 +28,7 @@ function assertSane(run: WarehouseRun, ticks: number) {
     run.step();
     const cells = new Set<string>();
     for (const r of sim.robots) {
+      if (r.gone) continue;
       const key = `${r.x},${r.y}`;
       expect(cells.has(key), `two robots on ${key} at tick ${sim.tick}`).toBe(false);
       cells.add(key);
@@ -181,5 +182,148 @@ describe('moving things on a running warehouse floor', () => {
     expect(live.sim.robots[1].mode).toBe('failed');
     for (let i = 0; i < 200; i++) live.step();
     expect(evaluate(domain, world, { seed: 1, ticks: live.tick, events: live.log })).toEqual(live.evaluation());
+  });
+});
+
+// Two chargers, so one can go; and robots that want charging early, so chargers are busy.
+const roomy = compileWorld({ ...DEFAULT_SPEC, chargers: 2, robots: 4 });
+
+function busy(ticks: number) {
+  const run = new WarehouseRun(roomy, 2);
+  run.apply([{ op: 'set_policy', chargeThreshold: 0.8 }]);
+  for (let i = 0; i < ticks; i++) run.step();
+  return run;
+}
+
+function until(run: WarehouseRun, found: () => boolean, limit = 2000) {
+  for (let i = 0; i < limit && !found(); i++) run.step();
+  expect(found()).toBe(true);
+}
+
+describe('moving chargers and deleting things on a running floor', () => {
+  it('moves a charger: robots on their way follow it, and one plugged in unplugs and finds a charger again', () => {
+    const run = busy(0);
+    until(run, () => run.sim.robots.some((r) => r.mode === 'to_charger'));
+    const coming = run.sim.robots.find((r) => r.mode === 'to_charger')!;
+    const charger = run.world.chargers[coming.charger];
+    const to = openCell(run, charger, (to) => ({ op: 'move_charger', chargerId: charger.id, to }), { x: charger.x + 2, y: charger.y + 4 });
+    run.apply([{ op: 'move_charger', chargerId: charger.id, to }]);
+    expect([charger.x, charger.y]).toEqual([to.x, to.y]);
+    expect(run.sim.grid.blocked[run.sim.grid.idx(to.x, to.y)]).toBe(1);
+    expect(Math.abs(charger.bay.x - to.x) + Math.abs(charger.bay.y - to.y)).toBe(1);
+    expect(coming.goal).toBe(run.sim.grid.idx(charger.bay.x, charger.bay.y));
+
+    until(run, () => run.sim.robots.some((r) => r.mode === 'charging'));
+    const plugged = run.sim.robots.find((r) => r.mode === 'charging')!;
+    const station = run.world.chargers[plugged.charger];
+    const spot = openCell(run, station, (to) => ({ op: 'move_charger', chargerId: station.id, to }), { x: station.x + 3, y: station.y });
+    run.apply([{ op: 'move_charger', chargerId: station.id, to: spot }]);
+    expect(plugged.mode).toBe('idle');
+    expect(plugged.charger).toBe(-1);
+    assertSane(run, 600);
+    expect(run.sim.robots.filter((r) => r.mode === 'failed')).toEqual([]);
+  });
+
+  it('refuses a charger move onto anything that stands or works there', () => {
+    const run = busy(10);
+    const charger = run.world.chargers[0];
+    const shelf = run.world.shelves[0];
+    const to = (cell: Cell): Patch => ({ op: 'move_charger', chargerId: charger.id, to: { x: cell.x, y: cell.y } });
+    expect(run.check([to(shelf)])).toMatch(/shelf already stands/);
+    expect(run.check([to(shelf.access)])).toMatch(/pick a shelf from there/);
+    expect(run.check([to(run.world.chargers[1].bay)])).toMatch(/charge there/);
+    expect(run.check([to(run.world.sorter.bypass)])).toMatch(/sorter there/);
+  });
+
+  it('deletes a robot: its unpicked order goes back, it leaves the floor, and the others carry on', () => {
+    const run = busy(0);
+    until(run, () => run.sim.robots.some((r) => r.mode === 'to_shelf'));
+    const robot = run.sim.robots.find((r) => r.mode === 'to_shelf')!;
+    const order = robot.order!;
+    const where = { x: robot.x, y: robot.y };
+    run.apply([{ op: 'delete_robot', robotId: robot.id }]);
+    expect(robot.gone).toBe(true);
+    expect(order.state).toBe('queued');
+    expect(run.sim.queue).toContain(order);
+    expect(run.inspect(robot.id)).toBeNull();
+    expect(run.telemetry().find((m) => m.label === 'robots online')?.value).toBe('3/3');
+    expect([...run.sim.shelfOwner.values()]).not.toContain(robot.id);
+    // Its old cell is free for anyone else.
+    const other = run.sim.robots.find((r) => !r.gone)!;
+    expect(run.check([{ op: 'move_robot', robotId: other.id, to: where }])).toBeNull();
+    const before = run.sim.delivered;
+    assertSane(run, 800);
+    expect(run.sim.delivered).toBeGreaterThan(before);
+  });
+
+  it('keeps at least one robot, shelf and charger', () => {
+    const run = busy(5);
+    const robots = run.sim.robots.map((r) => r.id);
+    for (const id of robots.slice(1)) run.apply([{ op: 'delete_robot', robotId: id }]);
+    expect(run.check([{ op: 'delete_robot', robotId: robots[0] }])).toMatch(/at least one robot/);
+    run.apply([{ op: 'delete_charger', chargerId: run.world.chargers[0].id }]);
+    expect(run.check([{ op: 'delete_charger', chargerId: run.world.chargers[0].id }])).toMatch(/at least one charger/);
+    while (run.world.shelves.length > 1) run.apply([{ op: 'delete_shelf', shelfId: run.world.shelves[0].id }]);
+    expect(run.check([{ op: 'delete_shelf', shelfId: run.world.shelves[0].id }])).toMatch(/at least one shelf/);
+    expect(run.check([{ op: 'delete_shelf', shelfId: 'S999' }])).toMatch(/no shelf S999/);
+    assertSane(run, 300);
+  });
+
+  it('deletes a shelf: its unpicked orders are cancelled and leave the backlog, picked ones still go out', () => {
+    const run = busy(0);
+    until(run, () => run.sim.robots.some((r) => r.mode === 'to_shelf'));
+    const robot = run.sim.robots.find((r) => r.mode === 'to_shelf')!;
+    const shelf = robot.order!.shelf;
+    const waiting = run.sim.queue.filter((o) => o.shelf === shelf).length;
+    const backlog = run.sim.backlog();
+    run.apply([{ op: 'delete_shelf', shelfId: shelf.id }]);
+    expect(run.world.shelves).not.toContain(shelf);
+    expect(run.sim.grid.blocked[run.sim.grid.idx(shelf.x, shelf.y)]).toBe(0);
+    expect(robot.order).toBeNull();
+    expect(robot.mode).toBe('idle');
+    expect(run.sim.cancelled).toBe(waiting + 1);
+    expect(run.sim.backlog()).toBe(backlog - waiting - 1);
+    expect(run.sim.queue.some((o) => o.shelf === shelf)).toBe(false);
+    expect(run.inspect(shelf.id)).toBeNull();
+    assertSane(run, 800);
+    expect(run.sim.orders.filter((o) => o.shelf === shelf && o.state !== 'cancelled' && o.state !== 'done')).toEqual([]);
+  });
+
+  it('deletes a charger: a robot charging there looks for another, and robots on later chargers keep theirs', () => {
+    const run = busy(0);
+    until(run, () => run.sim.robots.some((r) => r.charger === 0 && r.mode === 'charging') && run.sim.robots.some((r) => r.charger === 1));
+    const first = run.sim.robots.find((r) => r.charger === 0 && r.mode === 'charging')!;
+    const second = run.sim.robots.find((r) => r.charger === 1)!;
+    const kept = run.world.chargers[1];
+    const removed = run.world.chargers[0];
+    run.apply([{ op: 'delete_charger', chargerId: removed.id }]);
+    expect(run.world.chargers).toEqual([kept]);
+    expect(run.sim.chargers.map((c) => c.id)).toEqual([kept.id]);
+    expect(run.sim.grid.blocked[run.sim.grid.idx(removed.x, removed.y)]).toBe(0);
+    expect(first.charger).toBe(-1);
+    expect(first.mode).toBe('idle');
+    expect(second.charger).toBe(0);
+    expect(run.sim.chargers[0].claimedBy).toBe(second.id);
+    assertSane(run, 800);
+  });
+
+  it('replays moves and deletes to the same result, and never changes the compiled design', () => {
+    const before = JSON.stringify(roomy);
+    const live = busy(150);
+    const charger = live.world.chargers[1];
+    const to = openCell(live, charger, (to) => ({ op: 'move_charger', chargerId: charger.id, to }), { x: charger.x + 3, y: charger.y + 3 });
+    live.apply([{ op: 'move_charger', chargerId: charger.id, to }]);
+    for (let i = 0; i < 80; i++) live.step();
+    live.apply([{ op: 'delete_robot', robotId: 'R2' }]);
+    for (let i = 0; i < 80; i++) live.step();
+    live.apply([{ op: 'delete_shelf', shelfId: 'S7' }]);
+    live.apply([{ op: 'delete_charger', chargerId: live.world.chargers[0].id }]);
+    // Refused, and refused the same way in the replay.
+    live.apply([{ op: 'delete_charger', chargerId: live.world.chargers[0].id }]);
+    for (let i = 0; i < 400; i++) live.step();
+
+    const replay = evaluate(domain, roomy, { seed: 2, ticks: live.tick, events: live.log });
+    expect(replay).toEqual(live.evaluation());
+    expect(JSON.stringify(roomy)).toBe(before);
   });
 });

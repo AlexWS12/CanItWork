@@ -1,7 +1,7 @@
 import { Grid, Traffic } from './planner';
 import { createRng, type Rng } from '../../rng';
 import { robotName } from './compile';
-import type { Metrics, Patch, Policy, SeriesPoint, Shelf, SimEvent, SimScenario, World } from './schema';
+import type { Cell, Charger, Metrics, Patch, Policy, SeriesPoint, Shelf, SimEvent, SimScenario, World } from './schema';
 import { validateWorld } from './validate';
 
 export const SERIES_STEP = 20;
@@ -13,7 +13,7 @@ const LOW_BATTERY = 0.08;
 
 export type RobotMode = 'idle' | 'to_shelf' | 'picking' | 'to_drop' | 'dropping' | 'to_charger' | 'charging' | 'to_home' | 'failed';
 
-export type OrderState = 'queued' | 'assigned' | 'carried' | 'belt' | 'sorting' | 'chute' | 'done' | 'stranded';
+export type OrderState = 'queued' | 'assigned' | 'carried' | 'belt' | 'sorting' | 'chute' | 'done' | 'stranded' | 'cancelled';
 
 export interface Order {
   id: number;
@@ -38,6 +38,8 @@ export interface RobotState {
   failReason: 'fault' | 'battery' | null;
   /** Taken out of service by a patch, so a repair can't bring it back. */
   removed?: boolean;
+  /** Deleted by hand: off the floor entirely, so it neither works nor stands in anyone's way. */
+  gone?: boolean;
   home: number;
   goal: number | null;
   path: number[];
@@ -84,6 +86,8 @@ export class Sim {
 
   tick = 0;
   delivered = 0;
+  /** Orders whose shelf was deleted before anyone picked them; they leave the backlog. */
+  cancelled = 0;
   demandFactor = 1;
   orderEvery: number;
 
@@ -168,6 +172,10 @@ export class Sim {
     return this.grid.idx(r.x, r.y);
   }
 
+  backlog() {
+    return this.orders.length - this.delivered - this.cancelled;
+  }
+
   private live() {
     return this.robots.filter((r) => r.mode !== 'failed');
   }
@@ -175,6 +183,7 @@ export class Sim {
   private resetTraffic() {
     this.traffic.clear();
     for (const r of this.robots) {
+      if (r.gone) continue;
       r.path = [];
       r.stall = 0;
       r.retryAt = 0;
@@ -183,7 +192,7 @@ export class Sim {
   }
 
   private heldByFailed(cell: number) {
-    return this.robots.some((r) => r.mode === 'failed' && this.cell(r) === cell);
+    return this.robots.some((r) => r.mode === 'failed' && !r.gone && this.cell(r) === cell);
   }
 
   private redirectAround(cell: number) {
@@ -281,6 +290,26 @@ export class Sim {
         if (shelf && !this.checkPatch(patch)) this.moveShelf(shelf, this.grid.idx(patch.to.x, patch.to.y));
         break;
       }
+      case 'move_charger': {
+        const charger = this.world.chargers.findIndex((c) => c.id === patch.chargerId);
+        if (charger >= 0 && !this.checkPatch(patch)) this.moveCharger(charger, this.grid.idx(patch.to.x, patch.to.y));
+        break;
+      }
+      case 'delete_robot': {
+        const robot = this.robots.find((r) => r.id === patch.robotId);
+        if (robot && !this.checkPatch(patch)) this.deleteRobot(robot);
+        break;
+      }
+      case 'delete_shelf': {
+        const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+        if (shelf && !this.checkPatch(patch)) this.deleteShelf(shelf);
+        break;
+      }
+      case 'delete_charger': {
+        const charger = this.world.chargers.findIndex((c) => c.id === patch.chargerId);
+        if (charger >= 0 && !this.checkPatch(patch)) this.deleteCharger(charger);
+        break;
+      }
     }
   }
 
@@ -289,7 +318,28 @@ export class Sim {
    * so a replay refuses exactly what the live run refused.
    */
   checkPatch(patch: Patch): string | null {
-    if (patch.op !== 'move_robot' && patch.op !== 'move_shelf') return null;
+    switch (patch.op) {
+      case 'delete_robot': {
+        const robot = this.robots.find((r) => r.id === patch.robotId && !r.removed);
+        if (!robot) return `There is no robot ${patch.robotId}.`;
+        return this.robots.some((r) => r !== robot && !r.removed) ? null : 'The floor needs at least one robot.';
+      }
+      case 'delete_shelf':
+        if (!this.world.shelves.some((s) => s.id === patch.shelfId)) return `There is no shelf ${patch.shelfId}.`;
+        return this.world.shelves.length > 1 ? null : 'The floor needs at least one shelf.';
+      case 'delete_charger':
+        if (!this.world.chargers.some((c) => c.id === patch.chargerId)) return `There is no charger ${patch.chargerId}.`;
+        return this.world.chargers.length > 1 ? null : 'The floor needs at least one charger.';
+      case 'move_robot':
+      case 'move_shelf':
+      case 'move_charger':
+        return this.checkMove(patch);
+      default:
+        return null;
+    }
+  }
+
+  private checkMove(patch: Extract<Patch, { to: Cell }>): string | null {
     const { to } = patch;
     if (to.x < 0 || to.y < 0 || to.x >= this.world.cols || to.y >= this.world.rows) return "That's off the floor.";
     const cell = this.grid.idx(to.x, to.y);
@@ -300,19 +350,35 @@ export class Sim {
       const why = this.blockedBy(cell) ?? this.keptClear(cell) ?? this.robotAt(cell, robot);
       return why ?? this.layoutCheck(this.world, new Map([[robot.id, cell]]));
     }
-    const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
-    if (!shelf) return `There is no shelf ${patch.shelfId}.`;
-    const from = this.grid.idx(shelf.x, shelf.y);
-    if (from === cell) return null;
-    const why = this.blockedBy(cell) ?? this.keptClear(cell, shelf) ?? this.robotAt(cell);
-    if (why) return why;
-    const access = this.accessFor(shelf, cell);
-    if (!access) return 'There would be no open side to pick that shelf from.';
-    const world = structuredClone(this.world);
-    Object.assign(
-      world.shelves.find((s) => s.id === shelf.id)!,
-      { x: to.x, y: to.y, access },
+    if (patch.op === 'move_shelf') {
+      const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
+      if (!shelf) return `There is no shelf ${patch.shelfId}.`;
+      return this.checkPlace(shelf, shelf.access, cell, (world, access) =>
+        Object.assign(
+          world.shelves.find((s) => s.id === shelf.id)!,
+          { ...to, access },
+        ),
+      );
+    }
+    const charger = this.world.chargers.find((c) => c.id === patch.chargerId);
+    if (!charger) return `There is no charger ${patch.chargerId}.`;
+    return this.checkPlace(charger, charger.bay, cell, (world, bay) =>
+      Object.assign(
+        world.chargers.find((c) => c.id === charger.id)!,
+        { ...to, bay },
+      ),
     );
+  }
+
+  /** Whether a shelf or charger can stand on `cell`, with an open side for robots to work it from. */
+  private checkPlace(thing: Shelf | Charger, face: Cell, cell: number, place: (world: World, side: Cell) => void): string | null {
+    if (this.grid.idx(thing.x, thing.y) === cell) return null;
+    const why = this.blockedBy(cell) ?? this.keptClear(cell, thing) ?? this.robotAt(cell);
+    if (why) return why;
+    const side = this.sideFor(thing, face, cell);
+    if (!side) return 'There would be no open side for robots to reach it from.';
+    const world = structuredClone(this.world);
+    place(world, side);
     return this.layoutCheck(world, new Map());
   }
 
@@ -331,12 +397,12 @@ export class Sim {
     return 'Something already stands there.';
   }
 
-  /** Cells robots must be able to stand on to work, which nothing may cover. `shelf` may cover its own picking cell. */
-  private keptClear(cell: number, shelf?: Shelf): string | null {
+  /** Cells robots must be able to stand on to work, which nothing may cover. `own` may cover its own working cell. */
+  private keptClear(cell: number, own?: Shelf | Charger): string | null {
     const { world } = this;
     const here = (c: { x: number; y: number }) => this.grid.idx(c.x, c.y) === cell;
-    if (world.shelves.some((s) => s !== shelf && here(s.access))) return 'Robots pick a shelf from there.';
-    if (world.chargers.some((c) => here(c.bay))) return 'Robots charge there.';
+    if (world.shelves.some((s) => s !== own && here(s.access))) return 'Robots pick a shelf from there.';
+    if (world.chargers.some((c) => c !== own && here(c.bay))) return 'Robots charge there.';
     if (world.conveyors.some((c) => c.stations.some(here))) return 'Robots load the conveyor there.';
     if (here(world.sorter.bypass)) return 'Robots hand packages to the sorter there.';
     return null;
@@ -352,21 +418,21 @@ export class Sim {
   }
 
   /**
-   * Where a shelf placed on `cell` is picked from: the side it faces now if that's open, else the first open side.
-   * Its old cell counts as open, since the shelf leaves it.
+   * Where robots work a shelf or charger placed on `cell` from: the side it faces now if that's open, else the first
+   * open side. Its old cell counts as open, since it leaves it.
    */
-  private accessFor(shelf: Shelf, cell: number): { x: number; y: number } | null {
+  private sideFor(thing: Shelf | Charger, face: Cell, cell: number): Cell | null {
     const x = this.grid.x(cell);
     const y = this.grid.y(cell);
-    const from = this.grid.idx(shelf.x, shelf.y);
-    const facing = { x: x + shelf.access.x - shelf.x, y: y + shelf.access.y - shelf.y };
+    const from = this.grid.idx(thing.x, thing.y);
+    const facing = { x: x + face.x - thing.x, y: y + face.y - thing.y };
     const sides = [facing, { x: x - 1, y }, { x: x + 1, y }, { x, y: y - 1 }, { x, y: y + 1 }];
     return (
       sides.find((side) => {
         if (side.x < 0 || side.y < 0 || side.x >= this.world.cols || side.y >= this.world.rows) return false;
         const c = this.grid.idx(side.x, side.y);
         if (this.grid.blocked[c] && c !== from) return false;
-        return !this.keptClear(c, shelf) && !this.robots.some((r) => !r.removed && r.home === c);
+        return !this.keptClear(c, thing) && !this.robots.some((r) => !r.removed && r.home === c);
       }) ?? null
     );
   }
@@ -418,7 +484,7 @@ export class Sim {
   }
 
   private moveShelf(shelf: Shelf, cell: number) {
-    const access = this.accessFor(shelf, cell)!;
+    const access = this.sideFor(shelf, shelf.access, cell)!;
     this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), false);
     shelf.x = this.grid.x(cell);
     shelf.y = this.grid.y(cell);
@@ -431,10 +497,81 @@ export class Sim {
     this.resetTraffic();
   }
 
+  private moveCharger(index: number, cell: number) {
+    const charger = this.world.chargers[index];
+    const bay = this.sideFor(charger, charger.bay, cell)!;
+    this.grid.setBlocked(this.grid.idx(charger.x, charger.y), false);
+    charger.x = this.grid.x(cell);
+    charger.y = this.grid.y(cell);
+    charger.bay = bay;
+    this.grid.setBlocked(cell, true);
+    // A robot on its way follows the charger; one plugged in at the old bay unplugs and looks for a charger again.
+    for (const r of this.robots) {
+      if (r.charger !== index) continue;
+      if (r.mode === 'to_charger') this.setGoal(r, this.grid.idx(bay.x, bay.y));
+      else if (r.mode === 'charging') {
+        this.releaseCharger(r);
+        r.mode = 'idle';
+      }
+    }
+    this.resetTraffic();
+  }
+
+  private deleteRobot(robot: RobotState) {
+    // As with remove_robot, an unpicked order goes back to the queue and a carried one is stranded; then it leaves the floor.
+    this.fail(robot, 'fault');
+    robot.removed = true;
+    robot.gone = true;
+    this.resetTraffic();
+    this.rebalanceZones();
+  }
+
+  private deleteShelf(shelf: Shelf) {
+    this.world.shelves.splice(this.world.shelves.indexOf(shelf), 1);
+    this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), false);
+    this.shelfOwner.delete(shelf.id);
+    this.shelfWeights = orderWeights(this.world);
+    // Orders nobody has picked yet can't be filled any more, and a robot on its way gives up. Picked ones still go out.
+    for (const r of this.robots) {
+      if (r.order?.shelf !== shelf || r.carrying) continue;
+      r.order.state = 'cancelled';
+      this.cancelled++;
+      r.order = null;
+      if (r.mode === 'to_shelf' || r.mode === 'picking') r.mode = 'idle';
+      this.setGoal(r, null);
+    }
+    for (let i = this.queue.length - 1; i >= 0; i--) {
+      if (this.queue[i].shelf !== shelf) continue;
+      this.queue[i].state = 'cancelled';
+      this.cancelled++;
+      this.queue.splice(i, 1);
+    }
+    this.resetTraffic();
+  }
+
+  private deleteCharger(index: number) {
+    const charger = this.world.chargers[index];
+    this.world.chargers.splice(index, 1);
+    this.chargers.splice(index, 1);
+    this.grid.setBlocked(this.grid.idx(charger.x, charger.y), false);
+    // Robots hold chargers by position in the list, so those after it shift down; anyone using it looks for another.
+    for (const r of this.robots) {
+      if (r.charger > index) r.charger--;
+      else if (r.charger === index) {
+        r.charger = -1;
+        if (r.mode === 'to_charger' || r.mode === 'charging') {
+          r.mode = 'idle';
+          this.setGoal(r, null);
+        }
+      }
+    }
+    this.resetTraffic();
+  }
+
   private freeParkingCell(): number | null {
     for (let x = 0; x < this.world.cols; x++) {
       const cell = this.grid.idx(x, 0);
-      if (!this.grid.blocked[cell] && !this.traffic.parked.has(cell) && !this.robots.some((r) => this.cell(r) === cell)) {
+      if (!this.grid.blocked[cell] && !this.traffic.parked.has(cell) && !this.robots.some((r) => !r.gone && this.cell(r) === cell)) {
         return cell;
       }
     }
@@ -743,7 +880,7 @@ export class Sim {
       for (let i = 0; i < robots.length; i++) {
         if (intent[i] === here[i]) continue;
         for (let j = 0; j < robots.length; j++) {
-          if (i === j) continue;
+          if (i === j || robots[j].gone) continue;
           const sameTarget = intent[j] === intent[i] && (intent[j] === here[j] || j < i);
           const swap = here[j] === intent[i] && intent[j] === here[i];
           if (sameTarget || swap) {
@@ -836,6 +973,7 @@ export class Sim {
 
   private record() {
     for (const r of this.robots) {
+      if (r.gone) continue;
       this.robotTicks++;
       if (r.mode !== 'idle' && r.mode !== 'failed' && r.mode !== 'to_home') this.busyTicks++;
     }
@@ -846,7 +984,7 @@ export class Sim {
     this.series.push({
       t: this.tick,
       delivered: this.delivered,
-      backlog: this.orders.length - this.delivered,
+      backlog: this.backlog(),
       throughput: Math.round((gained / span) * 1000) / 10,
     });
   }
@@ -873,7 +1011,7 @@ export class Sim {
       ticks: this.tick,
       created: this.orders.length,
       delivered: this.delivered,
-      backlog: this.orders.length - this.delivered,
+      backlog: this.backlog(),
       stranded,
       avgLatency: this.delivered ? Math.round((this.latencySum / this.delivered) * 10) / 10 : 0,
       throughput: Math.round((this.delivered / Math.max(this.tick, 1)) * 1000) / 10,

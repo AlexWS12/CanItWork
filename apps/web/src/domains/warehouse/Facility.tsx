@@ -246,6 +246,8 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
   const pad = useRef<THREE.MeshBasicMaterial>(null!);
   const [x, , z] = toScene(world, charger);
   const [bx, , bz] = toScene(world, charger.bay);
+  const drag = useFloorDrag(world);
+  const grab = { id: charger.id, from: { x: charger.x, y: charger.y }, move: (to: { x: number; y: number }) => ({ op: 'move_charger', chargerId: charger.id, to }) };
 
   useFrame(({ clock }) => {
     const state = warehouseSim()?.chargers[index];
@@ -257,7 +259,7 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
   });
 
   return (
-    <group onClick={pick(charger.id)}>
+    <group onPointerDown={(e) => drag.onPointerDown(e, grab)} onPointerMove={drag.onPointerMove} onPointerUp={drag.onPointerUp} onClick={(e) => drag.onClick(e, charger.id)}>
       <ClaimPin id={charger.id} position={[x, 1.2, z]} />
       <mesh position={[x, 0.6, z]} castShadow>
         <boxGeometry args={[0.6, 1.2, 0.7]} />
