@@ -27,6 +27,7 @@ Built at SharkByte 2026.
 | Swarms | The Red Team, the Recovery Council and the optional Design Council |
 | Tiger Data | Postgres for saved runs and live sessions |
 | Auth0 | Sign-in, who may spend AI credits, and sharing runs with verified people |
+| Solana | Timestamps every shared run: its proof hash goes into a memo on the chain, so anyone can check when a result existed and that it hasn't changed since, without trusting our server |
 | Vultr | Hosting: one container serves the API and the web app ([deploy/README.md](deploy/README.md)) |
 | Kenney | CC0 3D models: people, vehicles, buildings, furniture and machines ([CREDITS](apps/web/public/models/CREDITS.md)) |
 
@@ -132,6 +133,9 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID` | Turn on sign-in with Auth0: the tenant domain and a Single Page Application's client ID, whose allowed callback, logout and web origin URLs include where the app runs. Neither is secret. Without them, sign-in stays hidden |
 | `AUTH0_AUDIENCE` | Optional Auth0 API identifier: with it, tokens are checked locally against the tenant's keys; without it, the server asks Auth0 once per sign-in |
 | `DATABASE_URL` | Postgres connection string, such as Tiger Data's, for saved runs. Without it, runs are kept in `apps/server/.data/runs.json` |
+| `SOLANA_SECRET_KEY` | The wallet that pays for Solana memos, as a JSON byte array. Fund its address once at [faucet.solana.com](https://faucet.solana.com). Without it, the server makes a wallet in `apps/server/.cache`, which is lost on redeploy |
+| `SOLANA_CLUSTER` | `devnet` (default), `testnet` or `mainnet-beta`. `SOLANA_RPC_URL` points at a different RPC node |
+| `SOLANA_ANCHOR` | `off` stops anchoring proof hashes on Solana |
 
 `GEMINI_API_KEY` takes several comma-separated keys and moves to the next on a quota error. If Prune's own Gemini key is out of quota or rejected, calls go direct for 10 minutes before trying Prune again. Every billed Gemini call is logged to `apps/server/.spend/ledger.jsonl`.
 
@@ -164,6 +168,8 @@ Agents propose and the simulators decide. Simulators are deterministic, so an en
 **Working together:** Share can start a live session. Everyone with the invite sees the same run, and every break, fix, switch flip, play and pause shows up for all of them, with who did it in the chat. The agents work for the whole room: when someone breaks the system, everyone watches the Recovery Council's steps and gets the same fix proposals, and anyone can apply one. Because the simulators are deterministic, the server only relays the action log; each browser replays it and lands on exactly the same state. Someone joining late starts from the whole log and the agents' work so far, and a screen that falls behind catches up to the session's clock. Sessions are saved with the runs (Tiger Data's Postgres when `DATABASE_URL` is set), so a server restart picks them up again for a day.
 
 **Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch. Share can also show the link as a QR code, drawn in the browser so the run never goes to an outside service.
+
+**Anchored on Solana:** sharing a run also writes its proof hash into a memo on Solana, as `canitwork:<hash>`, and the share panel links to the transaction on Solana Explorer. The link already proves nothing in it was edited. The chain adds a public record of when the result existed, kept by a network we don't control. Anyone can compare the memo with the hash the link recomputes, without trusting our server or our database. Each hash is written once, and a failed anchor never blocks sharing. It runs on devnet by default, where a memo costs nothing. `POST /api/anchor` writes a hash, and `GET /api/anchor/:hash` looks one up.
 
 **Sign-in guards the agents:** with Auth0 configured and `REQUIRE_SIGN_IN=1`, a guest's new build, chat or recovery is turned away before any model is called, with a Sign in button where the build would have been. Verified examples and shared links stay free for everyone. The server checks each request's Auth0 token, and the hourly limit counts a signed-in person by their account, so a new network doesn't reset it and a shared one doesn't lock out a room. See [docs/AUTH0.md](docs/AUTH0.md).
 
@@ -220,4 +226,4 @@ A flow domain such as power or airports is mostly a config for the flow engine: 
 
 ## Planned
 
-More domains, a counter block, Solana publishing and an M5Stack controller. Saved runs already go to Tiger Data's Postgres once `DATABASE_URL` is set, and [deploy/README.md](deploy/README.md) deploys the app on Vultr.
+More domains, a counter block, an open verifier that replays a shared link outside the app, and an M5Stack controller. Saved runs already go to Tiger Data's Postgres once `DATABASE_URL` is set, and [deploy/README.md](deploy/README.md) deploys the app on Vultr.

@@ -538,7 +538,7 @@
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3) var(--space-5);
   font-size: var(--text-sm);
   color: var(--color-muted);

@@ -30,6 +30,7 @@ Before sharing the URL, set these in the deploy's `.env`:
 | `GEMINI_API_KEY` | Give the deploy its own key, so team testing and the demo don't share one rate limit. Several comma-separated keys rotate on quota errors. |
 | `GEMINI_RPM=12` | Only with a free-tier key: paces calls under its 15-a-minute limit. |
 | `DESIGN_COUNCIL=on` | Optional: three Swarms architects per build. Each build then costs a Swarms run. |
+| `SOLANA_SECRET_KEY` | The funded wallet that anchors proof hashes on Solana. Copy it from the team's `.env`. Without it, each redeploy makes a new, empty wallet and nothing gets anchored. |
 
 The server re-reads `.env` on every API request, so after editing it, `docker restart canitwork` is only needed for `PORT`.
 
