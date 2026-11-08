@@ -54,6 +54,7 @@ function Robot({ world, index }: { world: World; index: number }) {
 
     const failed = r.mode === 'failed';
     const blink = failed ? (Math.sin(clock.elapsedTime * 9) > 0 ? 2.4 : 0.3) : 1.6;
+    if (!led.current) return;
     led.current.color.set(failed ? COLORS.danger : r.mode === 'charging' ? COLORS.energy : tint).multiplyScalar(blink);
     parcel.current.visible = r.carrying;
 

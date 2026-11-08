@@ -189,6 +189,7 @@ function Conveyor({ world, index, belt }: { world: World; index: number; belt?: 
     const belt = warehouseSim()?.belts[index];
     const blocked = belt?.blocked ?? false;
     if (!blocked && runner.running) offset.current = (offset.current + dt * 2.2 * runner.speed) % 0.5;
+    if (!edge.current) return;
     edge.current.color.set(blocked ? COLORS.danger : '#3b4a66').multiplyScalar(blocked ? 2 : 1);
     if (belt) {
       // A jammed belt turns red, segment by segment
@@ -329,6 +330,7 @@ function ChargerPost({ world, index }: { world: World; index: number }) {
     const offline = state?.offline ?? false;
     const inUse = Boolean(state?.claimedBy);
     const pulse = inUse ? 1.4 + Math.sin(clock.elapsedTime * 6) * 0.6 : 1;
+    if (!light.current || !pad.current) return;
     light.current.color.set(offline ? COLORS.danger : COLORS.energy).multiplyScalar(pulse);
     pad.current.color.set(offline ? COLORS.danger : COLORS.energy);
   });
