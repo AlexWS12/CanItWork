@@ -111,7 +111,12 @@ export interface Refusal {
 }
 
 export type ChatAction =
-  { kind: 'patch'; patches: unknown[] } | { kind: 'rebuild'; environment: Environment; added?: string[] } | { kind: 'inject'; incident: Incident } | { kind: 'none' };
+  | { kind: 'patch'; patches: unknown[] }
+  | { kind: 'rebuild'; environment: Environment; added?: string[] }
+  | { kind: 'inject'; incident: Incident }
+  // Open the Export panel with the design as a file, written by code from the running design
+  | { kind: 'export' }
+  | { kind: 'none' };
 
 export type StreamEvent =
   | StepEvent

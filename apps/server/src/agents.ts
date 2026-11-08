@@ -35,6 +35,7 @@ import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
 import { forget, lookup, markStale, remember, showcase, verifiedFor } from './design-cache';
+import { asksForExport } from './exportIntent';
 import { importFile, type Imported } from './importers';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
@@ -897,13 +898,33 @@ function optimize(domain: Domain, model: unknown, spec: unknown) {
   return { baseline, results };
 }
 
+// Kinds of system with a real file format, and what that file is
+const EXPORTS: Partial<Record<string, string>> = { database: 'a Postgres SQL file', software: 'a docker-compose.yml' };
+
 export async function chat(input: LiveState & { message: string; metrics: unknown }, emit: Emit) {
   const { environment, message } = input;
   const domain = DOMAINS[environment.domain];
   const model = domain.compile(environment.spec);
   const step = stepper(emit);
+  const exportReply = () => {
+    const file = EXPORTS[environment.domain];
+    if (!file)
+      return emit({
+        type: 'reply',
+        text: `${domain.label} have no file format to export yet. Export works for databases, as SQL, and software systems, as Docker Compose.`,
+        action: { kind: 'none' },
+      });
+    emit({ type: 'reply', text: `Here it is as ${file}, written from the design you're running, with every fix applied.`, action: { kind: 'export' } });
+  };
+  // A plain request for the file is settled by code: no model call, nothing spent
+  if (asksForExport(message)) {
+    await step('editor', 'rules', 'Getting the file ready', async (detail) =>
+      detail(EXPORTS[environment.domain] ? `Exporting ${EXPORTS[environment.domain]}` : 'No file format for this kind of system'),
+    );
+    return exportReply();
+  }
   const IntentSchema = z.object({
-    intent: z.enum(['patch', 'respec', 'inject', 'whatif', 'optimize', 'answer']),
+    intent: z.enum(['patch', 'respec', 'inject', 'whatif', 'optimize', 'export', 'answer']),
     reply: z.string().optional(),
     patches: z.array(domain.patchSchema).optional(),
     spec: domain.specSchema.optional(),
@@ -931,6 +952,7 @@ export async function chat(input: LiveState & { message: string; metrics: unknow
 {"intent":"inject","incident":Incident} when the user tells you to break something now.
 {"intent":"whatif","incident":Incident} when the user asks what would happen, without changing anything.
 {"intent":"optimize"} when asked to improve or find the best setup.
+{"intent":"export"} when the user wants the design as a file to download or run themselves (SQL, Docker Compose, a schema file). The app writes the file from the running design, so never write it yourself.
 {"intent":"answer","reply":"two sentences at most"} for questions, using only the data given. If the answer depends on something this environment doesn't model, say so.
 It cannot model: ${domain.limits.join('; ')}.
 Patch is one of:
@@ -947,6 +969,8 @@ ${domain.specDoc}`,
 
   const replyNone = (text: string) => emit({ type: 'reply', text, action: { kind: 'none' } });
   switch (intent.intent) {
+    case 'export':
+      return exportReply();
     case 'patch':
       emit({ type: 'reply', text: intent.reply ?? 'Done.', action: { kind: 'patch', patches: intent.patches ?? [] } });
       return;

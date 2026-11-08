@@ -419,6 +419,7 @@ export async function sendChat(message: string) {
       if (action.kind === 'patch') runner.applyPatches(action.patches);
       if (action.kind === 'rebuild') rebuildInPlace(action.environment, action.added ?? []);
       if (action.kind === 'inject') void breakThing(action.incident);
+      if (action.kind === 'export') store().set({ exportOpen: true });
     });
   } catch (error) {
     store().addMessage({ role: 'app', text: String(error) });
