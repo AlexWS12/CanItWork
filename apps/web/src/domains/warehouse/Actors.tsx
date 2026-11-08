@@ -1,5 +1,5 @@
 import type { RobotState, World } from '@tv/core';
-import { Html } from '@react-three/drei';
+import { Html, RoundedBox } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
@@ -89,21 +89,29 @@ function Robot({ world, index }: { world: World; index: number }) {
       <primitive object={route} />
       <group ref={group} onClick={pick(warehouseSim()?.robots[index]?.id ?? '')}>
         <group ref={body}>
-          <mesh position={[0, 0.2, 0]} castShadow>
-            <boxGeometry args={[0.72, 0.28, 0.86]} />
-            <meshStandardMaterial color="#d7dfec" metalness={0.35} roughness={0.35} />
+          {/* A low warehouse robot: rounded chassis in its own colour stripe, a lift deck on top and a lidar puck at the front */}
+          <RoundedBox args={[0.74, 0.24, 0.88]} radius={0.07} smoothness={3} position={[0, 0.18, 0]} castShadow receiveShadow>
+            <meshStandardMaterial color="#e4e7ec" metalness={0.15} roughness={0.35} />
+          </RoundedBox>
+          <mesh position={[0, 0.13, 0]}>
+            <boxGeometry args={[0.76, 0.05, 0.9]} />
+            <meshStandardMaterial color={tint} roughness={0.5} />
           </mesh>
-          <mesh position={[0, 0.36, 0]}>
-            <boxGeometry args={[0.6, 0.05, 0.72]} />
-            <meshStandardMaterial color="#10172a" metalness={0.5} roughness={0.5} />
+          <mesh position={[0, 0.315, -0.05]} castShadow>
+            <cylinderGeometry args={[0.28, 0.28, 0.04, 28]} />
+            <meshStandardMaterial color="#2b2f36" metalness={0.5} roughness={0.45} />
           </mesh>
-          <mesh position={[0, 0.2, 0.44]}>
-            <boxGeometry args={[0.5, 0.07, 0.02]} />
+          <mesh position={[0, 0.34, 0.33]} castShadow>
+            <cylinderGeometry args={[0.07, 0.07, 0.07, 16]} />
+            <meshStandardMaterial color="#16181c" roughness={0.3} />
+          </mesh>
+          <mesh position={[0, 0.19, 0.445]}>
+            <boxGeometry args={[0.46, 0.05, 0.02]} />
             <meshBasicMaterial ref={led} toneMapped={false} />
           </mesh>
-          <mesh ref={parcel} position={[0, 0.56, 0]} castShadow visible={false}>
-            <boxGeometry args={[0.46, 0.34, 0.46]} />
-            <meshStandardMaterial color={COLORS.cargo} emissive={COLORS.cargo} emissiveIntensity={0.25} roughness={0.6} />
+          <mesh ref={parcel} position={[0, 0.52, -0.05]} castShadow visible={false}>
+            <boxGeometry args={[0.46, 0.36, 0.46]} />
+            <meshStandardMaterial color="#b88a58" roughness={0.85} />
           </mesh>
         </group>
         <mesh ref={halo} position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} visible={false}>

@@ -17,10 +17,10 @@ export const registerRenderer = (renderer: WebGLRenderer, root: THREE.Object3D |
 };
 
 // The meshes that make up the framed bounds, largest first, to find what pushes the camera back.
-function boundsReport(top = 8) {
+function boundsReport(top = 8, by: 'size' | 'tris' = 'size') {
   if (!content) return [];
   const box = new THREE.Box3();
-  const rows: Array<{ size: number; type: string; geometry: string; parent: string; count?: number }> = [];
+  const rows: Array<{ size: number; tris: number; type: string; geometry: string; parent: string; count?: number }> = [];
   content.updateWorldMatrix(true, true);
   content.traverseVisible((o) => {
     const mesh = o as THREE.Mesh;
@@ -29,15 +29,17 @@ function boundsReport(top = 8) {
     if (instanced) instanced.computeBoundingBox();
     else if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
     box.copy(instanced ? instanced.boundingBox! : mesh.geometry.boundingBox!).applyMatrix4(mesh.matrixWorld);
+    const index = mesh.geometry.index?.count ?? mesh.geometry.attributes.position?.count ?? 0;
     rows.push({
       size: Math.round(box.getSize(new THREE.Vector3()).length() * 10) / 10,
+      tris: Math.round((index / 3) * (instanced?.count ?? 1)),
       type: mesh.type,
       geometry: mesh.geometry.type,
       parent: mesh.parent?.type ?? '',
       count: instanced?.count,
     });
   });
-  return rows.sort((a, b) => b.size - a.size).slice(0, top);
+  return rows.sort((a, b) => b[by] - a[by]).slice(0, top);
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

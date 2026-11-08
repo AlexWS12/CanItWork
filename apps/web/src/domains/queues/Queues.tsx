@@ -207,6 +207,9 @@ function Line({ node, cars }: { node: NetNode; cars: boolean }) {
         heads.current.setMatrixAt(i, dummy.matrix);
       }
     }
+    // Only the people actually waiting are drawn: parked instances still cost their triangles twice, with shadows
+    mesh.current.count = waiting;
+    if (heads.current) heads.current.count = waiting;
     mesh.current.instanceMatrix.needsUpdate = true;
     if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
     if (heads.current) heads.current.instanceMatrix.needsUpdate = true;
