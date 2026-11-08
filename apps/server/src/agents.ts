@@ -1107,7 +1107,7 @@ Use only the numbers given. Reply with JSON only:
 "headline":"one sentence on how the system is doing right now",
 "metrics":{"<exact metric label>":"one short sentence: what this number means for them and whether higher or lower is better. It updates live, so never state or judge its current value"},
 "findings":[{"claim":"<the exact claim text>","title":"the risk in at most eight plain words","impact":"what the person would actually see happen, using the measured numbers","advice":"one practical thing they could do about it"}]}
-Give "metrics" an entry for every metric label, and "findings" one entry per claim in the same order. For a claim the simulator disproved, the impact says the design held up and the advice can be "No action needed".`,
+Give "metrics" an entry for every metric label, and "findings" one entry per claim in the same order. For a claim the simulator disproved, the impact says the design held up and the advice can be "No action needed", unless the score was already poor before the attack (below 80%): then say the attack changed nothing because the system was already struggling, and advise fixing that first.`,
       user: JSON.stringify({ request: input.prompt.slice(0, 600), design: input.environment.summary.slice(0, 600), score: domain.label, metrics, findings }),
     });
     detail(result.audience);

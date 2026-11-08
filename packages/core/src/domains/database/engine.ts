@@ -55,6 +55,9 @@ export const isIndexed = (table: Table, column: string) => {
 const seek = (rows: number) => Math.log2(rows + 2);
 const scan = (rows: number) => rows / ROWS_PER_PAGE + 1;
 
+// Load as a percentage until it is past ten times what the database can do; "113×" reads better than "11326%"
+export const loadText = (utilization: number) => (utilization >= 10 ? `${Math.round(utilization)}×` : `${Math.round(utilization * 100)}%`);
+
 export class SchemaRun implements Run {
   readonly log: TimedEvent[] = [];
   readonly spec: DatabaseSpec;
@@ -405,7 +408,7 @@ export class SchemaRun implements Run {
   evaluation(): Evaluation {
     const broken = [...this.queries.values()].filter((q) => q.broken).length;
     const metrics: Evaluation['metrics'] = [
-      { label: 'database load', value: `${Math.round(this.utilization * 100)}%` },
+      { label: 'database load', value: loadText(this.utilization) },
       { label: 'queries broken', value: broken },
       { label: 'full scans', value: [...this.queries.values()].filter((q) => q.scanned).length },
       { label: 'connections in use', value: `${Math.round(this.inUse)} of ${this.poolSize}` },
@@ -424,7 +427,7 @@ export class SchemaRun implements Run {
     const crowd = this.inUse / this.poolSize;
     const out: Metric[] = [
       { label: 'within 100 ms', value: `${pct}%`, tone: pct < 80 ? 'danger' : pct < 99 ? 'warn' : undefined },
-      { label: 'database load', value: `${load}%`, tone: load > 100 ? 'danger' : load > 80 ? 'warn' : undefined },
+      { label: 'database load', value: loadText(this.utilization), tone: load > 100 ? 'danger' : load > 80 ? 'warn' : undefined },
       {
         label: 'connections',
         value: `${Math.min(Math.round(this.inUse), 99_999)}/${this.poolSize}`,

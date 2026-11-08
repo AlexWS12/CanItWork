@@ -3,7 +3,7 @@ import { BuildGuidePanel } from './BuildGuide';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { scrollBehavior } from '../motion';
 import { breakThing } from '../actions';
-import { plainFinding } from '../explain';
+import { plainFinding, struggling } from '../explain';
 import { useStore } from '../store';
 import { AGENT_LABEL, ENGINE_LABEL, engineLine, featureLabel, stepTitle } from './labels';
 import { PruneShowcase, compact, usd } from './PruneSavings';
@@ -28,7 +28,14 @@ function StressTests({ findings }: { findings: Finding[] }) {
         </button>
       </header>
       <p className="stress-verdict" data-broke={broke > 0}>
-        We tried to break your design {findings.length} {findings.length === 1 ? 'way' : 'ways'}. <b>{broke ? `${broke} found a weak spot.` : 'It held up every time.'}</b>
+        We tried to break your design {findings.length} {findings.length === 1 ? 'way' : 'ways'}.{' '}
+        <b>
+          {broke
+            ? `${broke} found a weak spot.`
+            : findings.some((f) => struggling(f) !== null)
+              ? 'Nothing got worse, but it was already struggling before we started.'
+              : 'It held up every time.'}
+        </b>
       </p>
       {about && (
         <p className="stress-explain">
@@ -41,7 +48,7 @@ function StressTests({ findings }: { findings: Finding[] }) {
           const weak = f.verdict === 'confirmed';
           return (
             <li key={f.claim} className="stress-card" data-weak={weak}>
-              <span className="stress-badge">{weak ? 'Weak spot' : 'Held up'}</span>
+              <span className="stress-badge">{weak ? 'Weak spot' : struggling(f) !== null ? 'No change' : 'Held up'}</span>
               <b className="stress-title">{plain.title}</b>
               <p className="stress-impact">{plain.impact}</p>
               <p className="stress-advice">{plain.advice}</p>

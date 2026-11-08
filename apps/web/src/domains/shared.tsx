@@ -4,7 +4,7 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { finishMove, moveComponent } from '../actions';
-import { plainFinding } from '../explain';
+import { plainFinding, struggling } from '../explain';
 import { reducedMotion } from '../motion';
 import { LOOK } from '../scene/look';
 import { select, useStore } from '../store';
@@ -90,7 +90,7 @@ export function ClaimPin({ id, position = [0, 0, 0] }: { id: string; position?: 
       <Html zIndexRange={[20, 11]} pointerEvents="none">
         <div ref={pin} className="claim-pin" data-verdict={finding.verdict}>
           <button className="claim-card" onClick={() => select(id)}>
-            <span className="claim-kicker">Weak-spot check · {confirmed ? 'Weak spot' : 'Held up'}</span>
+            <span className="claim-kicker">Weak-spot check · {confirmed ? 'Weak spot' : struggling(finding) !== null ? 'No change' : 'Held up'}</span>
             <span>
               {plain.title} {plain.impact}
             </span>
