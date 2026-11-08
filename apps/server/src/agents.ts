@@ -27,7 +27,7 @@ import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
 import { forget, lookup, markStale, remember } from './design-cache';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
-import { councilModel, haltModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
+import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
 export type Emit = (event: StreamEvent) => void;
 type Step = ReturnType<typeof stepper>;
@@ -363,10 +363,8 @@ Use only ids that exist in the system.`,
           task: `System: ${domain.describe(model)}\n${baseline.scoreLabel}: ${baseline.score}\nKnown warnings: ${issues.join('; ') || 'none'}`,
         });
         const parsed = schema.safeParse(replies[0]?.json);
-        if (!parsed.success) {
-          haltModel(redTeam, 'no usable hypotheses');
-          throw new Error('Red Team returned no usable hypotheses. It stays off until the server restarts.');
-        }
+        // A malformed reply is a one-off slip, so this request falls back to rules and the next one tries again. Only crashes turn a model off.
+        if (!parsed.success) throw new Error('Red Team returned no usable hypotheses');
         const claims = parsed.data.hypotheses.filter((h) => domain.incidentTypes.includes(h.incident.type));
         if (!claims.length) throw new Error('Red Team proposed no failures the simulator can run');
         detail(`${claims.length} hypotheses to test`);
@@ -528,10 +526,7 @@ ${domain.patchDoc}`,
           const proposal = schema.safeParse(r.json);
           return proposal.success ? [{ author: r.agent, ...proposal.data }] : [];
         });
-        if (!parsed.length) {
-          haltModel(council, 'no usable proposals');
-          throw new Error('Swarms returned no usable proposals. It stays off until the server restarts.');
-        }
+        if (!parsed.length) throw new Error('Swarms returned no usable proposals');
         detail(`${parsed.length} proposals from ${replies.length} specialists`);
         return parsed;
       }),

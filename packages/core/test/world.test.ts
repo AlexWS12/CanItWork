@@ -122,6 +122,25 @@ describe('the physical world around a circuit', () => {
     expect(issues.some((i) => i.repair && i.message.startsWith('Soil moisture stays within 30–70 %'))).toBe(true);
   });
 
+  it('sends back a sketch that holds a target no sensor measures, since it waters open loop', () => {
+    const spec = greenhouse();
+    spec.parts = spec.parts.map((p) => (p.id === 'S1' ? { ...p, measures: undefined } : p));
+    const messages = DOMAINS.electronics.validate(spec).map((i) => i.message);
+    expect(messages.some((m) => /Nothing measures soil.*give S1 "measures": "soil"/.test(m))).toBe(true);
+  });
+
+  it('catches a loop that only drifts out of range after the first minute', () => {
+    const spec: CircuitSpec = {
+      ...greenhouse(),
+      program: [],
+      vars: {},
+      drive: [{ pin: 'U1.D7', mode: 'high' }],
+      world: [{ id: 'soil', label: 'Soil moisture', unit: '%', start: 35, min: 0, max: 100, drift: 0, effects: [{ from: 'P1', rate: 0.5 }], target: { min: 30, max: 70 } }],
+    };
+    const messages = DOMAINS.electronics.validate(spec).map((i) => i.message);
+    expect(messages.some((m) => /Soil moisture stays within 30–70/.test(m))).toBe(true);
+  });
+
   it('drives a robot toward a wall, and only a sketch that brakes in time passes the checks', () => {
     expect(DOMAINS.electronics.validate(robot('brake')).filter((i) => i.repair)).toEqual([]);
     for (const stop of ['coast', null] as const) {

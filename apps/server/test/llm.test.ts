@@ -1,6 +1,7 @@
 import type { Usage } from '@tv/core';
 import { describe, expect, it, vi } from 'vitest';
-import { ShieldBlock } from '../src/llm';
+import { ShieldBlock, resetChecks } from '../src/llm';
+import { checkedStatus } from '../src/status';
 import { ask, isolateEnv, json, mockFetch, openAiReply } from './helpers';
 
 isolateEnv();
@@ -120,5 +121,20 @@ describe('Prune rest period', () => {
     await ask();
     expect(calls.filter((u) => u.includes('withprune')).length).toBe(1);
     expect(calls.filter((u) => u.includes('googleapis')).length).toBe(2);
+  });
+
+  it('skips Prune when it rejects its vaulted Gemini key, and says so in the status', async () => {
+    process.env.PRUNE_API_KEY = 'p';
+    process.env.GEMINI_API_KEY = 'g';
+    const calls = mockFetch((url) =>
+      url.includes('withprune') && url.includes('chat')
+        ? new Response(JSON.stringify({ error: 'gemini rejected the API key or access', code: 'provider_upstream_4xx', upstream_status: 401 }), { status: 401 })
+        : json(url.includes('chat') ? openAiReply(JSON.stringify({ ok: true })) : { data: [] }),
+    );
+    await ask();
+    await ask();
+    expect(calls.filter((u) => u.includes('withprune') && u.includes('chat')).length).toBe(1);
+    resetChecks();
+    expect((await checkedStatus()).checks?.prune).toBe('failing');
   });
 });

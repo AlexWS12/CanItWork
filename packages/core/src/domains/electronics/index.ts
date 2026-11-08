@@ -7,6 +7,8 @@ import { aliasPins, compile, namesIn, type Expr } from './sketch';
 
 const CHECK_TICKS = 70;
 const TIMED_CHECK_TICKS = 720;
+// Held targets run for three minutes, so a loop that only drifts out of range after the first minute is caught.
+const TARGET_CHECK_TICKS = 2160;
 const TARGET_SHARE = 80;
 const RESPONSE_TICKS = 24;
 const WARMUP_TICKS = 20;
@@ -112,6 +114,20 @@ function checkWorld(spec: CircuitSpec): Issue[] {
           message: `${q.label} ${q.drift < 0 ? 'falls' : 'rises'} by ${Math.abs(q.drift)} ${q.unit}/s on its own and nothing in the circuit ${q.drift < 0 ? 'raises' : 'lowers'} it, so no program can keep it within ${q.target.min}-${q.target.max}. "drift" is change with every part off: a distance to a wall doesn't change by itself, so set drift 0 and let the motors' effects move it`,
           repair: true,
         });
+    }
+  }
+  // A held quantity needs feedback: if no sensor measures it, the sketch acts on readings that never change, and the pump or heater runs open loop.
+  // A timed sketch (water for 3 s every 30 s) can hold a target without one, so only untimed sketches are sent back.
+  if (!timed(spec)) {
+    for (const q of world) {
+      if (!q.target || !q.effects.length || spec.parts.some((p) => p.measures === q.id && sensorOf(p))) continue;
+      const sensor = spec.parts.find((p) => sensorOf(p) && !p.measures);
+      issues.push({
+        severity: 'warning',
+        message: `Nothing measures ${q.id}, so the sketch can't see it change and can't hold it within ${q.target.min}-${q.target.max}${sensor ? `: give ${sensor.id} "measures": "${q.id}"` : ': add a sensor with "measures" set to it'}`,
+        target: sensor?.id,
+        repair: true,
+      });
     }
   }
   for (const part of spec.parts) {
@@ -222,7 +238,7 @@ function explore(spec: CircuitSpec) {
     const run = new CircuitRun(spec, 1, true);
     for (const each of incident ? [incident, ...(also ?? [])] : []) run.inject(each);
     const over = new Map<string, { ticks: number; message: string }>();
-    const ticks = !incident && (timed(spec) || targets.length) ? TIMED_CHECK_TICKS : CHECK_TICKS;
+    const ticks = incident ? CHECK_TICKS : targets.length ? TARGET_CHECK_TICKS : timed(spec) ? TIMED_CHECK_TICKS : CHECK_TICKS;
     const held = new Map<string, number>();
     const left = new Map<string, string>();
     const reached = new Set<string>();

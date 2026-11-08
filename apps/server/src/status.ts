@@ -1,6 +1,6 @@
 import type { KeyCheck, ProviderStatus } from '@tv/core';
 import { hasJev, jevCheck } from './jev';
-import { geminiStatus, routeChecks } from './llm';
+import { geminiStatus, pruneResting, routeChecks } from './llm';
 import { swarmsCheck } from './swarms';
 
 export const providerStatus = (): ProviderStatus => ({ ...geminiStatus(), typesafe: hasJev() });
@@ -12,5 +12,7 @@ export async function checkedStatus(waitMs = Infinity): Promise<ProviderStatus> 
   const [routes, swarms, typesafe] = await Promise.all([within(routeChecks(), {}), within(swarmsCheck(), 'unchecked' as KeyCheck), within(jevCheck(), 'unchecked' as KeyCheck)]);
   const results = Object.values(routes);
   const gemini: KeyCheck = results.includes('ok') ? 'ok' : results.includes('failing') ? 'failing' : 'unchecked';
-  return { ...providerStatus(), checks: { gemini, swarms, prune: routes.prune ?? 'unchecked', typesafe } };
+  // Prune's own key can check out while the Gemini key vaulted in it fails, so a Prune that is resting after upstream failures reads as failing.
+  const prune: KeyCheck = pruneResting() ? 'failing' : (routes.prune ?? 'unchecked');
+  return { ...providerStatus(), checks: { gemini, swarms, prune, typesafe } };
 }
