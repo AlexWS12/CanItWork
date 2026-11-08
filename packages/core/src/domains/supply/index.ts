@@ -44,9 +44,9 @@ export const supply = networkDomain({
   keywords: /supply chain|supplier|shipping lane|\bports?\b|freight|inventory|procurement|sourcing|retail stores|distribution cent(er|re)s?\b|stockout/i,
   kinds: {
     supplier: { role: 'source', capacity: 300, doc: 'supplier, 300 pallets a day per unit' },
-    factory: { role: 'stage', capacity: 300, doc: 'factory, 300 pallets a day per unit' },
-    port: { role: 'stage', capacity: 500, doc: 'port or border crossing, 500 pallets a day' },
-    dc: { role: 'stage', capacity: 250, buffer: 1200, doc: 'distribution centre, ships 250 pallets a day and holds 1200 (buffer)' },
+    factory: { role: 'stage', monthly: 400_000, capacity: 300, doc: 'factory, 300 pallets a day per unit' },
+    port: { role: 'stage', perUnit: 25, capacity: 500, doc: 'port or border crossing, 500 pallets a day' },
+    dc: { role: 'stage', monthly: 150_000, perUnit: 10, capacity: 250, buffer: 1200, doc: 'distribution centre, ships 250 pallets a day and holds 1200 (buffer)' },
     store: { role: 'sink', rate: 60, doc: 'store or region, rate = daily demand in pallets (default 60)' },
   },
   mode: 'demand',

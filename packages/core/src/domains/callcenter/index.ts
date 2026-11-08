@@ -36,9 +36,9 @@ export const callcenter = networkDomain({
   keywords: /call cent(er|re)|contact cent(er|re)|customer support|support (line|team|agents)|callers?|helpdesk|help desk|hold queue|\bivr\b/i,
   kinds: {
     callers: { role: 'source', rate: 12, buffer: 0, doc: 'incoming calls, rate = calls per minute (default 12)' },
-    ivr: { role: 'stage', capacity: 30, buffer: 0, doc: 'phone menu, 30 calls a minute' },
-    agents: { role: 'stage', capacity: 0.12, buffer: 40, doc: 'agent, 0.12 calls a minute (8 minute calls); count = agents, buffer = hold queue' },
-    specialists: { role: 'stage', capacity: 0.08, buffer: 20, doc: 'specialist, 0.08 calls a minute; count = specialists' },
+    ivr: { role: 'stage', monthly: 3_000, capacity: 30, buffer: 0, doc: 'phone menu, 30 calls a minute' },
+    agents: { role: 'stage', monthly: 4_500, capacity: 0.12, buffer: 40, doc: 'agent, 0.12 calls a minute (8 minute calls); count = agents, buffer = hold queue' },
+    specialists: { role: 'stage', monthly: 7_000, capacity: 0.08, buffer: 20, doc: 'specialist, 0.08 calls a minute; count = specialists' },
     resolved: { role: 'sink', doc: 'resolved calls' },
   },
   mode: 'flow',

@@ -1,4 +1,17 @@
-import { SYSTEM, defaultCompare, type Breakable, type Domain, type Evaluation, type Incident, type Inspection, type Metric, type Run, type TimedEvent } from '../../domain';
+import { money, usd } from '../../cost';
+import {
+  SYSTEM,
+  defaultCompare,
+  type Breakable,
+  type Domain,
+  type Evaluation,
+  type Incident,
+  type Inspection,
+  type Metric,
+  type MonthlyCost,
+  type Run,
+  type TimedEvent,
+} from '../../domain';
 import { DEFAULT_SPEC, compileWorld } from './compile';
 import { PatchSchema, WorldSpecSchema, type Patch, type SimEvent, type World, type WorldSpec } from './schema';
 import { Sim } from './sim';
@@ -25,6 +38,16 @@ function toEvent(incident: Incident, at: number): SimEvent | null {
 
 /** What the Inspector asks for to show the settings the whole floor runs with: the same id every domain answers. */
 export const FLOOR = SYSTEM;
+
+// A month of each, fully loaded: an autonomous mobile robot on lease with upkeep, a charging pad, a conveyor line, a staffed
+// loading dock, and a racked aisle of floor space.
+const ROBOT_USD = 1_500;
+const CHARGER_USD = 300;
+const CONVEYOR_USD = 2_500;
+const DOCK_USD = 4_000;
+const SHELF_USD = 120;
+
+const costMetric = (cost: MonthlyCost): Metric => ({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.map((l) => ({ label: l.label, value: money(l.usd) })) });
 
 export class WarehouseRun implements Run {
   readonly sim: Sim;
@@ -67,6 +90,20 @@ export class WarehouseRun implements Run {
     return null;
   }
 
+  /** The month's cost of the floor as it stands: robots added or removed by hand or by a fix count as they change. */
+  cost(): MonthlyCost {
+    const robots = this.sim.robots.filter((r) => !r.removed && !r.gone).length;
+    const w = this.world;
+    const lines: MonthlyCost['lines'] = [
+      { label: `${robots} robot${robots === 1 ? '' : 's'}`, usd: robots * ROBOT_USD },
+      { label: `${w.shelves.length} shelves of floor space`, usd: w.shelves.length * SHELF_USD },
+      { label: `${w.docks.length} loading dock${w.docks.length === 1 ? '' : 's'}`, usd: w.docks.length * DOCK_USD },
+      { label: `${w.conveyors.length} conveyor${w.conveyors.length === 1 ? '' : 's'}`, usd: w.conveyors.length * CONVEYOR_USD },
+      { label: `${w.chargers.length} charger${w.chargers.length === 1 ? '' : 's'}`, usd: w.chargers.length * CHARGER_USD },
+    ].sort((a, b) => b.usd - a.usd);
+    return { usd: usd(lines.reduce((sum, l) => sum + l.usd, 0)), lines };
+  }
+
   evaluation(): Evaluation {
     const m = this.sim.metrics();
     return {
@@ -76,6 +113,7 @@ export class WarehouseRun implements Run {
         { label: 'backlog', value: m.backlog },
         { label: 'avg latency', value: m.avgLatency },
         { label: 'utilization', value: `${Math.round(m.utilization * 100)}%` },
+        { label: 'monthly cost', value: money(this.cost().usd) },
       ],
       series: this.sim.series.map((p) => ({ t: p.t, value: p.delivered })),
     };
@@ -92,6 +130,7 @@ export class WarehouseRun implements Run {
       { label: 'per 100 ticks', value: last?.throughput ?? 0 },
       { label: 'backlog', value: backlog, tone: backlog > 25 ? 'warn' : undefined },
       { label: 'robots online', value: `${online}/${fleet.length}`, tone: online < fleet.length ? 'danger' : undefined },
+      costMetric(this.cost()),
     ];
   }
 

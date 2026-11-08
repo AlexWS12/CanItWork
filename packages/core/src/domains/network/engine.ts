@@ -1,3 +1,4 @@
+import { money, usd } from '../../cost';
 import {
   SYSTEM,
   checkPatches,
@@ -7,6 +8,7 @@ import {
   type Incident,
   type Inspection,
   type Metric,
+  type MonthlyCost,
   type Point,
   type Run,
   type Setting,
@@ -676,6 +678,30 @@ export class NetRun implements Run {
     return [...this.states.values()].filter((s) => s.down).length + [...this.links.values()].filter((l) => l.down).length;
   }
 
+  /** Whether this domain has a price list, so a design has a running cost worth showing. */
+  private priced() {
+    return Object.values(this.config.kinds).some((k) => k.monthly || k.perUnit);
+  }
+
+  /**
+   * The month's cost of the system as it runs now: each unit at its monthly price (so a fix that opens more beds or adds a
+   * cashier costs what they do), and the work flowing through priced steps (fuel, freight, chemicals) at today's rate.
+   */
+  cost(): MonthlyCost {
+    const ticksPerMonth = (30.4 * 24 * 60) / minutesPerTick(this.config.tick);
+    const lines: MonthlyCost['lines'] = [];
+    for (const node of this.spec.nodes) {
+      const kind = this.config.kinds[node.kind];
+      if (!kind) continue;
+      const fixed = (kind.monthly ?? 0) * (node.count ?? 1);
+      const state = this.states.get(node.id);
+      const usage = (kind.perUnit ?? 0) * (state?.served ?? 0) * ticksPerMonth;
+      if (fixed + usage >= 0.5) lines.push({ label: this.name(node), usd: usd(fixed + usage) });
+    }
+    lines.sort((a, b) => b.usd - a.usd);
+    return { usd: usd(lines.reduce((sum, l) => sum + l.usd, 0)), lines };
+  }
+
   evaluation(): Evaluation {
     const busiest = this.busiest();
     return {
@@ -686,6 +712,7 @@ export class NetRun implements Run {
         { label: this.config.lostLabel, value: Math.round(this.lost) },
         { label: this.backlogLabel(), value: Math.round(this.backlog()) },
         { label: 'busiest', value: busiest ? `${this.name(busiest)} ${Math.round(this.states.get(busiest.id)!.utilization * 100)}%` : 'none' },
+        ...(this.priced() ? [{ label: 'monthly cost', value: money(this.cost().usd) }] : []),
       ],
       series: this.series,
     };
@@ -735,6 +762,10 @@ export class NetRun implements Run {
       { label: this.backlogLabel(), value: backlog, tone: this.config.mode === 'flow' && backlog > 0 && this.ratio < 0.99 ? 'warn' : undefined },
       { label: 'outages', value: out, tone: out ? 'danger' : undefined },
     );
+    if (this.priced()) {
+      const cost = this.cost();
+      metrics.push({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.slice(0, 8).map((l) => ({ label: l.label, value: money(l.usd) })) });
+    }
     return metrics;
   }
 
