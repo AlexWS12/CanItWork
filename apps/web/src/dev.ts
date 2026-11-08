@@ -1,4 +1,4 @@
-import type { Environment } from '@tv/core';
+import { DOMAINS, type Environment } from '@tv/core';
 import { advance } from '@react-three/fiber';
 import type { WebGLRenderer } from 'three';
 import { openShowcase } from './actions';
@@ -27,7 +27,11 @@ const frame = () => {
 };
 
 // Opens a hand-made environment, such as a showcase design with an odd part added, to see how the views cope.
-function openEnvironment(environment: Environment) {
+// Its spec goes through the domain's schema first, so a hand-made part gets the same defaults a designed one would.
+// A spec the schema refuses (an unknown kind, say) is opened as given, to see how the views cope with it anyway.
+function openEnvironment(given: Environment) {
+  const parsed = DOMAINS[given.domain].specSchema.safeParse(given.spec);
+  const environment = { ...given, spec: parsed.success ? parsed.data : given.spec };
   runner.replay(environment, 1, 0, []);
   const s = useStore.getState();
   s.set({ environment, environmentKey: s.environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });

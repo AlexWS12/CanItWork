@@ -6,6 +6,8 @@ import { runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { Floor, Movable, Tag, pick, useArranged } from '../shared';
 import { NET_STYLES, styleOf, type Shape } from './styles';
+import { LOOK } from '../../scene/look';
+import { Unknown } from '../../scene/Unknown';
 
 const net = () => runner.run as NetRun | null;
 const LAYER_GAP = 8;
@@ -231,6 +233,8 @@ function Body({ shape, tint }: { shape: Shape; tint: string }) {
           ))}
         </group>
       );
+    case 'unknown':
+      return <Unknown size={[1.8, 1.4, 1.6]} quiet />;
     default:
       return (
         <mesh position={[0, 0.6, 0]} castShadow>
@@ -360,7 +364,11 @@ export function Network() {
           <Movable key={node.id} id={node.id} position={at}>
             <Body shape={look.shape} tint={look.color} />
             <Status id={node.id} />
-            <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3.4} />
+            <Tag
+              text={look.shape === 'unknown' ? `${node.label ?? node.id} · placeholder` : (node.label ?? node.id)}
+              tint={look.shape === 'unknown' ? LOOK.accent : '#9fd8ff'}
+              y={3.4}
+            />
           </Movable>
         );
       })}

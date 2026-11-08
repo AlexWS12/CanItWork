@@ -38,6 +38,32 @@ for (const domain of domains) {
     console.error(`${domain}: ${error}`);
   }
 }
+// --stress: showcase designs bent to hit the views' edge cases, such as a kind or part they have no model for
+if (flag('stress')) {
+  const cases = await page.evaluate(async () => {
+    const get = async (d) => (await (await fetch(`/api/examples/${d}`)).json()).environment;
+    const custom = (id, label, extra = {}) => ({ id, type: 'custom', ...extra, custom: { label, pins: ['a', 'b'], paths: [{ a: 'a', b: 'b', ohms: 100 }], visual: [] } });
+    const hospital = await get('hospital');
+    hospital.spec.nodes[2].kind = 'helipad';
+    const bench = await get('electronics');
+    bench.spec.layout = 'bench';
+    bench.spec.parts.push(custom('X1', 'Peltier cooler'), custom('X2', 'Gear motor', { package: 'motor' }));
+    return { 'stress-network': hospital, 'stress-electronics': bench };
+  });
+  for (const [name, environment] of Object.entries(cases)) {
+    try {
+      const shot = await page.evaluate((e) => window.__tv.shoot(e), environment);
+      writeFileSync(path.join(out, `${name}.png`), Buffer.from(shot.png.split(',')[1], 'base64'));
+      if (flag('ui')) await page.screenshot({ path: path.join(out, `${name}-ui.png`) });
+      stats[name] = { calls: shot.calls, triangles: shot.triangles };
+      console.log(`${name.padEnd(20)} ${shot.calls} calls ${Math.round(shot.triangles / 1000)}k tris`);
+    } catch (error) {
+      stats[name] = { error: String(error) };
+      console.error(`${name}: ${error}`);
+    }
+  }
+}
+
 writeFileSync(path.join(out, 'stats.json'), JSON.stringify(stats, null, 2));
 await browser.close();
 console.log(`Saved to ${out}`);

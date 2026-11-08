@@ -1,6 +1,6 @@
 import type { DomainId } from '@tv/core';
 
-export type Shape = 'stack' | 'panel' | 'turbine' | 'pylon' | 'tank' | 'houses' | 'plant' | 'box' | 'crowd' | 'beds' | 'strip' | 'desk' | 'dock' | 'tower' | 'ship';
+export type Shape = 'unknown' | 'stack' | 'panel' | 'turbine' | 'pylon' | 'tank' | 'houses' | 'plant' | 'box' | 'crowd' | 'beds' | 'strip' | 'desk' | 'dock' | 'tower' | 'ship';
 
 export interface KindStyle {
   shape: Shape;
@@ -13,7 +13,8 @@ export interface NetStyle {
   kinds: Record<string, KindStyle>;
 }
 
-const fallback: KindStyle = { shape: 'box', color: '#5b6b8c' };
+// A kind with no look of its own is drawn as a placeholder, so it never passes for a real machine
+const fallback: KindStyle = { shape: 'unknown', color: '#5b6b8c' };
 
 export const NET_STYLES: Partial<Record<DomainId, NetStyle>> = {
   power: {

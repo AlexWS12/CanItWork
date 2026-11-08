@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
 import { ClaimPin, Floor, Tag, pick } from '../shared';
+import { Unknown } from '../../scene/Unknown';
 import { LOOK } from '../../scene/look';
 import { BoardParts, breadboardExtent, jumperColor, layoutBreadboard, spotPosition, type BoardLayout, type Spot } from './Breadboard';
 import { PackageBody, SevenSegment, SmallPart, dipSpan, drawnByPackage, packagePin } from './Packages';
@@ -245,14 +246,7 @@ function VisualBody({ part }: { part: Part }) {
       }
     }
   });
-  if (!visual.length) {
-    return (
-      <mesh position={[0, 0.3, 0]} castShadow>
-        <boxGeometry args={[2, 0.5, 1.4]} />
-        <meshStandardMaterial color="#3d4d6e" roughness={0.5} />
-      </mesh>
-    );
-  }
+  if (!visual.length) return <Unknown size={[2, 0.6, 1.4]} label={part.custom?.label ?? part.id} quiet />;
   return (
     <group>
       {visual.map((v, i) => (
@@ -339,6 +333,8 @@ function PartBody({ part }: { part: Part }) {
           <meshStandardMaterial color="#14171f" roughness={0.4} />
         </mesh>
       );
+    default:
+      return <Unknown size={[1.2, 0.6, 1]} label={part.type} quiet />;
   }
 }
 

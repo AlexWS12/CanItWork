@@ -3,6 +3,7 @@ import { dipRows, pinsOf, type CircuitRun, type Part } from '@tv/core';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
+import { Unknown } from '../../scene/Unknown';
 
 // One renderer per physical package, so any chip, board or module the Architect names is drawn from its pin count and label.
 const circuit = () => runner.run as CircuitRun | null;
@@ -359,7 +360,7 @@ export function PackageBody({ part }: { part: Part }) {
     case 'sensor':
       return <SensorBoard part={part} />;
     default:
-      return null;
+      return <Unknown size={[0.9, 0.5, 0.7]} label={part.package ?? part.type} quiet />;
   }
 }
 
@@ -430,6 +431,6 @@ export function SmallPart({ part }: { part: Part }) {
         </mesh>
       );
     default:
-      return null;
+      return <Unknown size={[0.6, 0.4, 0.5]} label={part.type} quiet />;
   }
 }
