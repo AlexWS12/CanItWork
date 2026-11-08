@@ -1,7 +1,8 @@
 import type { Candidate, Environment, Incident, ProviderStatus, StreamEvent } from '@tv/core';
 import { matchEntities } from './entities';
 import { runner } from './runner';
-import { MAX_SHARED_TICKS, decodeRun, encodeRun, isSharedLink, runHash, shortHash } from './share';
+import { authFetch, useAuth } from './auth';
+import { MAX_SHARED_TICKS, decodeRun, encodeRun, isSharedLink, runHash, sane, savedIdOf, savedRunLink, shortHash, type SharedRun } from './share';
 import { useStore, type Message } from './store';
 
 const store = () => useStore.getState();
@@ -67,19 +68,24 @@ export async function shareRun() {
   const environment = store().environment;
   const history = runner.history();
   if (!environment || !history) return null;
-  const shared = await encodeRun({ environment, seed: history.seed, tick: history.tick, events: history.events });
+  const run = { environment, seed: history.seed, tick: history.tick, events: history.events };
+  const shared = await encodeRun(run);
   window.history.replaceState(null, '', shared.url);
-  return shared;
+  return { ...shared, run: { ...run, hash: shared.hash } as SharedRun };
 }
 
-// Opens a run from a shared link and checks it replays to the hash the link carries.
-export async function openSharedRun() {
-  if (!isSharedLink()) return;
-  const shared = await decodeRun();
-  if (!shared) {
-    store().addMessage({ role: 'app', text: `This shared link couldn't be opened: it is damaged, or asks to replay more than ${MAX_SHARED_TICKS.toLocaleString('en-US')} ticks.` });
-    return;
-  }
+export type Visibility = 'public' | 'private' | 'people';
+
+/** Saves the open run to the signed-in user's account and returns its short link. */
+export async function saveRun(run: SharedRun, visibility: Visibility, people: string[]) {
+  const res = await authFetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run, visibility, people }) });
+  const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+  if (!res.ok || !body.id) throw new Error(body.error ?? 'The run could not be saved');
+  window.history.replaceState(null, '', savedRunLink(body.id));
+  return { id: body.id, url: savedRunLink(body.id) };
+}
+
+function replayShared(shared: SharedRun, from: string) {
   runner.replay(shared.environment, shared.seed, shared.tick, shared.events);
   store().set({ environment: shared.environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
   const replayed = runHash(shared.environment, shared.seed, shared.tick, shared.events);
@@ -87,9 +93,40 @@ export async function openSharedRun() {
     role: 'app',
     text:
       replayed === shared.hash
-        ? `Replayed a shared run exactly: ${shared.tick} ticks and ${shared.events.length} event${shared.events.length === 1 ? '' : 's'}. Its provenance hash ${shortHash(replayed)} matches the link.`
-        : `This link doesn't replay to its own provenance hash (${shortHash(shared.hash)} in the link, ${shortHash(replayed)} replayed), so something in it was changed.`,
+        ? `Replayed ${from} exactly: ${shared.tick} ticks and ${shared.events.length} event${shared.events.length === 1 ? '' : 's'}. Its provenance hash ${shortHash(replayed)} matches.`
+        : `This run doesn't replay to its own provenance hash (${shortHash(shared.hash)} saved, ${shortHash(replayed)} replayed), so something in it was changed.`,
   });
+}
+
+// Opens a run from a shared link and checks it replays to the hash the link carries.
+export async function openSharedRun() {
+  if (!isSharedLink()) return;
+  const id = savedIdOf();
+  if (id) return openSavedRun(id);
+  const shared = await decodeRun();
+  if (!shared) {
+    store().addMessage({ role: 'app', text: `This shared link couldn't be opened: it is damaged, or asks to replay more than ${MAX_SHARED_TICKS.toLocaleString('en-US')} ticks.` });
+    return;
+  }
+  replayShared(shared, 'a shared run');
+}
+
+// A saved run comes from the server, which only hands it over to people allowed to see it.
+export async function openSavedRun(id: string) {
+  useAuth.setState({ locked: null, mySystems: false });
+  const res = await authFetch(`/api/runs/${id}`).catch(() => null);
+  if (!res?.ok) {
+    const reason = res?.status === 401 ? 'sign-in' : res?.status === 403 ? 'private' : 'missing';
+    useAuth.setState({ locked: { id, reason } });
+    return;
+  }
+  const body = (await res.json()) as { run: SharedRun; name: string; ownerName: string | null; mine: boolean };
+  if (!sane(body.run)) {
+    store().addMessage({ role: 'app', text: 'This saved run is damaged and could not be replayed.' });
+    return;
+  }
+  window.history.replaceState(null, '', savedRunLink(id));
+  replayShared(body.run, body.mine ? 'your saved run' : `${body.ownerName ? `${body.ownerName}'s` : 'a'} saved run`);
 }
 
 export async function fetchStatus() {

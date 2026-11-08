@@ -98,6 +98,8 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 | `ARCHITECT_REPAIR_MODEL` | Model for repairing a design the Validator sent back. It falls back to `ARCHITECT_MODEL` |
 | `RATE_LIMIT_PER_HOUR` | AI builds, chats and recoveries allowed per visitor an hour on a public deploy. Cached examples never count |
 | `PORT` | API port. Defaults to 8787 |
+| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | Turn on sign-in with Auth0: the tenant domain, a Single Page Application's client ID and the API identifier. None of them is secret. Without them, sign-in stays hidden |
+| `DATABASE_URL` | Postgres connection string, such as Tiger Data's, for saved runs. Without it, runs are kept in `apps/server/.data/runs.json` |
 
 `GEMINI_API_KEY` takes several comma-separated keys and moves to the next on a quota error. If Prune's own Gemini key is out of quota or rejected, calls go direct for 10 minutes before trying Prune again. Every billed Gemini call is logged to `apps/server/.spend/ledger.jsonl`.
 
@@ -124,7 +126,9 @@ failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Anal
 
 Agents propose and the simulators decide. Simulators are deterministic, so an environment, seed and event log always replay to the same result.
 
-**Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch.
+**Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch. Share can also show the link as a QR code, drawn in the browser so the run never goes to an outside service.
+
+**Accounts:** with Auth0 configured, people sign in and save runs to their account, with a short link. The owner chooses who can open each one: anyone with the link, only themselves, or people they name by email. The server checks every request's Auth0 token, and only a verified email unlocks a run shared with that address. "My systems" lists saved runs, with each one's sharing setting, its link and a delete button.
 
 ## Electronics in brief
 

@@ -1,7 +1,9 @@
 import QRCode from 'qrcode';
 import { useEffect, useRef, useState } from 'react';
-import { shareRun } from '../actions';
-import { shortHash } from '../share';
+import { saveRun, shareRun, type Visibility } from '../actions';
+import { useAuth } from '../auth';
+import { shortHash, type SharedRun } from '../share';
+import { VISIBILITY_LABEL, signInKeepingRun } from './Account';
 import './SharePanel.css';
 
 // A QR code holds about 2.9 KB at its lowest error correction; past that a phone camera can't read it reliably.
@@ -12,7 +14,13 @@ const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/;
 // The QR code is drawn in the browser, so the run in the link never goes to an outside service.
 export function ShareButton() {
   const [open, setOpen] = useState(false);
-  const [shared, setShared] = useState<{ url: string; hash: string } | null>(null);
+  const [shared, setShared] = useState<{ url: string; hash: string; run: SharedRun } | null>(null);
+  const [saved, setSaved] = useState<{ url: string; visibility: Visibility } | null>(null);
+  const [visibility, setVisibility] = useState<Visibility>('public');
+  const [people, setPeople] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const { enabled, account } = useAuth();
   const [qr, setQr] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -23,6 +31,8 @@ export function ShareButton() {
     const next = await shareRun();
     if (!next) return;
     setShared(next);
+    setSaved(null);
+    setSaveError(null);
     setQr(null);
     setShowQr(false);
     setCopied(false);
@@ -42,21 +52,42 @@ export function ShareButton() {
     };
   }, [open]);
 
+  // A saved run's short link makes a far smaller QR code than a link that carries the whole run.
+  const link = saved?.url ?? shared?.url ?? '';
   useEffect(() => {
-    if (!showQr || !shared || shared.url.length > QR_LIMIT) return;
+    if (!showQr || !link || link.length > QR_LIMIT) return;
     let live = true;
-    QRCode.toString(shared.url, { type: 'svg', errorCorrectionLevel: 'L', margin: 2, color: { dark: '#0b0f17', light: '#ffffff' } })
+    QRCode.toString(link, { type: 'svg', errorCorrectionLevel: 'L', margin: 2, color: { dark: '#0b0f17', light: '#ffffff' } })
       .then((svg) => live && setQr(svg))
       .catch(() => live && setQr(null));
     return () => {
       live = false;
     };
-  }, [showQr, shared]);
+  }, [showQr, link]);
+
+  const save = async () => {
+    if (!shared) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const emails = people
+        .split(/[\s,;]+/)
+        .map((e) => e.trim())
+        .filter(Boolean);
+      const result = await saveRun(shared.run, visibility, emails);
+      setSaved({ url: result.url, visibility });
+      setQr(null);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'The run could not be saved');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const copy = async () => {
-    if (!shared) return;
+    if (!link) return;
     try {
-      await navigator.clipboard.writeText(shared.url);
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -64,7 +95,7 @@ export function ShareButton() {
     }
   };
 
-  const tooLong = shared ? shared.url.length > QR_LIMIT : false;
+  const tooLong = link.length > QR_LIMIT;
   const local = LOCAL.test(location.hostname);
   return (
     <div className="share-wrap">
@@ -74,7 +105,11 @@ export function ShareButton() {
       {open && shared && (
         <div className="share-panel" ref={panel} role="dialog" aria-label="Share this run">
           <p className="share-title">Share this run</p>
-          <p className="share-note">The link holds the whole run, so it replays tick by tick on any device and checks its proof hash.</p>
+          <p className="share-note">
+            {saved
+              ? `Saved to your account. ${VISIBILITY_LABEL[saved.visibility]} can open this short link.`
+              : 'The link holds the whole run, so it replays tick by tick on any device and checks its proof hash.'}
+          </p>
           <div className="share-actions">
             <button className="share-primary" onClick={copy}>
               {copied ? 'Link copied' : 'Copy link'}
@@ -85,7 +120,10 @@ export function ShareButton() {
           </div>
           {showQr &&
             (tooLong ? (
-              <p className="share-warn">This run is too long for a QR code to hold ({(shared.url.length / 1000).toFixed(1)} KB). Copy the link instead.</p>
+              <p className="share-warn">
+                This run is too long for a QR code to hold ({(link.length / 1000).toFixed(1)} KB).{' '}
+                {enabled ? 'Save it to your account for a short link, or copy the link instead.' : 'Copy the link instead.'}
+              </p>
             ) : qr ? (
               <figure className="share-qr">
                 <div aria-label="QR code for the share link" role="img" dangerouslySetInnerHTML={{ __html: qr }} />
@@ -99,6 +137,44 @@ export function ShareButton() {
             ) : (
               <p className="share-note">Drawing the QR code…</p>
             ))}
+          {enabled && !saved && (
+            <div className="share-save">
+              {account ? (
+                <>
+                  <p className="share-title">Save to your account</p>
+                  <fieldset>
+                    <legend className="share-note">Who can open it</legend>
+                    {(Object.keys(VISIBILITY_LABEL) as Visibility[]).map((v) => (
+                      <label key={v}>
+                        <input type="radio" name="visibility" value={v} checked={visibility === v} onChange={() => setVisibility(v)} />
+                        {VISIBILITY_LABEL[v]}
+                      </label>
+                    ))}
+                  </fieldset>
+                  {visibility === 'people' && (
+                    <input
+                      className="share-people"
+                      aria-label="Emails that can open it"
+                      placeholder="Emails, separated by commas"
+                      value={people}
+                      onChange={(e) => setPeople(e.target.value)}
+                    />
+                  )}
+                  <button className="share-primary" onClick={() => void save()} disabled={saving || (visibility === 'people' && !people.trim())}>
+                    {saving ? 'Saving…' : 'Save and get a short link'}
+                  </button>
+                  {saveError && <p className="share-warn">{saveError}</p>}
+                </>
+              ) : (
+                <p className="share-note">
+                  <button className="share-link" onClick={() => void signInKeepingRun()}>
+                    Sign in
+                  </button>{' '}
+                  to save this run and choose who can open it.
+                </p>
+              )}
+            </div>
+          )}
           <p className="share-hash">
             Proof hash <code>{shortHash(shared.hash)}</code>
           </p>

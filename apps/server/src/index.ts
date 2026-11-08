@@ -7,8 +7,10 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
 import { build, chat, describeFailure, recover, servedFromCache, type Emit } from './agents';
+import { authConfig } from './auth';
 import { showcase } from './design-cache';
 import { limitMessage, take, visitorOf } from './integrations/limit';
+import { mountRuns, storageKind } from './runs';
 import { checkedStatus, providerStatus } from './status';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +27,14 @@ app.use('/api/*', async (_, next) => {
 app.get('/api/status', async (c) => c.json(await checkedStatus(300)));
 
 app.get('/api/examples', (c) => c.json({ examples: showcase() }));
+
+// What the browser needs to start Auth0 sign-in; none of it is secret. Without a tenant, sign-in stays hidden.
+app.get('/api/auth/config', (c) => {
+  const config = authConfig();
+  return c.json(config ? { enabled: true, ...config, storage: storageKind() } : { enabled: false });
+});
+
+mountRuns(app);
 
 function agentStream(run: (emit: Emit) => Promise<void>) {
   return (c: Context) =>
