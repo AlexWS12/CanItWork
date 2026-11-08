@@ -1,4 +1,5 @@
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { toSql } from './export';
 import { money } from '../../cost';
 import { databaseCost } from './cost';
 import { DEFAULT_POOL, partitionsOf, type DatabasePatch, type DatabaseSpec, type Query, type Table } from './schema';
@@ -158,6 +159,11 @@ export class SchemaRun implements Run {
    */
   /** Nodes answering reads: the primary, plus the replicas unless reads were moved off them. */
   /** Read replicas running now, counting any added as a fix. */
+  /** The design as it stands now, with every fix applied, as a Postgres file. */
+  toSql(name?: string) {
+    return toSql(this.spec, { name, replicas: this.replicaCount(), pool: this.spec.pool, pooler: this.pooler });
+  }
+
   replicaCount() {
     return this.replicas;
   }

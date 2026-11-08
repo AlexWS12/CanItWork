@@ -146,7 +146,9 @@ export function importSql(text: string): Imported | null {
           const column: Column = { name: ident(col[1]), type: columnType(col[2]) };
           if (/\bprimary\s+key\b/i.test(rest)) column.primary = true;
           if (/\bunique\b/i.test(rest)) column.unique = true;
-          if (/\bnull\b/i.test(rest) && !/\bnot\s+null\b/i.test(rest)) column.nullable = true;
+          // "ON DELETE SET NULL" is about the foreign key, not whether this column may be empty
+          const nullability = rest.replace(/\bon\s+(delete|update)\s+set\s+null\b/gi, '');
+          if (/\bnull\b/i.test(nullability) && !/\bnot\s+null\b/i.test(nullability)) column.nullable = true;
           const ref = rest.match(REFERENCE);
           if (ref) pendingRefs.push({ table: name, column: column.name, refTable: ident(ref[1]), refColumn: ref[2] ? identList(ref[2])[0] : undefined, onDelete: onDelete(rest) });
           t.columns.push(column);

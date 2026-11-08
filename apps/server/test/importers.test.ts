@@ -208,4 +208,12 @@ spec:
     expect(importFile('A university database where I create table rows for students')).toBeNull();
     expect(importFile('A web app with services and a cache')).toBeNull();
   });
+
+  it('does not read ON DELETE SET NULL as the column being nullable', () => {
+    const imported = importFile('CREATE TABLE a (id int PRIMARY KEY); CREATE TABLE b (id int PRIMARY KEY, a_id int REFERENCES a (id) ON DELETE SET NULL, note text NULL);');
+    const b = (imported!.spec as DatabaseSpec).tables.find((t) => t.name === 'b')!;
+    expect(b.columns.find((c) => c.name === 'a_id')).toMatchObject({ references: { table: 'a', column: 'id', onDelete: 'set_null' } });
+    expect(b.columns.find((c) => c.name === 'a_id')!.nullable).toBeUndefined();
+    expect(b.columns.find((c) => c.name === 'note')!.nullable).toBe(true);
+  });
 });

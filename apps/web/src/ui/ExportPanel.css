@@ -1,0 +1,68 @@
+/* Export: the file's contents in a scrollable preview, with download and copy */
+.export-panel {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.export-summary {
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-teal);
+}
+
+.export-preview {
+  max-height: 260px;
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  border-radius: var(--radius-xs);
+  background: oklch(14% 0.01 261);
+  font: var(--text-xs) / 1.5 var(--font-mono);
+  white-space: pre;
+  user-select: text;
+}
+
+.export-panel .share-primary {
+  flex: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The label is enough on a wide screen; on a phone the button is just the download mark */
+.export-icon {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  /* Export is one more button in a bar that was already full on a phone, so the bar's buttons and gaps tighten */
+  header.topbar {
+    gap: var(--space-2);
+  }
+
+  header.topbar .new-system {
+    padding-inline: 7px;
+  }
+
+  .export-button {
+    display: inline-flex;
+    align-items: center;
+    padding-inline: var(--space-2);
+  }
+
+  .export-icon {
+    display: block;
+  }
+
+  .export-label {
+    display: none;
+  }
+
+  /* Anchored to a button in the middle of the bar, the panel would open off the left edge, so it spans the screen */
+  .export-panel {
+    position: fixed;
+    top: calc(var(--top-h) + var(--space-2));
+    left: var(--space-4);
+    right: var(--space-4);
+    width: auto;
+  }
+}
