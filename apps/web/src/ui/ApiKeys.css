@@ -1,0 +1,198 @@
+/* Your API keys: one card per service, in the same dialog style as My systems */
+.api-keys {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 2 * var(--space-4));
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  background: var(--color-surface-opaque);
+  border: var(--rule-strong);
+  border-radius: var(--radius-md);
+}
+
+.api-keys header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.api-keys h2 {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.api-keys-lede {
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--text-md);
+  line-height: 1.45;
+}
+
+.api-keys-close {
+  margin-left: auto;
+  flex: none;
+  min-height: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: var(--text-xl);
+  background: none;
+}
+
+.api-keys-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.api-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+}
+
+.api-key[data-set='true'] {
+  border-color: var(--color-teal-line);
+}
+
+.api-key-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.api-key-head b {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.api-key-state {
+  font: var(--text-xs) var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.api-key[data-set='true'] .api-key-state {
+  color: var(--color-teal);
+}
+
+.api-key-powers {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.api-key-form,
+.api-key-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.api-key-form input {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule-strong);
+  border-radius: var(--radius-xs);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: var(--text-sm) var(--font-mono);
+}
+
+.api-key-form input:focus-visible {
+  outline: 2px solid var(--color-teal-line);
+  outline-offset: 1px;
+}
+
+.api-key-form button,
+.api-key-saved button {
+  min-height: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.api-key-form .api-key-save {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+
+.api-key-form .api-key-save:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.api-key-form .api-key-save:disabled {
+  opacity: 0.5;
+}
+
+.api-key-eye {
+  background: none;
+}
+
+.api-key-saved code {
+  flex: 1;
+  font: var(--text-sm) var(--font-mono);
+  color: var(--color-text);
+}
+
+.api-key-saved .api-key-remove {
+  color: var(--color-danger-soft);
+}
+
+.api-key-foot {
+  min-height: 1.2em;
+  font-size: var(--text-sm);
+}
+
+.api-key-foot a {
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.api-key-foot a:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.api-key-test {
+  color: var(--color-danger-soft);
+}
+
+.api-key-test[data-ok='true'] {
+  color: var(--color-teal);
+}
+
+.api-keys-privacy {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--rule);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+
+.api-keys-privacy svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+@media (max-width: 560px) {
+  .api-keys {
+    padding: var(--space-5) var(--space-4) var(--space-4);
+  }
+}

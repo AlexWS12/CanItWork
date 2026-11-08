@@ -67,6 +67,24 @@
   background: var(--color-accent-fill);
 }
 
+/* How many of your own keys are in use, beside the menu item */
+.account-keys-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.account-keys-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--color-teal-fill);
+  color: var(--color-teal);
+  font: 600 var(--text-xs) / 18px var(--font-mono);
+  text-align: center;
+}
+
 .systems-backdrop {
   position: fixed;
   inset: 0;

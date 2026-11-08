@@ -11,6 +11,7 @@ import { runner } from './runner';
 import { useStore } from './store';
 import './styles.css';
 import { LockedRunNotice, MySystems } from './ui/Account';
+import { ApiKeys } from './ui/ApiKeys';
 import { ChatPanel } from './ui/ChatPanel';
 import { FloorTools } from './domains/warehouse/FloorTools';
 import { Inspector } from './ui/Inspector';
@@ -74,6 +75,7 @@ function App() {
         <Landing />
       )}
       <MySystems />
+      <ApiKeys />
       <LockedRunNotice />
     </>
   );

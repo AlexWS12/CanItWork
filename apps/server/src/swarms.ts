@@ -1,5 +1,6 @@
 import type { KeyCheck, Usage } from '@tv/core';
 import { extractJson, probe } from './llm';
+import { ownKeys } from './ownKeys';
 
 const SWARMS_API = 'https://api.swarms.world/v1';
 const DEFAULT_KEEP_USD = 5;
@@ -9,7 +10,7 @@ export interface SwarmAgent {
   system_prompt: string;
 }
 
-const apiKey = () => process.env.SWARMS_API_KEY?.trim() ?? '';
+const apiKey = () => ownKeys()?.swarms || (process.env.SWARMS_API_KEY?.trim() ?? '');
 export const councilModel = () => process.env.SWARMS_MODEL?.trim() || 'gemini/gemini-3.5-flash-lite';
 export const redTeamModel = () => process.env.REDTEAM_MODEL?.trim() || 'gemini/gemini-3.5-flash-lite';
 
@@ -29,7 +30,7 @@ export function resetCouncil() {
 export const swarmsCheck = (): Promise<KeyCheck> => (apiKey() ? probe(`${SWARMS_API}/account/credits`, apiKey(), { 'x-api-key': apiKey() }) : Promise.resolve('unchecked'));
 
 async function assertBudget() {
-  const keep = Number(process.env.SWARMS_KEEP_USD ?? DEFAULT_KEEP_USD);
+  const keep = ownKeys()?.swarms ? 0 : Number(process.env.SWARMS_KEEP_USD ?? DEFAULT_KEEP_USD);
   const res = await fetch(`${SWARMS_API}/account/credits`, {
     headers: { 'x-api-key': apiKey() },
     signal: AbortSignal.timeout(10_000),
