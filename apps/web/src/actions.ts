@@ -177,6 +177,16 @@ function replayShared(shared: SharedRun, from: string) {
   });
 }
 
+// Opens a showcase design straight away: it already passed every check, so no agent runs and nothing is spent.
+export async function openShowcase(domain: string) {
+  const res = await fetch(`/api/examples/${encodeURIComponent(domain)}`).catch(() => null);
+  if (!res?.ok) return null;
+  const { prompt, environment } = (await res.json()) as { prompt: string; environment: Environment };
+  runner.replay(environment, 1, 0, []);
+  store().set({ environment, prompt, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null, steps: [], findings: [] });
+  return environment;
+}
+
 // Opens a run from a shared link and checks it replays to the hash the link carries.
 export async function openSharedRun() {
   if (!isSharedLink()) return;

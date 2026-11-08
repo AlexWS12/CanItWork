@@ -5,6 +5,7 @@ import { Suspense, lazy, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import * as actions from './actions';
 import { fetchStatus, openSharedRun } from './actions';
+import { devTools } from './dev';
 import { initAuth, useAuth } from './auth';
 import { runner } from './runner';
 import { useStore } from './store';
@@ -26,7 +27,7 @@ const Scene = lazy(() => loadScene().then((m) => ({ default: m.Scene })));
 if (typeof window !== 'undefined') ('requestIdleCallback' in window ? window.requestIdleCallback : setTimeout)(() => void loadScene());
 
 // A handle for poking at the live run from the browser console during development.
-if (import.meta.env.DEV) Object.assign(window, { __tv: { runner, store: useStore, actions, auth: useAuth } });
+if (import.meta.env.DEV) Object.assign(window, { __tv: { runner, store: useStore, actions, auth: useAuth, ...devTools } });
 
 function App() {
   const environment = useStore((s) => s.environment);

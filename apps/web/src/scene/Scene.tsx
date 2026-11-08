@@ -4,10 +4,18 @@ import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { Environment } from '@tv/core';
+import { registerRenderer } from '../dev';
 import { VIEWS } from '../domains';
 import { reducedMotion } from '../motion';
 import { runner } from '../runner';
 import { useStore } from '../store';
+
+// Hands the renderer to the development tools that capture and measure the canvas.
+function DevRenderer() {
+  const gl = useThree((s) => s.gl);
+  useEffect(() => registerRenderer(gl), [gl]);
+  return null;
+}
 
 function Clock() {
   useFrame((_, dt) => runner.frame(dt));
@@ -75,6 +83,7 @@ export function Scene() {
       <pointLight position={[14, 7, 8]} intensity={110} color="#ffb347" distance={34} />
       <pointLight position={[-16, 8, -10]} intensity={90} color="#3fd6c8" distance={34} />
       <Clock />
+      {import.meta.env.DEV && <DevRenderer />}
       <CameraRig />
       <ViewShift />
       {View && (

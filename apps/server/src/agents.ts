@@ -31,7 +31,7 @@ import { z } from 'zod';
 import { routePrompt, ruleChat } from './fallback';
 import { askJev, hasJev } from './jev';
 import { NoCredentials, ShieldBlock, architectModel, chatJson, hasGemini, repairModel } from './llm';
-import { forget, lookup, markStale, remember } from './design-cache';
+import { forget, lookup, markStale, remember, showcase } from './design-cache';
 import { designCouncilOn, leaderboard, runDesignCouncil } from './design-council';
 import { councilModel, redTeamModel, runCouncil, swarmsConfigured } from './swarms';
 
@@ -412,6 +412,18 @@ export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } 
     return null;
   }
   return { id: hit.domain, draft: parsed.data as Draft };
+}
+
+// A showcase design ready to replay: the landing hero and the dev tour load these without any model call or agent.
+export function showcaseEnvironment(domainId: string): { prompt: string; environment: Environment } | null {
+  for (const { prompt, domain } of showcase()) {
+    if (domain !== domainId) continue;
+    const hit = servedFromCache(prompt);
+    if (!hit) continue;
+    const { name, summary, spec, unmodelled } = hit.draft;
+    return { prompt, environment: { domain: hit.id, name, summary, spec, unmodelled } };
+  }
+  return null;
 }
 
 const ReviewSchema = z.object({ shortfalls: z.array(z.string()).max(4).default([]) });

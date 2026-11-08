@@ -9,5 +9,6 @@ apps/server/.spend/
 apps/web/public/dev-*.json
 .claude/launch.json
 apps/server/.cache/
+apps/web/.captures/
 # Saved runs when no database is configured
 apps/server/.data/
