@@ -103,7 +103,7 @@ export function Transport() {
           return (
             <div key={stat.label} className="stat" data-tone={stat.tone} data-primary={i === 0} tabIndex={0} aria-describedby={`stat-help-${i}`}>
               <div className="stat-top">
-                <b>{steadyCost(stat.value, history)}</b>
+                <b title={String(steadyCost(stat.value, history))}>{steadyCost(stat.value, history)}</b>
                 {/* Healthy is the normal case, so it is a quiet dot; only something worth a look says so in words. A cost is a
                     figure, not a verdict, so its tile has no health mark at all */}
                 {!cost && (
