@@ -110,6 +110,39 @@ const CASES: Case[] = [
     ],
   },
   {
+    id: 'e-wide-mul',
+    domain: 'electronics',
+    prompt: 'A 4-bit multiplier made from logic gates on a breadboard',
+    checks: [
+      noMcu,
+      ['8 input switches', (s) => parts(s).filter((p) => p.type === 'switch').length >= 8],
+      ['8 product LEDs', (s) => parts(s).filter((p) => p.type === 'led').length >= 8],
+      selfTested(8),
+    ],
+  },
+  {
+    id: 'e-wide-cmp',
+    domain: 'electronics',
+    prompt: 'An 8-bit comparator that lights one LED when A is bigger than B, one when they are equal and one when A is smaller',
+    checks: [
+      noMcu,
+      ['16 input switches', (s) => parts(s).filter((p) => p.type === 'switch').length >= 16],
+      ['3 result LEDs', (s) => parts(s).filter((p) => p.type === 'led').length >= 3],
+      selfTested(8),
+    ],
+  },
+  {
+    id: 'e-wide-alu',
+    domain: 'electronics',
+    prompt: 'A 4-bit ALU from logic chips that can add, subtract, AND and OR two numbers',
+    checks: [
+      noMcu,
+      ['8 number switches and 2 select switches', (s) => parts(s).filter((p) => p.type === 'switch').length >= 10],
+      ['result LEDs', (s) => parts(s).filter((p) => p.type === 'led').length >= 4],
+      selfTested(8),
+    ],
+  },
+  {
     id: 'e-led',
     domain: 'electronics',
     prompt: 'An LED with a resistor powered by a 9V battery',

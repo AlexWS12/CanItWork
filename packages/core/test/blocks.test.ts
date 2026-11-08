@@ -64,6 +64,39 @@ describe('building blocks', () => {
     expect(problems(spec)).toEqual([]);
   });
 
+  it('compares two 8-bit numbers with GT, EQ and LT LEDs that pass every test', () => {
+    const spec = design([{ id: 'cmp', kind: 'comparator', bits: 8 }]);
+    const built = electronics.compile(spec);
+    expect(built.parts.filter((p) => p.type === 'led').map((p) => p.id)).toEqual(['ledGT', 'ledEQ', 'ledLT']);
+    expect(problems(spec)).toEqual([]);
+    expect(electronics.proof!(built)).toMatch(/^12 of 12 behaviour tests pass/);
+  });
+
+  it('multiplies two 4-bit numbers into 8 product LEDs, every test passing', () => {
+    const spec = design([{ id: 'mul', kind: 'multiplier', bits: 4 }]);
+    const built = electronics.compile(spec);
+    expect(built.parts.filter((p) => p.type === 'led')).toHaveLength(8);
+    expect(built.tests!.some((t) => t.name === '15 x 15')).toBe(true);
+    expect(problems(spec)).toEqual([]);
+    expect(electronics.proof!(built)).toMatch(/^10 of 10 behaviour tests pass/);
+  });
+
+  it('runs a 4-bit ALU through add, subtract, AND and OR from its select switches', () => {
+    const spec = design([{ id: 'alu', kind: 'alu', bits: 4 }]);
+    const built = electronics.compile(spec);
+    expect(built.parts.some((p) => p.id === 'swS1') && built.parts.some((p) => p.id === 'swS0')).toBe(true);
+    for (const op of ['+', '-', 'AND', 'OR']) expect(built.tests!.some((t) => t.name?.includes(` ${op} `))).toBe(true);
+    expect(problems(spec)).toEqual([]);
+    expect(electronics.proof!(built)).toMatch(/^16 of 16 behaviour tests pass/);
+  });
+
+  it('holds each kind to a width that still builds, and says so', () => {
+    const tooWide = electronics.specSchema.safeParse({ parts: [], wires: [], blocks: [{ id: 'mul', kind: 'multiplier', bits: 12 }] });
+    expect(tooWide.success).toBe(false);
+    expect(JSON.stringify(tooWide.error?.issues)).toContain('at most 8 bits');
+    expect(electronics.specSchema.safeParse({ parts: [], wires: [], blocks: [{ id: 'mul', kind: 'multiplier', bits: 8 }] }).success).toBe(true);
+  });
+
   it('leaves a design without blocks untouched, and refuses a design with neither parts nor blocks', () => {
     const plain = design(undefined);
     expect(electronics.compile(plain)).toBe(plain);

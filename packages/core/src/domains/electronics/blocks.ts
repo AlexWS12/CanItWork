@@ -5,20 +5,41 @@ import type { CircuitSpec, Part } from './parts';
 // The Architect names a block and its size; compiling expands it into real 74HC chips, switches, LEDs, wiring and behaviour tests,
 // so every view, check and the build guide see the full circuit while the design itself stays a few lines long.
 
-export const BlockSchema = z.object({
-  id: z
-    .string()
-    .regex(/^[A-Za-z][A-Za-z0-9]*$/)
-    .max(16),
-  kind: z.enum(['adder', 'adder_subtractor']),
-  bits: z.number().int().min(1).max(32),
-});
+const KINDS = ['adder', 'adder_subtractor', 'comparator', 'multiplier', 'alu'] as const;
+// The widest of each kind that still builds and simulates at a usable size: an 8x8 multiplier is already about 90 chips.
+const MAX_BITS: Record<(typeof KINDS)[number], number> = { adder: 32, adder_subtractor: 32, comparator: 32, multiplier: 8, alu: 16 };
+
+export const BlockSchema = z
+  .object({
+    id: z
+      .string()
+      .regex(/^[A-Za-z][A-Za-z0-9]*$/)
+      .max(16),
+    kind: z.enum(KINDS),
+    bits: z.number().int().min(1).max(32),
+  })
+  .refine(
+    (b) => b.bits <= MAX_BITS[b.kind],
+    (b) => ({ message: `A ${b.kind} block takes at most ${MAX_BITS[b.kind]} bits`, path: ['bits'] }),
+  );
 export type Block = z.infer<typeof BlockSchema>;
 
-export const blockDoc = `"blocks"?: [{"id": short name, "kind": "adder"|"adder_subtractor", "bits": 1-32}] — for wide arithmetic built from logic gates. A block brings its own input switches (swA0..., swB0...; adder_subtractor adds swSub, on to subtract), 74HC86/08/32 gate chips, sum LEDs (ledS0..., ledCout) and its behaviour tests, all wired to the battery. A block is real hardware made of logic gate chips, so it fully satisfies a request for logic gates. Use one for any adder or calculator over 2 bits instead of wiring the gates yourself: a 16-bit calculator is {"id":"calc","kind":"adder","bits":16}, or "adder_subtractor" if it should also subtract. Add only a 5 V battery to "parts", write no wires or tests for the block (it wires, powers and tests itself), and add your own parts only for anything extra the user asked for. With more than one block, its part ids are prefixed with the block id and an underscore.`;
+export const blockDoc = `"blocks"?: [{"id": short name, "kind": "adder"|"adder_subtractor"|"comparator"|"multiplier"|"alu", "bits": width}] — for wide arithmetic and logic built from gates. Each block brings its own input switches for two numbers A and B (swA0..., swB0...), its 74HC gate chips, output LEDs and its behaviour tests, all wired to the battery:
+- "adder" (up to 32 bits): sum LEDs ledS0... and ledCout.
+- "adder_subtractor" (up to 32 bits): an adder plus swSub, on to subtract.
+- "comparator" (up to 32 bits): ledGT, ledEQ and ledLT for A > B, A = B and A < B.
+- "multiplier" (up to 8 bits): product LEDs ledP0... ledP(2 x bits - 1).
+- "alu" (up to 16 bits): select switches swS1 swS0 pick add (00), subtract (01), AND (10) or OR (11); result LEDs ledR0... and ledCout.
+A block is real hardware made of logic gate chips, so it fully satisfies a request for logic gates. Use one for any adder, calculator, comparator, multiplier or ALU over 2 bits instead of wiring the gates yourself: a 16-bit calculator is {"id":"calc","kind":"adder","bits":16}, or "adder_subtractor" if it should also subtract, and a 4-bit multiplier is {"id":"mul","kind":"multiplier","bits":4}. Add only a 5 V battery to "parts", write no wires or tests for the block (it wires, powers and tests itself), and add your own parts only for anything extra the user asked for. With more than one block, its part ids are prefixed with the block id and an underscore.`;
 
-const PINS = ['A1', 'B1', 'Y1', 'A2', 'B2', 'Y2', 'GND', 'Y3', 'A3', 'B3', 'Y4', 'A4', 'B4', 'VCC'];
-const GATES = { xor: ['74HC86 Quad XOR', '!='], and: ['74HC08 Quad AND', '&&'], or: ['74HC32 Quad OR', '||'] } as const;
+const QUAD = ['A1', 'B1', 'Y1', 'A2', 'B2', 'Y2', 'GND', 'Y3', 'A3', 'B3', 'Y4', 'A4', 'B4', 'VCC'];
+const HEX = ['A1', 'Y1', 'A2', 'Y2', 'A3', 'Y3', 'GND', 'Y4', 'A4', 'Y5', 'A5', 'Y6', 'A6', 'VCC'];
+const GATES = {
+  xor: { label: '74HC86 Quad XOR', per: 4, when: (g: number) => `A${g} != B${g}` },
+  and: { label: '74HC08 Quad AND', per: 4, when: (g: number) => `A${g} && B${g}` },
+  or: { label: '74HC32 Quad OR', per: 4, when: (g: number) => `A${g} || B${g}` },
+  not: { label: '74HC04 Hex NOT', per: 6, when: (g: number) => `!A${g}` },
+} as const;
 type Gate = keyof typeof GATES;
 
 const chip = (id: string, gate: Gate): Part =>
@@ -27,11 +48,20 @@ const chip = (id: string, gate: Gate): Part =>
     type: 'custom',
     package: 'dip',
     custom: {
-      label: GATES[gate][0],
-      pins: PINS,
+      label: GATES[gate].label,
+      pins: gate === 'not' ? HEX : QUAD,
       paths: [{ a: 'VCC', b: 'GND', ohms: 5000 }],
       switches: [],
-      drivers: [1, 2, 3, 4].map((g) => ({ pin: `Y${g}`, high: 'VCC', low: 'GND', when: `A${g} ${GATES[gate][1]} B${g}`, ref: 'GND', aboveVolts: 2.5, ohms: 50, invert: false })),
+      drivers: Array.from({ length: GATES[gate].per }, (_, i) => ({
+        pin: `Y${i + 1}`,
+        high: 'VCC',
+        low: 'GND',
+        when: GATES[gate].when(i + 1),
+        ref: 'GND',
+        aboveVolts: 2.5,
+        ohms: 50,
+        invert: false,
+      })),
       sources: [],
       gpio: [],
       supply: { pos: 'VCC', neg: 'GND', minVolts: 2, maxVolts: 6 },
@@ -42,9 +72,10 @@ const chip = (id: string, gate: Gate): Part =>
   }) as Part;
 
 const bit = (value: number, i: number) => Math.floor(value / 2 ** i) % 2;
+type Test = NonNullable<CircuitSpec['tests']>[number];
 
-// The cases that catch wiring mistakes in an adder: carries rippling the whole width, alternating bits, and a few ordinary sums.
-function samples(bits: number): Array<[number, number]> {
+// The cases that catch wiring mistakes: carries rippling the whole width, alternating bits, equal values and a few ordinary ones.
+function samples(bits: number, count = 10): Array<[number, number]> {
   const max = 2 ** bits - 1;
   if (bits <= 2) {
     const all: Array<[number, number]> = [];
@@ -66,27 +97,47 @@ function samples(bits: number): Array<[number, number]> {
     [odd, max - odd],
     [odd, odd],
   ];
-  while (out.length < 10) out.push([next(), next()]);
+  while (out.length < count) out.push([next(), next()]);
   return out;
 }
 
-function expand(block: Block, prefix: string, supply: { pos: string; neg: string }) {
+// Wires gates out of real chips: each call hands out the next free gate of a kind, adding a chip, powered from the rails, when one fills up.
+function builder(prefix: string, supply: { pos: string; neg: string }) {
   const parts: Part[] = [];
   const wires: CircuitSpec['wires'] = [];
   const wire = (from: string, to: string) => wires.push({ from, to });
   const id = (name: string) => `${prefix}${name}`;
-  const used: Record<Gate, number> = { xor: 0, and: 0, or: 0 };
-  // Hands out the next free gate of a kind, adding a chip, powered from the rails, every four gates.
-  const gate = (kind: Gate) => {
+  const used: Record<Gate, number> = { xor: 0, and: 0, or: 0, not: 0 };
+  const take = (kind: Gate) => {
     const n = used[kind]++;
-    const chipId = id(`${kind}${Math.floor(n / 4) + 1}`);
-    if (n % 4 === 0) {
+    const chipId = id(`${kind}${Math.floor(n / GATES[kind].per) + 1}`);
+    if (n % GATES[kind].per === 0) {
       parts.push(chip(chipId, kind));
       wire(supply.pos, `${chipId}.VCC`);
       wire(supply.neg, `${chipId}.GND`);
     }
-    const g = (n % 4) + 1;
-    return { a: `${chipId}.A${g}`, b: `${chipId}.B${g}`, y: `${chipId}.Y${g}` };
+    return { chipId, g: (n % GATES[kind].per) + 1 };
+  };
+  // A two-input gate fed by two signals; returns its output.
+  const gate = (kind: Exclude<Gate, 'not'>, a: string, b: string) => {
+    const { chipId, g } = take(kind);
+    wire(a, `${chipId}.A${g}`);
+    wire(b, `${chipId}.B${g}`);
+    return `${chipId}.Y${g}`;
+  };
+  const not = (a: string) => {
+    const { chipId, g } = take('not');
+    wire(a, `${chipId}.A${g}`);
+    return `${chipId}.Y${g}`;
+  };
+  const half = (a: string, b: string) => ({ sum: gate('xor', a, b), carry: gate('and', a, b) });
+  // Sum = A xor B xor Cin, carry = A·B + Cin·(A xor B).
+  const full = (a: string, b: string, cin: string) => {
+    const x = gate('xor', a, b);
+    const both = gate('and', a, b);
+    const sum = gate('xor', x, cin);
+    const pass = gate('and', x, cin);
+    return { sum, carry: gate('or', both, pass) };
   };
   // A switch to the supply with a 10 kΩ pull-down, so an open switch reads as 0.
   const input = (name: string) => {
@@ -96,72 +147,163 @@ function expand(block: Block, prefix: string, supply: { pos: string; neg: string
     wire(supply.neg, `${id(`r${name}`)}.b`);
     return `${id(`sw${name}`)}.b`;
   };
-  const led = (name: string, from: string) => {
-    parts.push(
-      { id: id(`led${name}`), type: 'led', color: name === 'Cout' ? 'blue' : 'red', package: 'axial' } as Part,
-      { id: id(`res${name}`), type: 'resistor', ohms: 220, package: 'axial' } as Part,
-    );
+  const led = (name: string, from: string, color = 'red') => {
+    parts.push({ id: id(`led${name}`), type: 'led', color, package: 'axial' } as Part, { id: id(`res${name}`), type: 'resistor', ohms: 220, package: 'axial' } as Part);
     wire(from, `${id(`res${name}`)}.a`);
     wire(`${id(`res${name}`)}.b`, `${id(`led${name}`)}.anode`);
     wire(supply.neg, `${id(`led${name}`)}.cathode`);
+    return id(`led${name}`);
   };
+  // A behaviour test row: which switches are on, and which of the outputs must be lit.
+  const row = (name: string, set: Record<string, number>, outputs: string[], lit: (output: string, i: number) => boolean): Test => {
+    const on = outputs.filter((o, i) => lit(o, i));
+    return { name, set: Object.fromEntries(Object.entries(set).map(([k, v]) => [id(k), v])), on, off: outputs.filter((o) => !on.includes(o)) };
+  };
+  return { parts, wires, gate, not, half, full, input, led, row };
+}
 
+const numberSwitches = (bits: number, x: number, y: number) => {
+  const set: Record<string, number> = {};
+  for (let i = 0; i < bits; i++) {
+    set[`swA${i}`] = bit(x, i);
+    set[`swB${i}`] = bit(y, i);
+  }
+  return set;
+};
+
+// A ripple-carry adder; with a mode switch, B goes through XOR gates and the mode is the first carry in, so it subtracts.
+function adder(block: Block, b: ReturnType<typeof builder>) {
   const subtract = block.kind === 'adder_subtractor';
-  // Subtracting adds the two's complement: each B bit goes through an XOR with the mode switch, and the mode switch is the first carry in.
-  const mode = subtract ? input('Sub') : null;
+  const mode = subtract ? b.input('Sub') : null;
   let carry: string | null = mode;
+  const sums: string[] = [];
   for (let i = 0; i < block.bits; i++) {
-    const a = input(`A${i}`);
-    let b = input(`B${i}`);
-    if (mode) {
-      const flip = gate('xor');
-      wire(b, flip.a);
-      wire(mode, flip.b);
-      b = flip.y;
-    }
-    const half = gate('xor');
-    wire(a, half.a);
-    wire(b, half.b);
-    const both = gate('and');
-    wire(a, both.a);
-    wire(b, both.b);
+    const a = b.input(`A${i}`);
+    let bi = b.input(`B${i}`);
+    if (mode) bi = b.gate('xor', bi, mode);
     if (!carry) {
-      led(`S${i}`, half.y);
-      carry = both.y;
+      const h = b.half(a, bi);
+      sums.push(b.led(`S${i}`, h.sum));
+      carry = h.carry;
       continue;
     }
-    const sum = gate('xor');
-    wire(half.y, sum.a);
-    wire(carry, sum.b);
-    led(`S${i}`, sum.y);
-    const pass = gate('and');
-    wire(half.y, pass.a);
-    wire(carry, pass.b);
-    const out = gate('or');
-    wire(both.y, out.a);
-    wire(pass.y, out.b);
-    carry = out.y;
+    const f = b.full(a, bi, carry);
+    sums.push(b.led(`S${i}`, f.sum));
+    carry = f.carry;
   }
-  led('Cout', carry!);
-
-  const outputs = [...Array.from({ length: block.bits }, (_, i) => id(`ledS${i}`)), id('ledCout')];
-  const row = (x: number, y: number, sub: boolean) => {
-    const set: Record<string, number> = {};
-    if (subtract) set[id('swSub')] = sub ? 1 : 0;
-    for (let i = 0; i < block.bits; i++) {
-      set[id(`swA${i}`)] = bit(x, i);
-      set[id(`swB${i}`)] = bit(y, i);
-    }
-    // Subtraction shows A + (not B) + 1: the low bits are A - B in two's complement and the carry LED means no borrow.
-    const result = sub ? x + (2 ** block.bits - 1 - y) + 1 : x + y;
-    const lit = outputs.filter((_, i) => bit(result, i) === 1);
-    return { name: `${x} ${sub ? '-' : '+'} ${y}`, set, on: lit, off: outputs.filter((o) => !lit.includes(o)) };
-  };
+  const outputs = [...sums, b.led('Cout', carry!, 'blue')];
+  // Subtraction shows A + (not B) + 1: the low bits are A - B in two's complement and the carry LED means no borrow.
+  const test = (x: number, y: number, sub: boolean) =>
+    b.row(`${x} ${sub ? '-' : '+'} ${y}`, { ...(subtract ? { swSub: sub ? 1 : 0 } : {}), ...numberSwitches(block.bits, x, y) }, outputs, (_, i) =>
+      Boolean(bit(sub ? x + (2 ** block.bits - 1 - y) + 1 : x + y, i)),
+    );
   const pairs = samples(block.bits);
-  const tests = subtract
-    ? [...pairs.slice(0, 6).map(([x, y]) => row(x, y, false)), ...pairs.slice(0, 6).map(([x, y]) => row(x, y, true))]
-    : pairs.map(([x, y]) => row(x, y, false));
-  return { parts, wires, tests };
+  return subtract ? [...pairs.slice(0, 6).map(([x, y]) => test(x, y, false)), ...pairs.slice(0, 6).map(([x, y]) => test(x, y, true))] : pairs.map(([x, y]) => test(x, y, false));
+}
+
+// A magnitude comparator built from the low bit up: A > B so far is "this bit says so, or it ties and the bits below said so".
+function comparator(block: Block, b: ReturnType<typeof builder>) {
+  let gt: string | null = null;
+  let lt: string | null = null;
+  let eq: string | null = null;
+  for (let i = 0; i < block.bits; i++) {
+    const a = b.input(`A${i}`);
+    const bi = b.input(`B${i}`);
+    const aOnly = b.gate('and', a, b.not(bi));
+    const bOnly = b.gate('and', b.not(a), bi);
+    const same = b.not(b.gate('xor', a, bi));
+    gt = gt ? b.gate('or', aOnly, b.gate('and', same, gt)) : aOnly;
+    lt = lt ? b.gate('or', bOnly, b.gate('and', same, lt)) : bOnly;
+    eq = eq ? b.gate('and', same, eq) : same;
+  }
+  const outputs = [b.led('GT', gt!, 'green'), b.led('EQ', eq!, 'yellow'), b.led('LT', lt!, 'red')];
+  const max = 2 ** block.bits - 1;
+  const pairs = [...samples(block.bits, 8), [max, max - 1], [max - 1, max], [Math.floor(max / 2) + 1, Math.floor(max / 2)], [7 & max, 7 & max]] as Array<[number, number]>;
+  return pairs.map(([x, y]) => b.row(`${x} vs ${y}`, numberSwitches(block.bits, x, y), outputs, (_, i) => [x > y, x === y, x < y][i]));
+}
+
+// An array multiplier: every bit of A ANDed with every bit of B, and each row of partial products added into the running total, shifted one place.
+function multiplier(block: Block, b: ReturnType<typeof builder>) {
+  const n = block.bits;
+  const as = Array.from({ length: n }, (_, i) => b.input(`A${i}`));
+  const bs = Array.from({ length: n }, (_, i) => b.input(`B${i}`));
+  const total: Array<string | null> = new Array(2 * n).fill(null);
+  for (let i = 0; i < n; i++) {
+    let carry: string | null = null;
+    for (let j = 0; j < n; j++) {
+      const pp = b.gate('and', as[j], bs[i]);
+      const at = total[i + j];
+      if (!at && !carry) total[i + j] = pp;
+      else if (!at || !carry) {
+        const h = b.half((at ?? carry)!, pp);
+        total[i + j] = h.sum;
+        carry = h.carry;
+      } else {
+        const f = b.full(at, pp, carry);
+        total[i + j] = f.sum;
+        carry = f.carry;
+      }
+    }
+    total[i + n] = carry;
+  }
+  // Every product bit that can be 1 gets an LED; a 1-bit product has no carry, so it has just one.
+  const bits = total.flatMap((signal, k) => (signal ? [{ k, led: b.led(`P${k}`, signal) }] : []));
+  const outputs = bits.map((x) => x.led);
+  const pairs = samples(n, n <= 2 ? 16 : 10);
+  // Sampled products can miss a middle bit, so add a power of two for each product bit no test lights yet: every LED is proven to work.
+  for (const { k } of bits) {
+    if (pairs.some(([x, y]) => bit(x * y, k))) continue;
+    const low = Math.min(k, n - 1);
+    pairs.push([2 ** low, 2 ** (k - low)]);
+  }
+  return pairs.map(([x, y]) => b.row(`${x} x ${y}`, numberSwitches(n, x, y), outputs, (_, i) => Boolean(bit(x * y, bits[i].k))));
+}
+
+// An ALU: an adder-subtractor beside AND and OR, with select switches choosing which result reaches the LEDs.
+function alu(block: Block, b: ReturnType<typeof builder>) {
+  const s1 = b.input('S1');
+  const s0 = b.input('S0');
+  const notS1 = b.not(s1);
+  const notS0 = b.not(s0);
+  const subtract = b.gate('and', s0, notS1);
+  let carry = subtract;
+  const results: string[] = [];
+  for (let i = 0; i < block.bits; i++) {
+    const a = b.input(`A${i}`);
+    const bi = b.input(`B${i}`);
+    const f = b.full(a, b.gate('xor', bi, subtract), carry);
+    carry = f.carry;
+    const logic = b.gate('or', b.gate('and', b.gate('and', a, bi), notS0), b.gate('and', b.gate('or', a, bi), s0));
+    results.push(b.led(`R${i}`, b.gate('or', b.gate('and', f.sum, notS1), b.gate('and', logic, s1))));
+  }
+  const outputs = [...results, b.led('Cout', b.gate('and', carry, notS1), 'blue')];
+  const max = 2 ** block.bits - 1;
+  const ops = [
+    { name: '+', s1: 0, s0: 0, of: (x: number, y: number) => x + y },
+    { name: '-', s1: 0, s0: 1, of: (x: number, y: number) => x + (max - y) + 1 },
+    { name: 'AND', s1: 1, s0: 0, of: (x: number, y: number) => andOf(x, y, block.bits) },
+    { name: 'OR', s1: 1, s0: 1, of: (x: number, y: number) => orOf(x, y, block.bits) },
+  ];
+  const pairs = samples(block.bits, 6).slice(0, block.bits <= 2 ? 16 : 4);
+  return ops.flatMap((op) =>
+    pairs.map(([x, y]) =>
+      b.row(
+        `${x} ${op.name} ${y}`,
+        { swS1: op.s1, swS0: op.s0, ...numberSwitches(block.bits, x, y) },
+        outputs,
+        (_, i) => Boolean(bit(op.of(x, y), i)) && (i < block.bits || op.s1 === 0),
+      ),
+    ),
+  );
+}
+
+const andOf = (x: number, y: number, bits: number) => Array.from({ length: bits }, (_, i) => (bit(x, i) && bit(y, i) ? 2 ** i : 0)).reduce((a, c) => a + c, 0);
+const orOf = (x: number, y: number, bits: number) => Array.from({ length: bits }, (_, i) => (bit(x, i) || bit(y, i) ? 2 ** i : 0)).reduce((a, c) => a + c, 0);
+
+function expand(block: Block, prefix: string, supply: { pos: string; neg: string }) {
+  const b = builder(prefix, supply);
+  const tests = block.kind === 'comparator' ? comparator(block, b) : block.kind === 'multiplier' ? multiplier(block, b) : block.kind === 'alu' ? alu(block, b) : adder(block, b);
+  return { parts: b.parts, wires: b.wires, tests };
 }
 
 /** Expands a design's blocks into parts, wires and tests; a design without blocks is returned as it is. */
