@@ -67,6 +67,8 @@ interface State {
   messages: Message[];
   report: RecoveryReport | null;
   reportOpen: boolean;
+  /** The chat asked for the design as a file: the Export panel opens */
+  exportOpen: boolean;
   appliedId: string | null;
   selected: string | null;
   tab: 'agents' | 'usage' | 'build';
@@ -106,6 +108,7 @@ export const useStore = create<State>((set) => ({
   messages: [],
   report: null,
   reportOpen: true,
+  exportOpen: false,
   appliedId: null,
   selected: null,
   tab: 'agents',

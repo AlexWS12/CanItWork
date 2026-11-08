@@ -14,6 +14,17 @@ export function ExportButton() {
   const [copied, setCopied] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
 
+  // The chat asked for the file: open the panel with it ready
+  const asked = useStore((s) => s.exportOpen);
+  useEffect(() => {
+    if (!asked) return;
+    useStore.getState().set({ exportOpen: false });
+    if (!exportable(useStore.getState().environment?.domain)) return;
+    setFile(exportFile());
+    setCopied(false);
+    setOpen(true);
+  }, [asked]);
+
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent | KeyboardEvent) => {

@@ -6,6 +6,7 @@ import { config } from 'dotenv';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { DOMAINS, type StreamEvent } from '@tv/core';
+import { asksForExport } from './exportIntent';
 import { build, chat, describeFailure, edit, explain, recover, servedFromCache, showcaseEnvironment, verifiedEnvironment, verifiedList, type Emit } from './agents';
 import { authConfig } from './auth';
 import { showcase } from './design-cache';
@@ -138,7 +139,9 @@ app.post('/api/explain', async (c) => {
 
 app.post('/api/chat', async (c) => {
   const input = await c.req.json();
-  return (await limited(c)) ?? agentStream((emit) => chat(input, emit))(c);
+  // Asking for the design as a file calls no model, so it never counts against the allowance
+  const free = typeof input?.message === 'string' && asksForExport(input.message);
+  return (free ? null : await limited(c)) ?? agentStream((emit) => chat(input, emit))(c);
 });
 
 // A delete or duplicate from the 3D view. Without Gemini it runs only the validator and simulator, so it never counts.
