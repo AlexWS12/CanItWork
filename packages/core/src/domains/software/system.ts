@@ -2,6 +2,7 @@ import { SYSTEM, checkPatches, type Breakable, type Evaluation, type Incident, t
 import { money } from '../../cost';
 import { createRng, type Rng } from '../../rng';
 import { softwareCost } from './cost';
+import { toCompose } from './export';
 import { DEFAULT_CAPACITY, DEFAULT_LATENCY, SystemPatchSchema, replicaZones, zonesOf, type SystemEdge, type SystemNode, type SystemPatch, type SystemSpec } from './schema';
 
 const TIMEOUT_MS = 1000;
@@ -444,6 +445,11 @@ export class SystemRun implements Run {
         break;
       }
     }
+  }
+
+  /** The design as it stands now, with every fix applied, as a docker-compose.yml. */
+  toCompose(name?: string) {
+    return toCompose(this.spec, { name });
   }
 
   evaluation(): Evaluation {
