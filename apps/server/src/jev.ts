@@ -1,9 +1,10 @@
 import type { KeyCheck, Usage } from '@tv/core';
+import { ownKeys } from './ownKeys';
 import { TypeSafeClient, type Questions, type SystemOneRequest, type SystemOneResult } from '@typesafe-ai/sdk';
 import { probe } from './llm';
 
 const env = () => process.env;
-const apiKey = () => env().TYPESAFE_API_KEY?.trim() || '';
+const apiKey = () => ownKeys()?.typesafe || env().TYPESAFE_API_KEY?.trim() || '';
 const baseURL = () => env().TYPESAFE_BASE_URL?.trim() || 'https://api.typesafe.ai';
 
 export const hasJev = () => Boolean(apiKey());

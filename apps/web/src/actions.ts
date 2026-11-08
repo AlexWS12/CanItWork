@@ -2,6 +2,7 @@ import { componentIds, type Candidate, type Environment, type Incident, type Pro
 import { matchEntities } from './entities';
 import { runner } from './runner';
 import { snapshotView } from './scene/snapshot';
+import { ownKeyHeaders } from './ownKeys';
 import { authFetch, useAuth } from './auth';
 import { joinLive, leaveLive, liveIdOf, relayAgent, useLive } from './live';
 import { MAX_SHARED_TICKS, decodeRun, encodeRun, isSharedLink, runHash, sane, savedIdOf, savedRunLink, shortHash, type SharedRun } from './share';
@@ -13,7 +14,8 @@ const store = () => useStore.getState();
 async function stream(path: string, body: unknown, onEvent: (e: StreamEvent) => void) {
   const res = await authFetch(path, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    // A signed-in person's own API keys ride along with agent requests; the server uses them for this request alone
+    headers: { 'content-type': 'application/json', ...ownKeyHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok || !res.body) throw new Error(`Server replied ${res.status}`);

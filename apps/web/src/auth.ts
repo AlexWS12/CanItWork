@@ -1,4 +1,5 @@
 import type { Auth0Client } from '@auth0/auth0-spa-js';
+import { forgetOwnKeys, loadOwnKeys } from './ownKeys';
 import { create } from 'zustand';
 
 // Sign-in with Auth0. The server says whether a tenant is configured; without one, nothing here shows and the app
@@ -78,6 +79,8 @@ export async function signIn() {
 }
 
 export async function signOut() {
+  // Your own API keys never outlive your session on this browser
+  forgetOwnKeys();
   await client?.logout({ logoutParams: { returnTo: home() } });
 }
 
@@ -93,3 +96,8 @@ export async function authFetch(url: string, init: RequestInit = {}) {
   }
   return fetch(url, { ...init, headers });
 }
+
+// Whoever signs in gets their own keys back, and nobody else's
+useAuth.subscribe((state, before) => {
+  if (state.account?.email !== before.account?.email || Boolean(state.account) !== Boolean(before.account)) loadOwnKeys();
+});

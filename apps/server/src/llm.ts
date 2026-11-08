@@ -1,4 +1,5 @@
 import type { KeyCheck, ProviderStatus, Usage } from '@tv/core';
+import { ownKeys } from './ownKeys';
 import type { z } from 'zod';
 import { record } from './spend';
 
@@ -68,6 +69,8 @@ function restFor(error: string) {
 }
 
 function routes(): Route[] {
+  const own = ownKeys()?.gemini;
+  if (own) return [{ url: GEMINI_DIRECT, key: own, via: 'direct' }];
   const out: Route[] = [];
   if (pruneKey() && Date.now() >= pruneRestUntil) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
   // Several direct keys can be comma-separated; a quota error on one moves on to the next.

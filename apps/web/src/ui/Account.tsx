@@ -2,6 +2,7 @@ import { DOMAINS, type DomainId } from '@tv/core';
 import { useEffect, useRef, useState } from 'react';
 import { openSavedRun, shareRun, type Visibility } from '../actions';
 import { authFetch, signIn, signOut, useAuth } from '../auth';
+import { useOwnKeys } from '../ownKeys';
 import { savedRunLink } from '../share';
 import { useStore } from '../store';
 import { LogoMark } from './Wordmark';
@@ -54,6 +55,7 @@ export function AccountButton() {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
+  const keyCount = useOwnKeys((st) => Object.keys(st.keys).length);
   if (!enabled || !ready) return null;
   if (!account)
     return (
@@ -80,6 +82,17 @@ export function AccountButton() {
             }}
           >
             My systems
+          </button>
+          <button
+            role="menuitem"
+            className="account-keys-item"
+            onClick={() => {
+              setOpen(false);
+              useOwnKeys.setState({ open: true });
+            }}
+          >
+            API keys
+            {keyCount > 0 && <span className="account-keys-count">{keyCount}</span>}
           </button>
           <button role="menuitem" onClick={() => void signOut()}>
             Sign out

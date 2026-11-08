@@ -8,12 +8,14 @@ import { streamSSE } from 'hono/streaming';
 import { DOMAINS, type StreamEvent } from '@tv/core';
 import { asksForExport } from './exportIntent';
 import { build, chat, describeFailure, edit, explain, recover, servedFromCache, showcaseEnvironment, verifiedEnvironment, verifiedList, type Emit } from './agents';
-import { authConfig } from './auth';
+import { authConfig, userFrom } from './auth';
 import { showcase } from './design-cache';
 import { admit } from './integrations/limit';
 import { hasGemini, pruneBypass } from './llm';
 import { mountRooms } from './rooms';
 import { anchor, anchorOf, solanaEnabled } from './integrations/solana';
+import { ownKeysOf, paysOwnWay, withOwnKeys, type OwnKeys } from './ownKeys';
+import { testKey } from './keyTest';
 import { mountExportCheck } from './exportCheck';
 import { listedRuns, mountRuns, storageKind } from './runs';
 import { summary } from './spend';
@@ -86,7 +88,8 @@ app.post('/api/anchor', async (c) => {
 });
 mountRooms(app);
 
-function agentStream(run: (emit: Emit) => Promise<void>) {
+// keys: the person's own API keys, in force for every call the agents make while this request runs
+function agentStream(run: (emit: Emit) => Promise<void>, keys: OwnKeys | null = null) {
   return (c: Context) =>
     streamSSE(c, async (stream) => {
       const queue: StreamEvent[] = [];
@@ -96,7 +99,7 @@ function agentStream(run: (emit: Emit) => Promise<void>) {
         queue.push(event);
         wake?.();
       };
-      run(emit)
+      withOwnKeys(keys, () => run(emit))
         .catch((error) => emit({ type: 'error', message: describeFailure(error) }))
         .finally(() => {
           emit({ type: 'done' });
@@ -121,35 +124,55 @@ const limited = async (c: Context, asRefusal = false) => {
   return agentStream(async (emit) => emit(asRefusal ? { type: 'refusal', refusal: { reason: message, closest: null, ...flag } } : { type: 'error', message, ...flag }))(c);
 };
 
+// A signed-in person's own API keys come with each agent request. A request they pay for themselves never counts against
+// the hourly allowance; everything else is limited as before.
 app.post('/api/build', async (c) => {
   const { prompt } = await c.req.json<{ prompt: string }>();
+  const keys = await ownKeysOf(c);
   // A verified-cache hit costs nothing, so it never counts against the allowance.
-  const blocked = servedFromCache(prompt) ? null : await limited(c, true);
-  return blocked ?? agentStream((emit) => build(prompt, emit))(c);
+  const blocked = servedFromCache(prompt) || paysOwnWay(keys) ? null : await limited(c, true);
+  return blocked ?? agentStream((emit) => build(prompt, emit), keys)(c);
 });
 
 app.post('/api/recover', async (c) => {
   const input = await c.req.json();
-  return (await limited(c)) ?? agentStream((emit) => recover(input, emit))(c);
+  const keys = await ownKeysOf(c);
+  return (paysOwnWay(keys) ? null : await limited(c)) ?? agentStream((emit) => recover(input, emit), keys)(c);
 });
 
 // Part of every build, so it never counts against the allowance; it is one small call and skips itself without Gemini.
 app.post('/api/explain', async (c) => {
   const input = await c.req.json();
-  return agentStream((emit) => explain(input, emit))(c);
+  const keys = await ownKeysOf(c);
+  return agentStream((emit) => explain(input, emit), keys)(c);
 });
 
 app.post('/api/chat', async (c) => {
   const input = await c.req.json();
+  const keys = await ownKeysOf(c);
   // Asking for the design as a file calls no model, so it never counts against the allowance
-  const free = typeof input?.message === 'string' && asksForExport(input.message);
-  return (free ? null : await limited(c)) ?? agentStream((emit) => chat(input, emit))(c);
+  const free = (typeof input?.message === 'string' && asksForExport(input.message)) || paysOwnWay(keys);
+  return (free ? null : await limited(c)) ?? agentStream((emit) => chat(input, emit), keys)(c);
 });
 
 // A delete or duplicate from the 3D view. Without Gemini it runs only the validator and simulator, so it never counts.
 app.post('/api/edit', async (c) => {
   const input = await c.req.json();
-  return (hasGemini() ? await limited(c) : null) ?? agentStream((emit) => edit(input, emit))(c);
+  const keys = await ownKeysOf(c);
+  const usesModel = withOwnKeys(keys, () => hasGemini());
+  return (usesModel && !paysOwnWay(keys) ? await limited(c) : null) ?? agentStream((emit) => edit(input, emit), keys)(c);
+});
+
+// Tries a key the person is about to use, without keeping it: the provider says whether it works
+app.post('/api/keys/test', async (c) => {
+  const user = await userFrom(c.req.header('authorization')).catch(() => null);
+  if (!user) return c.json({ ok: false, error: 'Sign in to use your own keys' }, 401);
+  const body = (await c.req.json().catch(() => ({}))) as { service?: string; key?: string };
+  const key = body.key?.trim() ?? '';
+  if (!['gemini', 'swarms', 'typesafe'].includes(body.service ?? '') || key.length < 12 || key.length > 256 || !/^[\w\-.:~+/=]+$/.test(key))
+    return c.json({ ok: false, error: 'That does not look like an API key' }, 400);
+  const result = await testKey(body.service as 'gemini' | 'swarms' | 'typesafe', key);
+  return c.json(result);
 });
 
 app.use('/*', serveStatic({ root: path.relative(process.cwd(), path.resolve(here, '../../web/dist')) || '.' }));
