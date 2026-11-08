@@ -217,9 +217,42 @@ export function ShareButton() {
           )}
           <p className="share-hash">
             Proof hash <code>{shortHash(shared.hash)}</code>
+            <SolanaAnchor hash={shared.hash} />
           </p>
         </div>
       )}
     </div>
+  );
+}
+
+type Anchor = { signature: string; cluster: string; explorer: string; at: string };
+
+// The proof hash is written into a Solana memo once, so anyone can check when this result existed without trusting us
+function SolanaAnchor({ hash }: { hash: string }) {
+  const [state, setState] = useState<{ anchor?: Anchor; failed?: boolean }>({});
+  useEffect(() => {
+    let live = true;
+    setState({});
+    fetch('/api/anchor', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ hash }) })
+      .then(async (r) => (r.ok ? ((await r.json()) as Anchor) : Promise.reject(new Error(String(r.status)))))
+      .then((anchor) => live && setState({ anchor }))
+      .catch(() => live && setState({ failed: true }));
+    return () => {
+      live = false;
+    };
+  }, [hash]);
+  if (state.failed) return null;
+  if (!state.anchor) return <span className="share-anchor">Anchoring on Solana…</span>;
+  return (
+    <a
+      className="share-anchor"
+      data-done
+      href={state.anchor.explorer}
+      target="_blank"
+      rel="noreferrer"
+      title={`Written to Solana ${state.anchor.cluster} at ${new Date(state.anchor.at).toLocaleString()}`}
+    >
+      Anchored on Solana{state.anchor.cluster === 'mainnet-beta' ? '' : ` ${state.anchor.cluster}`} ↗
+    </a>
   );
 }

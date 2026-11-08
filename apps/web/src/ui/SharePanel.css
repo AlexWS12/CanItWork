@@ -98,6 +98,20 @@
   color: var(--color-text);
 }
 
+.share-anchor {
+  margin-left: var(--space-2);
+  color: var(--color-muted);
+}
+
+.share-anchor[data-done] {
+  color: var(--color-teal, var(--color-accent));
+  text-decoration: none;
+}
+
+.share-anchor[data-done]:hover {
+  text-decoration: underline;
+}
+
 .share-save {
   display: flex;
   flex-direction: column;
