@@ -827,7 +827,7 @@ export const electronics: Domain<CircuitSpec, CircuitSpec> = {
   ],
   suggestions: ['What happens if the power supply sags?', 'Is anything over its rating?', 'What happens if a wire comes loose?'],
   keywords:
-    /planter|soil|greenhouse|irrigat|thermostat|relay|pump|arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
+    /planter|soil|greenhouse|irrigat|thermostat|relay|\bpump|arduino|esp32|raspberry pi pico|circuit|breadboard|\bleds?\b|resistor|capacitor|servo|sensor|motor driver|h-bridge|ultrasonic|buzzer|electronic|robotic system/i,
   ticksPerSecond: 12,
   horizon: 300,
   seeds: 1,

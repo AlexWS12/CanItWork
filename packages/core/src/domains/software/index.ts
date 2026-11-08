@@ -1,5 +1,5 @@
 import type { Domain, Hypothesis, Incident, Issue, RecoveryOption } from '../../domain';
-import { SystemPatchSchema, SystemSpecSchema, replicaZones, zonesOf, type SystemNode, type SystemSpec } from './schema';
+import { DEFAULT_CAPACITY, SystemPatchSchema, SystemSpecSchema, replicaZones, zonesOf, type SystemNode, type SystemSpec } from './schema';
 import { SystemRun, topoOrder } from './system';
 
 const name = (node: SystemNode) => node.label ?? node.id;
@@ -116,6 +116,73 @@ function buildSystem(prompt: string): SystemSpec {
   return spec;
 }
 
+// What the Architect's repairs left, fixed without a model: a call that closes a loop is dropped, a queue nobody reads gets a
+// worker, a node listing more zones than replicas gets a replica per zone, and an overloaded component gets the replicas (or,
+// where the user fixed the replica count, the per-replica capacity) that bring it to about 70%. Numbers the user stated stay.
+function mend(spec: SystemSpec, issues: Issue[], stated: number[]) {
+  const next = structuredClone(spec);
+  const notes: string[] = [];
+  const said = (n: number | undefined) => n !== undefined && stated.includes(n);
+  if (issues.some((i) => /has a cycle/.test(i.message))) {
+    const kept: SystemSpec['edges'] = [];
+    const reaches = (from: string, to: string) => {
+      const seen = new Set([from]);
+      const queue = [from];
+      while (queue.length) {
+        const at = queue.shift()!;
+        if (at === to) return true;
+        for (const e of kept) if (e.from === at && !seen.has(e.to)) (seen.add(e.to), queue.push(e.to));
+      }
+      return false;
+    };
+    for (const e of next.edges) {
+      if (reaches(e.to, e.from)) notes.push(`dropped the call ${e.from} → ${e.to}, which closed a loop`);
+      else kept.push(e);
+    }
+    next.edges = kept;
+  }
+  for (const queue of next.nodes.filter((n) => n.kind === 'queue' && !next.edges.some((e) => e.from === n.id))) {
+    let id = `${queue.id}-worker`;
+    while (next.nodes.some((n) => n.id === id)) id += '-2';
+    next.nodes.push({ id, label: `${name(queue)} worker`, kind: 'service', replicas: 2 });
+    next.edges.push({ from: queue.id, to: id, mode: 'async' });
+    notes.push(`gave ${name(queue)} a worker to drain it`);
+  }
+  for (const node of next.nodes) {
+    if (node.zones && node.zones.length > (node.replicas ?? 1) && !said(node.replicas)) {
+      node.replicas = node.zones.length;
+      notes.push(`ran ${name(node)} in all ${node.zones.length} of its zones`);
+    }
+  }
+  if (issues.some((i) => /over capacity/.test(i.message)) && topoOrder(next).length === next.nodes.length) {
+    const fitted = new Set<string>();
+    const loadOf = (spec: SystemSpec) => {
+      const run = new SystemRun(spec, 1);
+      for (let i = 0; i < 30; i++) run.step();
+      return (id: string) => run.states.get(id)?.utilization ?? 0;
+    };
+    for (let pass = 0; pass < 3; pass++) {
+      // What the checks flag is the load with retries, but it is sized on the load without them: a component past capacity has
+      // its failed calls retried, which inflates its load beyond what it needs to carry once it is big enough.
+      const flagged = loadOf(next);
+      const bare = loadOf({ ...next, retries: 0 });
+      const hot = next.nodes.filter((n) => n.kind !== 'client' && flagged(n.id) > 1);
+      if (!hot.length) break;
+      for (const node of hot) {
+        const load = Math.max(bare(node.id), 0.75);
+        const replicas = node.replicas ?? 1;
+        const wanted = Math.max(replicas + 1, Math.ceil((replicas * load) / 0.7));
+        if (node.kind !== 'external' && !said(node.replicas) && wanted <= 50) node.replicas = wanted;
+        else if (!said(node.capacity)) node.capacity = Math.ceil(((node.capacity ?? DEFAULT_CAPACITY[node.kind]) * load) / 0.7);
+        else continue;
+        fitted.add(name(node));
+      }
+    }
+    if (fitted.size) notes.push(`sized ${list([...fitted])} to carry the traffic at about 70% load`);
+  }
+  return notes.length ? { spec: next, notes } : null;
+}
+
 function zoneHypothesis(spec: SystemSpec): Hypothesis | null {
   const zones = zonesOf(spec);
   if (zones.length < 2) return null;
@@ -221,7 +288,7 @@ export const software: Domain<SystemSpec, SystemSpec> = {
   "nodes": [{"id": string, "label": string, "kind": "client"|"gateway"|"service"|"database"|"cache"|"queue"|"external", "replicas"?: integer, "capacity"?: requests per second per replica, "latency"?: milliseconds, "zones"?: [zone names, replicas spread round-robin]}],
   "edges": [{"from": node id, "to": node id, "mode"?: "sync"|"async", "calls"?: calls per request, "optional"?: boolean}]
 }
-Include at least one client. The graph must have no cycles. Use async edges into and out of queues, and give every queue a consumer. Size replicas and capacity so normal traffic stays under 70% of capacity on every component, unless the user asks for an overloaded system. Set zones only when the user mentions regions, availability zones or data centres.`,
+Include at least one client. Every component, service or third-party product the user names becomes its own node with an id and label that name it, even when its internals can't be simulated (a video call service, a CDN, an LLM API): model it as a service or an external. The graph must have no cycles. Use async edges into and out of queues, and give every queue a consumer. Size replicas and capacity so normal traffic stays under 70% of capacity on every component, unless the user asks for an overloaded system. Set zones only when the user mentions regions, availability zones or data centres.`,
   incidentTypes: ['node_down', 'node_slow', 'traffic_spike', 'cut_link', 'cache_flush', 'zone_down'],
   incidentDoc: `{"type":"node_down","target":"node id"}
 {"type":"node_slow","target":"node id","value":slowdown factor}
@@ -268,5 +335,6 @@ Include at least one client. The graph must have no cycles. Use async edges into
     spec: buildSystem,
     hypotheses,
     recoveries,
+    mend,
   },
 };

@@ -188,7 +188,9 @@ export function decideDomain(read: DomainAnswers, canDefer: boolean): Reading & 
 
   if (top && read.confidence >= JEV.routeConfidence && fits[top] >= JEV.routeFits) return route(top, read.probabilities[top] ?? 0);
   // A 'none' pick still defers when one domain partly fits: a factory line came back none at 69%, with warehouse at 42%.
-  if (fits[best] < JEV.refuseFits) return refuse();
+  // Below that, refuse outright only on a confident "none" or when nothing comes close. Otherwise a part fit goes to Gemini: Jev
+  // turned away a double-entry ledger schema because the database domain listed "no transactions" among its limits.
+  if (fits[best] < JEV.refuseFits && !(canDefer && closest && (top || read.confidence < JEV.routeConfidence))) return refuse();
   if (canDefer) return { kind: 'defer', detail: `Unsure: ${DOMAINS[best].label} at ${percent(fits[best])}, asking Gemini` };
   return fits[best] >= JEV.aloneFits ? route(best, fits[best]) : refuse();
 }
@@ -521,8 +523,10 @@ export async function build(prompt: string, emit: Emit) {
   // Whatever the repairs left, the domain may fix without a model: a loop in a flow, or an overload whose rates the user never
   // stated. It is kept only if it leaves fewer problems, and the trace says exactly what changed.
   if (toRepair().length && domain.rules.mend) {
-    const stated = (prompt.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
-    const mended = domain.rules.mend(draft.spec, issues, stated);
+    const stated = (prompt.match(/\d+(?:[.,]\d+)*/g) ?? []).map((n) => Number(n.replace(/,(?=\d{3}\b)/g, '')));
+    // An overload the user asked to see is theirs to keep: only the other problems are mended.
+    const strained = /overload|overwhelm|struggl|melt(s|ing)? down|crash|bottleneck|can'?t keep up|swamp|too (much|many)/i.test(prompt);
+    const mended = domain.rules.mend(draft.spec, strained ? issues.filter((i) => !/over capacity|overload/i.test(i.message)) : issues, stated);
     if (mended) {
       const candidate = { ...draft, spec: mended.spec };
       const after = check(candidate);

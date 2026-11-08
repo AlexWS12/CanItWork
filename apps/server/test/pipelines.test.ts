@@ -138,6 +138,20 @@ describe('agent pipelines', () => {
       expect(environmentOf(events)?.domain).toBe('warehouse');
     });
 
+    it('asks Gemini rather than refusing when Jev picks a domain but doubts it fits', async () => {
+      process.env.TYPESAFE_API_KEY = 't';
+      process.env.GEMINI_API_KEY = 'g';
+      const bodies: string[] = [];
+      const gemini = recordGemini(bodies, 'database');
+      // A ledger schema read as transactions: Jev picked databases but scored its fit under the refusal line.
+      const ledger = () => jevDomainReply('database', { database: 0.7, none: 0.3 }, { database: 0.25, software: 0.1 });
+      mockFetch((url, init) => (isJev(url) ? ledger() : gemini(url, init)));
+      const { events, emit } = collect();
+      await build('A double-entry accounting ledger with accounts, journal entries and entry lines', emit);
+      expect(routing(bodies)).toHaveLength(1);
+      expect(environmentOf(events)?.domain).toBe('database');
+    });
+
     it('goes with the best-fitting domain when Jev is split and there is no Gemini', async () => {
       process.env.TYPESAFE_API_KEY = 't';
       // Live answers for "A smart home with sensors, a hub and a phone app": the Choice leaned software, the fits leaned electronics.

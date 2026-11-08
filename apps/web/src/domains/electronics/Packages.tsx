@@ -36,7 +36,7 @@ export function packagePin(part: Part, pin: string): [number, number, number] | 
 // The part number printed on the package: the first word that looks like one ("74HC08", "NE555"), else the label's first word.
 function markingOf(part: Part) {
   const label = part.custom?.label ?? part.id;
-  return (label.match(/[A-Z]{0,4}\d{2,}[A-Z0-9-]*/i)?.[0] ?? label.split(/\s+/)[0]).toUpperCase().slice(0, 12);
+  return (label.match(/\b[A-Z]{0,4}\d{2,}[A-Z0-9-]*\b/i)?.[0] ?? label.split(/\s+/)[0]).toUpperCase().slice(0, 12);
 }
 
 const markings = new Map<string, THREE.CanvasTexture>();

@@ -241,11 +241,15 @@ export const database: Domain<DatabaseSpec, DatabaseSpec> = {
   label: 'Databases',
   blurb: 'Relational schemas with keys, indexes and a query workload',
   capabilities:
-    'Relational schemas: tables, columns, primary and foreign keys, indexes, row counts, partitioning across nodes, read replicas and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load, hot partitions and how they change with data growth.',
-  limits: ['Costs are estimates from a simple scan and seek model, not a real query planner', 'No transactions, isolation or replication lag', 'Relational schemas only'],
+    'Relational schemas for any data an app or business keeps (customers and orders, ledgers and transactions, bookings, messages, sensor readings, audit logs): tables, columns, primary and foreign keys, indexes, row counts, partitioning across nodes, read replicas and a query workload. Checks referential integrity and common design flaws, and estimates query cost, load, hot partitions and how they change with data growth.',
+  limits: [
+    'Costs are estimates from a simple scan and seek model, not a real query planner',
+    'Does not simulate concurrent transaction isolation or replication lag',
+    'Relational schemas only',
+  ],
   examples: ['A university database with students, courses, instructors and enrollments'],
   suggestions: ['What happens if the biggest table grows ten times?', 'What happens if a migration locks the busiest table?', 'Which queries need an index?'],
-  keywords: /database|schema|sql|postgres|mysql|tables?|foreign key|normali[sz]|shard|partitioned/i,
+  keywords: /database|schema|data ?model|\berd\b|entities|\bsql\b|postgres|mysql|\btables?\b|foreign key|normali[sz]|shard|partitioned/i,
   ticksPerSecond: 8,
   horizon: 300,
   seeds: 1,
@@ -262,7 +266,7 @@ export const database: Domain<DatabaseSpec, DatabaseSpec> = {
   "workload": [{"name": string, "kind": "read"|"write", "table": string, "where": [columns], "joins": [{"table": string, "local": column here, "foreign": column there}], "perSecond": number}],
   "replicas"?: read replicas 0-8
 }
-Include a realistic workload of 2 to 6 queries and realistic row counts. Foreign key columns must have the same type as the column they reference. Partition only when the user asks for sharding or partitioning, by the column the busiest queries filter on.`,
+Give every entity the user names or describes its own table, including link tables for many-to-many relations and any data they ask to keep separate. Include a realistic workload of 2 to 6 queries, covering any query the user describes, and realistic row counts. Foreign key columns must have the same type as the column they reference. Partition only when the user asks for sharding or partitioning, by the column the busiest queries filter on.`,
   incidentTypes: ['drop_index', 'drop_column', 'lock_table', 'row_surge', 'workload_spike', 'hot_partition'],
   incidentDoc: `{"type":"drop_index","target":"table.column"}
 {"type":"drop_column","target":"table.column"}
