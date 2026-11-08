@@ -41,6 +41,8 @@ export interface BoardLayout {
   wireEnds: Array<[Spot | string, Spot | string] | null>;
   supply: Map<string, Rail>;
   railsUsed: Set<string>;
+  // The off-board part whose two leads feed the rails, so the build guide connects the same part the layout assumed.
+  source?: { id: string; pos: string; neg: string };
 }
 
 export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
@@ -48,12 +50,15 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
   const supplyPart =
     spec.parts.find((p) => p.type === 'battery') ?? spec.parts.find((p) => p.type === 'arduino') ?? spec.parts.find((p) => p.custom?.sources.length && !STRADDLES(p));
   const supply = new Map<string, Rail>();
+  let source: BoardLayout['source'];
   if (supplyPart) {
     const [pos, neg] =
       supplyPart.type === 'battery' ? ['pos', 'neg'] : supplyPart.type === 'arduino' ? ['5V', 'GND'] : [supplyPart.custom!.sources[0].pos, supplyPart.custom!.sources[0].neg];
     supply.set(nets.find(`${supplyPart.id}.${pos}`), '+');
     supply.set(nets.find(`${supplyPart.id}.${neg}`), '-');
+    source = { id: supplyPart.id, pos, neg };
   }
+  const sourceLeads = new Set(source ? [`${source.id}.${source.pos}`, `${source.id}.${source.neg}`] : []);
   // Without a battery, a straddling board's own ground and 3V3 feed the rails.
   if (!supplyPart) {
     const board = spec.parts.find((p) => STRADDLES(p) && p.custom?.sources.length);
@@ -107,8 +112,9 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
     const pins = pinsOf(part);
     if (pins.length === 3) {
       const half: Half = flip++ % 2 ? 'A' : 'B';
+      // Scan right for three free strips in a row. Searching around each miss can bounce back to the same column forever.
       let col: number = nearestFree(cursor, half);
-      while (!free(col + 1, half) || !free(col + 2, half) || boardOf(col + 2) !== boardOf(col)) col = nearestFree(col + 1, half);
+      while (!free(col, half) || !free(col + 1, half) || !free(col + 2, half) || boardOf(col + 2) !== boardOf(col)) col++;
       pins.forEach((pin, i) => spots.set(`${part.id}.${pin}`, claim(col + i, half, nets.find(`${part.id}.${pin}`))));
       cursor = Math.max(cursor, col + 4);
       continue;
@@ -153,14 +159,15 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
   const offBoard = spec.parts.filter((p) => !LEADED(p) && !STRADDLES(p)).map((p) => p.id);
 
   const railsUsed = new Set<string>();
+  // Only the source's own two leads stand for the rails, since the guide wires those leads to them. Any other part beside the board,
+  // such as a motor or solar panel, keeps its own end of the wire even on a power net, or nothing would ever connect it.
   const resolve = (key: string, other: string): Spot | string => {
     const spot = spots.get(key);
     if (spot) return spot;
     const rail = supply.get(nets.find(key));
-    if (!rail) return key;
     const near = spots.get(other);
-    const side = near?.kind === 'strip' ? sideOf(near.half) : near?.kind === 'rail' ? near.side : 'top';
-    return { kind: 'rail', col: near ? near.col : 0, side, rail };
+    if (!rail || !sourceLeads.has(key) || !near) return key;
+    return { kind: 'rail', col: near.col, side: near.kind === 'strip' ? sideOf(near.half) : near.side, rail };
   };
   const same = (a: Spot | string, b: Spot | string) =>
     typeof a !== 'string' &&
@@ -179,5 +186,5 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
   });
   for (const s of spots.values()) if (s.kind === 'rail') railsUsed.add(`${s.side}${s.rail}`);
   const boards = boardOf(Math.max(0, ...used)) + 1;
-  return { columns, boards, spots, chips, offBoard, wireEnds, supply, railsUsed };
+  return { columns, boards, spots, chips, offBoard, wireEnds, supply, railsUsed, source: source && offBoard.includes(source.id) ? source : undefined };
 }

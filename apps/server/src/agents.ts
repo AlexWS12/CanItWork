@@ -1,6 +1,8 @@
 import {
   DOMAINS,
   IncidentSchema,
+  componentDiff,
+  editSpec,
   defaultCompare,
   domainList,
   evaluate,
@@ -11,7 +13,9 @@ import {
   type Engine,
   type Environment,
   type Evaluation,
+  type Explanation,
   type Finding,
+  type Metric,
   type Hypothesis,
   type Incident,
   type Issue,
@@ -19,6 +23,7 @@ import {
   type StepEvent,
   type StreamEvent,
   type TimedEvent,
+  type SpecEdit,
   type Usage,
 } from '@tv/core';
 import { choice, noul, type Questions } from '@typesafe-ai/sdk';
@@ -588,6 +593,21 @@ ${domain.patchDoc}`,
   );
 }
 
+const INCIDENT_WORDS: Record<string, string> = { node_down: 'Out of action', link_down: 'Connection cut', short_part: 'Short circuit', burn_part: 'Burned out' };
+
+// "node_down: espresso" as "Out of action: Espresso Machine", using the name the design gave it
+function describeIncident(domain: Domain, model: unknown, incident: Incident | undefined) {
+  if (!incident) return humanize(incident);
+  let name = incident.target;
+  try {
+    if (incident.target) name = domain.createRun(model, 1).inspect(incident.target)?.title ?? incident.target;
+  } catch {
+    // An unknown target keeps its id
+  }
+  const words = INCIDENT_WORDS[incident.type] ?? incident.type.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+  return `${words}${name ? `: ${name}` : ''}`;
+}
+
 const humanize = (incident: Incident | undefined) => {
   if (!incident) return 'A recovery plan was requested';
   const words = incident.type.replace(/_/g, ' ');
@@ -609,7 +629,7 @@ export async function recover(input: LiveState, emit: Emit) {
   const step = stepper(emit);
   const incidents = events.flatMap((e) => ('incident' in e ? [e.incident] : []));
   const last = incidents[incidents.length - 1];
-  const incident = humanize(last);
+  const incident = describeIncident(domain, model, last);
   const ticks = Math.max(tick + Math.floor(domain.horizon * 0.6), domain.horizon);
   const applyAt = tick + domain.responseDelay;
 
@@ -638,27 +658,50 @@ export async function recover(input: LiveState, emit: Emit) {
     : 'No recovery options were available for this incident.';
 
   let summary = fallback;
+  let headline: string | undefined;
+  let tradeoff: string | undefined;
+  // Fixes this close to the best are a tie in practice, so the cheapest of them is the one to recommend
+  const tolerance = Math.max(1, reference.score * 0.01);
+  const tied = winner ? ranked.filter((c) => c.evaluation.score >= winner.evaluation.score - tolerance) : [];
+  let valueId: string | null = winner?.id ?? null;
   if (winner && hasGemini()) {
     summary = await step('analyst', 'gemini', 'Explaining the result', async () => {
       const result = await chatJson({
         feature: 'analyst',
-        schema: z.object({ summary: z.string() }),
+        schema: z.object({
+          summary: z.string(),
+          headline: z.string().optional(),
+          tradeoff: z.string().optional(),
+          pick: z.string().optional(),
+          options: z.array(z.object({ title: z.string(), effort: z.enum(['low', 'medium', 'high']), cost: z.string() })).optional(),
+        }),
         onUsage: onUsage(emit),
-        system:
-          'You are the Analyst. Explain in two plain sentences why the winning recovery beat the others. Use only the numbers provided. Reply with JSON only: {"summary":"..."}',
+        system: `You are the Analyst. Explain to the non-technical person who runs this system what happened and what to do, in everyday words with no simulator jargon. Use only the numbers provided.
+For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars".
+The options listed in "tied" score within a point of each other, so the result is the same in practice: pick the one with the lowest effort among them and recommend it. If doing nothing scores within a couple of points of no incident, say plainly that this problem barely hurt and a fix is optional.
+Reply with JSON only: {"pick":"exact title of the recommended option","headline":"one sentence recommendation, such as Add a third cashier for the rush: almost nobody walks out","summary":"two plain sentences on why the recommended option is the best choice, against the others and doing nothing","tradeoff":"one sentence on what the recommended option costs or asks of them","options":[{"title":"exact title","effort":"low|medium|high","cost":"short phrase"}]}`,
         user: JSON.stringify({
           incident,
           measure: unit,
           noIncident: reference.score,
           doNothing: unmitigated.score,
-          options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, metrics: c.evaluation.metrics })),
+          tied: tied.map((c) => c.title),
+          options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, rationale: c.rationale, changes: JSON.stringify(c.patches).slice(0, 400) })),
         }),
       });
+      for (const option of result.options ?? []) {
+        const candidate = ranked.find((c) => c.title === option.title);
+        if (candidate) Object.assign(candidate, { effort: option.effort, cost: option.cost });
+      }
+      const picked = tied.find((c) => c.title === result.pick);
+      if (picked) valueId = picked.id;
+      headline = result.headline;
+      tradeoff = result.tradeoff;
       return result.summary;
     }).catch(() => fallback);
   }
 
-  const report: RecoveryReport = { tick, incident, reference, unmitigated, candidates: ranked, winnerId: winner?.id ?? null, summary };
+  const report: RecoveryReport = { tick, incident, reference, unmitigated, candidates: ranked, winnerId: winner?.id ?? null, valueId, summary, headline, tradeoff };
   emit({ type: 'recovery', report });
 }
 
@@ -691,7 +734,7 @@ export async function chat(input: LiveState & { message: string; metrics: unknow
   const rules = () =>
     step('editor', 'rules', 'Interpreting your request', async () => {
       const options = domain.createRun(model, 1).breakables();
-      return ruleChat(message, domain, model, options) as Intent;
+      return ruleChat(message, domain, model, options, environment.spec) as Intent;
     });
   const intent: Intent = !hasGemini()
     ? await rules()
@@ -704,7 +747,7 @@ export async function chat(input: LiveState & { message: string; metrics: unknow
               onUsage: onUsage(emit),
               system: `You are the Editor of a live ${domain.label.toLowerCase()} environment. Choose one intent and reply with JSON only:
 {"intent":"patch","patches":[Patch],"reply":"one sentence"} to change the running environment now.
-{"intent":"respec","spec":Spec,"reply":"one sentence"} for a structural change, with the complete new spec.
+{"intent":"respec","spec":Spec,"reply":"one sentence"} for a structural change, with the complete new spec. Use this to add, remove or rewire components: keep every existing component and its id unless asked otherwise, give each new component a new unique id and a label, and connect it into the flow so it does work.
 {"intent":"inject","incident":Incident} when the user tells you to break something now.
 {"intent":"whatif","incident":Incident} when the user asks what would happen, without changing anything.
 {"intent":"optimize"} when asked to improve or find the best setup.
@@ -737,7 +780,8 @@ ${domain.specDoc}`,
         const after = baselineOf(domain, next, domain.horizon, []);
         detail(`${before.score} → ${after.score} ${before.scoreLabel}`);
       });
-      emit({ type: 'reply', text: intent.reply ?? 'Rebuilt.', action: { kind: 'rebuild', environment: { ...environment, spec: intent.spec } } });
+      const { added } = componentDiff(environment.domain, environment.spec, intent.spec);
+      emit({ type: 'reply', text: intent.reply ?? 'Rebuilt.', action: { kind: 'rebuild', environment: { ...environment, spec: intent.spec }, added } });
       return;
     }
     case 'inject':
@@ -776,8 +820,118 @@ ${domain.specDoc}`,
   replyNone(intent.reply ?? 'I can change this environment, inject failures, test what-ifs or look for a better setup. Try one of those.');
 }
 
+const signed = (n: number) => `${n > 0 ? '+' : ''}${n}`;
+
+// A component the user deleted or duplicated in the 3D view. The Validator checks the edited design, the simulator
+// compares it with the current one, and the Editor says what the change did. A design with errors is sent back unchanged.
+export async function edit(input: { environment: Environment; edit: SpecEdit }, emit: Emit) {
+  const { environment } = input;
+  const domain = DOMAINS[environment.domain];
+  const step = stepper(emit);
+  const verb = input.edit.op === 'remove' ? 'Removing' : 'Duplicating';
+  const replyNone = (text: string) => emit({ type: 'reply', text, action: { kind: 'none' } });
+
+  const checked = await step('validator', 'simulator', `${verb} ${input.edit.id}`, async (detail) => {
+    const result = editSpec(environment.domain, environment.spec, input.edit);
+    if (!result.ok) {
+      detail(result.reason);
+      return { ok: false as const, reason: result.reason };
+    }
+    const next = domain.compile(result.spec);
+    const issues = domain.validate(next);
+    const error = issues.find((i) => i.severity === 'error');
+    if (error) {
+      detail(error.message);
+      return { ok: false as const, reason: error.message };
+    }
+    detail(issues.length ? `${issues.length} warning${issues.length === 1 ? '' : 's'}` : 'Design still valid');
+    return { ok: true as const, result, next, warning: issues[0]?.message };
+  });
+  if (!checked.ok) return replyNone(`I kept the design as it was: ${checked.reason.replace(/\.$/, '')}.`);
+  const { result, next, warning } = checked;
+
+  const scores = await step('simulator', 'simulator', 'Comparing before and after', async (detail) => {
+    const before = baselineOf(domain, domain.compile(environment.spec), domain.horizon, []);
+    const after = baselineOf(domain, next, domain.horizon, []);
+    const pct = before.score ? Math.round(((after.score - before.score) / before.score) * 1000) / 10 : 0;
+    detail(`${before.score} → ${after.score} ${before.scoreLabel} (${signed(pct)}%)`);
+    return { before, after, pct };
+  });
+
+  const { before, after, pct } = scores;
+  const what = input.edit.op === 'remove' ? `Removed ${result.label}` : `Added ${result.label}, a copy of ${input.edit.id}`;
+  const effect =
+    Math.abs(pct) < 1
+      ? `${before.scoreLabel} holds at ${after.score}`
+      : `${before.scoreLabel} ${pct > 0 ? 'rises' : 'falls'} from ${before.score} to ${after.score} (${signed(pct)}%)`;
+  const ruled = `${what}. ${effect.charAt(0).toUpperCase()}${effect.slice(1)}.${warning ? ` Watch out: ${warning.replace(/\.$/, '')}.` : ''}`;
+
+  const text = !hasGemini()
+    ? ruled
+    : await step('editor', 'gemini', 'Explaining the change', async () => {
+        const out = await chatJson({
+          feature: 'editor',
+          schema: z.object({ reply: z.string() }),
+          onUsage: onUsage(emit),
+          system: `You are the Editor of a live ${domain.label.toLowerCase()} environment. The user just changed the design by hand in the 3D view. In at most two short sentences of plain words, say what the change did to the system, using only the measured numbers, and if it made things worse, the one thing to watch. Reply with JSON only: {"reply":"..."}`,
+          user: JSON.stringify({
+            change: what,
+            design: domain.describe(next).slice(0, 1200),
+            before: { score: before.score, label: before.scoreLabel, metrics: before.metrics.slice(0, 6) },
+            after: { score: after.score, label: after.scoreLabel, metrics: after.metrics.slice(0, 6) },
+            warning,
+          }),
+        });
+        return out.reply;
+      }).catch(() => ruled);
+
+  const added = input.edit.op === 'duplicate' ? [result.id] : [];
+  emit({ type: 'reply', text, action: { kind: 'rebuild', environment: { ...environment, spec: result.spec }, added } });
+}
+
 export function describeFailure(error: unknown) {
   if (error instanceof ShieldBlock) return error.message;
   if (error instanceof NoCredentials) return 'No credentials for that engine.';
   return shortError(error);
+}
+
+export interface ExplainInput {
+  prompt: string;
+  environment: Environment;
+  metrics: Metric[];
+  findings: Finding[];
+}
+
+// The Explainer turns the simulator's numbers and the Red Team's claims into plain words for whoever would run this system.
+// The app shows rule-based wording first, so this only upgrades it and never holds up a build.
+export async function explain(input: ExplainInput, emit: Emit) {
+  if (!hasGemini()) return;
+  const domain = DOMAINS[input.environment.domain];
+  const metrics = input.metrics.slice(0, 8).map((m) => ({ label: String(m.label).slice(0, 80), value: String(m.value).slice(0, 40) }));
+  const findings = input.findings.slice(0, 3).map((f) => ({ claim: f.claim.slice(0, 300), verdict: f.verdict, evidence: f.evidence.slice(0, 200) }));
+  const schema = z.object({
+    audience: z.string(),
+    headline: z.string(),
+    metrics: z.record(z.string(), z.string()),
+    findings: z.array(z.object({ claim: z.string(), title: z.string(), impact: z.string(), advice: z.string() })),
+  });
+  const step = stepper(emit);
+  const explanation = await step('explainer', 'gemini', 'Explaining the results in plain words', async (detail) => {
+    const result = await chatJson({
+      feature: 'explainer',
+      schema,
+      onUsage: onUsage(emit),
+      system: `You are the Explainer. A simulator modelled a ${domain.label.toLowerCase()} system that a non-technical person described. Explain the results to the person who would run this system day to day, such as a shop owner, a nurse manager or a hobbyist, in their own everyday words. Never use simulator jargon such as tick, node, incident, surge value, part ids, refuted or confirmed; name things the way the person did.
+Use only the numbers given. Reply with JSON only:
+{"audience":"who runs this, two or three words, such as bakery owner",
+"headline":"one sentence on how the system is doing right now",
+"metrics":{"<exact metric label>":"one short sentence: what this number means for them and whether higher or lower is better. It updates live, so never state or judge its current value"},
+"findings":[{"claim":"<the exact claim text>","title":"the risk in at most eight plain words","impact":"what the person would actually see happen, using the measured numbers","advice":"one practical thing they could do about it"}]}
+Give "metrics" an entry for every metric label, and "findings" one entry per claim in the same order. For a claim the simulator disproved, the impact says the design held up and the advice can be "No action needed".`,
+      user: JSON.stringify({ request: input.prompt.slice(0, 600), design: input.environment.summary.slice(0, 600), score: domain.label, metrics, findings }),
+    });
+    detail(result.audience);
+    return result;
+  }).catch(() => null);
+  if (explanation) emit({ type: 'explanation', explanation: explanation satisfies Explanation });
 }

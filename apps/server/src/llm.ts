@@ -44,9 +44,13 @@ interface Route {
 // When Prune's own upstream Gemini key is out of quota, every call through it fails before falling back, so Prune rests for a while instead.
 const PRUNE_REST_MS = 10 * 60 * 1000;
 let pruneRestUntil = 0;
+let pruneProblem: string | null = null;
 export const resetPruneRest = () => {
   pruneRestUntil = 0;
+  pruneProblem = null;
 };
+// Why calls are going direct instead of through Prune right now, or null when they aren't.
+export const pruneBypass = () => (pruneResting() ? `Prune's vaulted Gemini ${(pruneProblem ?? 'key is failing').replace(/\s*\(.*\)$/, '')}` : null);
 export const pruneResting = () => Boolean(pruneKey()) && Date.now() < pruneRestUntil;
 
 // Prune itself answers, but the Gemini key vaulted in it is out of quota or rejected, so every call through it would fail.
@@ -172,6 +176,11 @@ async function send(route: Route, model: string, messages: Array<{ role: string;
   const text = body.choices?.[0]?.message?.content ?? body.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('');
   if (!text) throw new Error(`gemini via ${route.via}: empty response`);
   const meta = body.prune_metadata;
+  const original = num(meta?.original_tokens);
+  const optimized = num(meta?.optimized_tokens);
+  const withPrune = num(meta?.cost_with_prune_usd);
+  const saved = num(meta?.cost_saved_usd ?? res.headers.get('x-prune-cost-saved'));
+  const applied = meta?.optimizations_applied;
   return {
     text,
     usage: {
@@ -180,12 +189,16 @@ async function send(route: Route, model: string, messages: Array<{ role: string;
       via: route.via,
       inputTokens: body.usage?.prompt_tokens ?? body.usageMetadata?.promptTokenCount ?? 0,
       outputTokens: body.usage?.completion_tokens ?? body.usageMetadata?.candidatesTokenCount ?? 0,
-      costUsd: num(meta?.cost_with_prune_usd),
-      costSavedUsd: num(meta?.cost_saved_usd ?? res.headers.get('x-prune-cost-saved')),
+      costUsd: withPrune,
+      costSavedUsd: saved,
       cacheHit: meta?.cache_hit !== undefined ? Boolean(meta.cache_hit) : res.headers.has('x-prune-cache-hit') ? res.headers.get('x-prune-cache-hit') === 'true' : null,
       routedModel: meta?.route_applied ? String(meta.routed_model) : null,
       receipt: meta ?? null,
       feature,
+      tokensSaved: num(meta?.tokens_saved) ?? (original !== null && optimized !== null ? Math.max(0, original - optimized) : null),
+      costWithoutUsd: num(meta?.cost_without_prune_usd) ?? (withPrune !== null && saved !== null ? withPrune + saved : null),
+      optimizations: Array.isArray(applied) ? applied.map(String) : typeof applied === 'string' ? applied.split(/[,\s]+/).filter(Boolean) : undefined,
+      signed: Boolean(meta?.receipt_signature),
     },
   };
 }
@@ -273,6 +286,7 @@ async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z
         // A per-minute limit clears in seconds, so Prune only sits out that wait; the day's quota or a rejected key benches it for ten minutes.
         const rest = restFor(String(error));
         pruneRestUntil = Date.now() + rest;
+        pruneProblem = upstream;
         console.warn(`[llm] Prune's upstream Gemini ${upstream}; going direct for ${rest >= 60_000 ? `${Math.round(rest / 60_000)} minutes` : `${Math.round(rest / 1000)} s`}`);
       } else console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
       lastError = error;

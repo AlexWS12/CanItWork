@@ -1,5 +1,6 @@
 export * from './domain';
 export * from './domains';
+export * from './edit';
 export * from './hash';
 export * from './protocol';
 export { MAX_REPLAY_TICKS } from './replay';

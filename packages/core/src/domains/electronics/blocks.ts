@@ -5,9 +5,12 @@ import type { CircuitSpec, Part } from './parts';
 // The Architect names a block and its size; compiling expands it into real 74HC chips, switches, LEDs, wiring and behaviour tests,
 // so every view, check and the build guide see the full circuit while the design itself stays a few lines long.
 
-const KINDS = ['adder', 'adder_subtractor', 'comparator', 'multiplier', 'alu'] as const;
+const KINDS = ['adder', 'adder_subtractor', 'comparator', 'multiplier', 'alu', 'counter'] as const;
 // The widest of each kind that still builds and simulates at a usable size: an 8x8 multiplier is already about 90 chips.
-const MAX_BITS: Record<(typeof KINDS)[number], number> = { adder: 32, adder_subtractor: 32, comparator: 32, multiplier: 8, alu: 16 };
+const MAX_BITS: Record<(typeof KINDS)[number], number> = { adder: 32, adder_subtractor: 32, comparator: 32, multiplier: 8, alu: 16, counter: 16 };
+// A counter with fewer than 3 bits has 4 or fewer switches, and the checks would want every switch combination tested,
+// which a running count can't promise.
+const MIN_BITS: Partial<Record<(typeof KINDS)[number], number>> = { counter: 3 };
 
 export const BlockSchema = z
   .object({
@@ -21,6 +24,10 @@ export const BlockSchema = z
   .refine(
     (b) => b.bits <= MAX_BITS[b.kind],
     (b) => ({ message: `A ${b.kind} block takes at most ${MAX_BITS[b.kind]} bits`, path: ['bits'] }),
+  )
+  .refine(
+    (b) => b.bits >= (MIN_BITS[b.kind] ?? 1),
+    (b) => ({ message: `A ${b.kind} block takes at least ${MIN_BITS[b.kind]} bits`, path: ['bits'] }),
   );
 export type Block = z.infer<typeof BlockSchema>;
 
@@ -30,7 +37,8 @@ export const blockDoc = `"blocks"?: [{"id": short name, "kind": "adder"|"adder_s
 - "comparator" (up to 32 bits): ledGT, ledEQ and ledLT for A > B, A = B and A < B.
 - "multiplier" (up to 8 bits): product LEDs ledP0... ledP(2 x bits - 1).
 - "alu" (up to 16 bits): select switches swS1 swS0 pick add (00), subtract (01), AND (10) or OR (11); result LEDs ledR0... and ledCout.
-A block is real hardware made of logic gate chips, so it fully satisfies a request for logic gates. Use one for any adder, calculator, comparator, multiplier or ALU over 2 bits instead of wiring the gates yourself: a 16-bit calculator is {"id":"calc","kind":"adder","bits":16}, or "adder_subtractor" if it should also subtract, and a 4-bit multiplier is {"id":"mul","kind":"multiplier","bits":4}. Add only a 5 V battery to "parts", write no wires or tests for the block (it wires, powers and tests itself), and add your own parts only for anything extra the user asked for. With more than one block, its part ids are prefixed with the block id and an underscore.`;
+- "counter" (3 to 16 bits): a binary counter of 74HC161 chips clocked by a 555 at about 1.4 Hz, counting up on LEDs ledQ0...; swReset clears it, and swLoad with data switches swD0... presets it to their value. It has no A and B switches.
+A block is real hardware made of logic gate chips, so it fully satisfies a request for logic gates. Use one for any adder, calculator, comparator, multiplier, ALU or binary counter over 2 bits instead of wiring the gates yourself: a 16-bit calculator is {"id":"calc","kind":"adder","bits":16}, or "adder_subtractor" if it should also subtract, and a 4-bit multiplier is {"id":"mul","kind":"multiplier","bits":4}. Add only a 5 V battery to "parts", write no wires or tests for the block (it wires, powers and tests itself), and add your own parts only for anything extra the user asked for. With more than one block, its part ids are prefixed with the block id and an underscore.`;
 
 const QUAD = ['A1', 'B1', 'Y1', 'A2', 'B2', 'Y2', 'GND', 'Y3', 'A3', 'B3', 'Y4', 'A4', 'B4', 'VCC'];
 const HEX = ['A1', 'Y1', 'A2', 'Y2', 'A3', 'Y3', 'GND', 'Y4', 'A4', 'Y5', 'A5', 'Y6', 'A6', 'VCC'];
@@ -159,7 +167,7 @@ function builder(prefix: string, supply: { pos: string; neg: string }) {
     const on = outputs.filter((o, i) => lit(o, i));
     return { name, set: Object.fromEntries(Object.entries(set).map(([k, v]) => [id(k), v])), on, off: outputs.filter((o) => !on.includes(o)) };
   };
-  return { parts, wires, gate, not, half, full, input, led, row };
+  return { parts, wires, wire, id, gate, not, half, full, input, led, row };
 }
 
 const numberSwitches = (bits: number, x: number, y: number) => {
@@ -300,9 +308,150 @@ function alu(block: Block, b: ReturnType<typeof builder>) {
 const andOf = (x: number, y: number, bits: number) => Array.from({ length: bits }, (_, i) => (bit(x, i) && bit(y, i) ? 2 ** i : 0)).reduce((a, c) => a + c, 0);
 const orOf = (x: number, y: number, bits: number) => Array.from({ length: bits }, (_, i) => (bit(x, i) || bit(y, i) ? 2 ** i : 0)).reduce((a, c) => a + c, 0);
 
+// 74HC161: a 4-bit synchronous counter. CLR and LOAD are active low; with ENP and ENT high it counts on each rising clock edge,
+// and RCO goes high at 15 so the next chip, its ENT tied to RCO, advances on the same edge the lower one rolls over.
+const COUNTER_PINS = ['CLR', 'CLK', 'A', 'B', 'C', 'D', 'ENP', 'GND', 'LOAD', 'ENT', 'QD', 'QC', 'QB', 'QA', 'RCO', 'VCC'];
+const counterChip = (id: string): Part =>
+  ({
+    id,
+    type: 'custom',
+    package: 'dip',
+    custom: {
+      label: '74HC161 4-bit counter',
+      pins: COUNTER_PINS,
+      paths: [{ a: 'VCC', b: 'GND', ohms: 5000 }],
+      switches: [],
+      drivers: [
+        ['QA', 'n % 2 >= 1'],
+        ['QB', 'n % 4 >= 2'],
+        ['QC', 'n % 8 >= 4'],
+        ['QD', 'n % 16 >= 8'],
+        ['RCO', 'n == 15 && ENT'],
+      ].map(([pin, when]) => ({ pin, high: 'VCC', low: 'GND', when, ref: 'GND', aboveVolts: 2.5, ohms: 50, invert: false })),
+      sources: [],
+      gpio: [],
+      state: {
+        ref: 'GND',
+        aboveVolts: 2.5,
+        vars: { n: 0 },
+        rules: [
+          { when: '!CLR', set: 'n', to: '0' },
+          { edge: 'CLK', when: 'CLR && !LOAD', set: 'n', to: 'A + 2 * B + 4 * C + 8 * D' },
+          { edge: 'CLK', when: 'CLR && LOAD && ENP && ENT', set: 'n', to: '(n + 1) % 16' },
+        ],
+      },
+      supply: { pos: 'VCC', neg: 'GND', minVolts: 2, maxVolts: 6 },
+      maxAmps: 0.05,
+      output: false,
+      visual: [],
+    },
+  }) as Part;
+
+// The 555 astable from the verified traffic light: RA 1k, RB 4.7k and 100 uF tick at about 1.4 Hz, slow enough to watch.
+const timerChip = (id: string): Part =>
+  ({
+    id,
+    type: 'custom',
+    package: 'dip',
+    custom: {
+      label: '555 Timer',
+      pins: ['GND', 'TRIG', 'OUT', 'RST', 'CV', 'THR', 'DIS', 'VCC'],
+      paths: [{ a: 'VCC', b: 'GND', ohms: 1500 }],
+      switches: [{ a: 'DIS', b: 'GND', ohms: 1, when: '!q', ref: 'GND', aboveVolts: 2 }],
+      drivers: [{ pin: 'OUT', high: 'VCC', low: 'GND', when: 'q', ref: 'GND', aboveVolts: 2, ohms: 50, invert: false }],
+      sources: [],
+      state: {
+        ref: 'GND',
+        aboveVolts: 2,
+        vars: { q: 1 },
+        rules: [
+          { when: 'v.TRIG < v.VCC / 3', set: 'q', to: 1 },
+          { when: 'v.THR > v.VCC * 2 / 3', set: 'q', to: 0 },
+        ],
+      },
+      gpio: [],
+      supply: { pos: 'VCC', neg: 'GND', minVolts: 4.5, maxVolts: 16 },
+      maxAmps: 0.2,
+      output: false,
+      visual: [],
+    },
+  }) as Part;
+
+// A binary counter: 74HC161s chained carry to enable, all clocked by the 555. Reset and Load switches go through inverters to the
+// active-low CLR and LOAD pins, so a switch that is on does what its name says. The tests preset values through Load, which proves
+// every output bit in two seconds instead of waiting minutes for the top bits to count up.
+function counter(block: Block, b: ReturnType<typeof builder>, supply: { pos: string; neg: string }) {
+  const n = block.bits;
+  const timer = b.id('timer');
+  const ra = b.id('rTimerA');
+  const rb = b.id('rTimerB');
+  const cap = b.id('cTimer');
+  b.parts.push(
+    timerChip(timer),
+    { id: ra, type: 'resistor', ohms: 1000, package: 'axial' } as Part,
+    { id: rb, type: 'resistor', ohms: 4700, package: 'axial' } as Part,
+    { id: cap, type: 'capacitor', farads: 0.0001, package: 'radial' } as Part,
+  );
+  b.wire(supply.pos, `${timer}.VCC`);
+  b.wire(supply.pos, `${timer}.RST`);
+  b.wire(supply.neg, `${timer}.GND`);
+  b.wire(supply.pos, `${ra}.a`);
+  b.wire(`${ra}.b`, `${timer}.DIS`);
+  b.wire(`${ra}.b`, `${rb}.a`);
+  b.wire(`${rb}.b`, `${timer}.THR`);
+  b.wire(`${rb}.b`, `${timer}.TRIG`);
+  b.wire(`${rb}.b`, `${cap}.a`);
+  b.wire(supply.neg, `${cap}.b`);
+  const clear = b.not(b.input('Reset'));
+  const load = b.not(b.input('Load'));
+  const data = Array.from({ length: n }, (_, i) => b.input(`D${i}`));
+  const outputs: string[] = [];
+  let carry: string = supply.pos;
+  for (let c = 0; c < Math.ceil(n / 4); c++) {
+    const chip = b.id(`cnt${c + 1}`);
+    b.parts.push(counterChip(chip));
+    b.wire(supply.pos, `${chip}.VCC`);
+    b.wire(supply.neg, `${chip}.GND`);
+    b.wire(supply.pos, `${chip}.ENP`);
+    b.wire(carry, `${chip}.ENT`);
+    b.wire(`${timer}.OUT`, `${chip}.CLK`);
+    b.wire(clear, `${chip}.CLR`);
+    b.wire(load, `${chip}.LOAD`);
+    ['A', 'B', 'C', 'D'].forEach((pin, k) => {
+      const i = c * 4 + k;
+      if (i < n) b.wire(data[i], `${chip}.${pin}`);
+      else b.wire(supply.neg, `${chip}.${pin}`);
+    });
+    ['QA', 'QB', 'QC', 'QD'].forEach((pin, k) => {
+      const i = c * 4 + k;
+      if (i < n) outputs.push(b.led(`Q${i}`, `${chip}.${pin}`, 'green'));
+    });
+    carry = `${chip}.RCO`;
+  }
+  const max = 2 ** n - 1;
+  const odd = Array.from({ length: n }, (_, i) => (i % 2 ? 2 ** i : 0)).reduce((x, y) => x + y, 0);
+  const preset = (value: number) => {
+    const set: Record<string, number> = { swReset: 0, swLoad: 1 };
+    for (let i = 0; i < n; i++) set[`swD${i}`] = bit(value, i);
+    return b.row(`load ${value}`, set, outputs, (_, i) => Boolean(bit(value, i)));
+  };
+  const allSet: Record<string, number> = { swReset: 1, swLoad: 0 };
+  for (let i = 0; i < n; i++) allSet[`swD${i}`] = 1;
+  return [b.row('reset clears it', allSet, outputs, () => false), preset(max), preset(odd), preset(max - odd), preset(5 & max)];
+}
+
 function expand(block: Block, prefix: string, supply: { pos: string; neg: string }) {
   const b = builder(prefix, supply);
-  const tests = block.kind === 'comparator' ? comparator(block, b) : block.kind === 'multiplier' ? multiplier(block, b) : block.kind === 'alu' ? alu(block, b) : adder(block, b);
+  const tests =
+    block.kind === 'counter'
+      ? counter(block, b, supply)
+      : block.kind === 'comparator'
+        ? comparator(block, b)
+        : block.kind === 'multiplier'
+          ? multiplier(block, b)
+          : block.kind === 'alu'
+            ? alu(block, b)
+            : adder(block, b);
   return { parts: b.parts, wires: b.wires, tests };
 }
 

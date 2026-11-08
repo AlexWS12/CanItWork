@@ -4,6 +4,7 @@ import { sendChat } from '../actions';
 import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
 import './ChatPanel.css';
+import { MicButton } from './Dictation';
 import { AGENT_LABEL, ENGINE_LABEL } from './labels';
 
 export function ChatPanel() {
@@ -89,6 +90,7 @@ export function ChatPanel() {
         }}
       >
         <input aria-label="Ask or change something" value={text} placeholder="Ask, change or break something" onChange={(e) => setText(e.target.value)} />
+        <MicButton text={text} onText={setText} disabled={chatting} />
         <button type="submit" disabled={chatting || !text.trim()}>
           Send
         </button>

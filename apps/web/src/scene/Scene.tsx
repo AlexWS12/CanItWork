@@ -44,6 +44,7 @@ function ViewShift() {
 export function Scene() {
   const environment = useStore((s) => s.environment);
   const key = useStore((s) => s.environmentKey);
+  const rebuilds = useStore((s) => s.rebuilds);
   const View = environment ? VIEWS[environment.domain].Scene : null;
   return (
     <Canvas
@@ -77,11 +78,11 @@ export function Scene() {
       <CameraRig />
       <ViewShift />
       {View && (
-        <group key={key}>
+        <group key={`${key}:${rebuilds}`}>
           <View />
         </group>
       )}
-      <OrbitControls enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} minDistance={10} maxDistance={160} target={lookAt(environment)} />
+      <OrbitControls makeDefault enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} minDistance={10} maxDistance={160} target={lookAt(environment)} />
       <EffectComposer multisampling={0}>
         <Bloom intensity={0.75} luminanceThreshold={1} luminanceSmoothing={0.2} mipmapBlur />
         <Vignette eskil={false} offset={0.28} darkness={0.72} />

@@ -39,6 +39,31 @@ function cutouts(shape: FloorShape, aisles: number) {
   return { blocks, west, east };
 }
 
+/**
+ * Parks robots every other cell along the open floor north of the shelves, one row after another,
+ * so a big fleet on a small floor wraps into the next row instead of running off the east edge.
+ * The first row matches the classic layout, so floors with room to spare look the same as before.
+ */
+function parkRobots(count: number, floor: { cols: number; rows: number; topOf(x: number): number; sorter: { x: number; y: number }; taken: Cell[] }): RobotDef[] {
+  const taken = new Set(floor.taken.map((c) => `${c.x},${c.y}`));
+  const homes: Cell[] = [];
+  const park = (x: number, y: number) => {
+    const key = `${x},${y}`;
+    if (homes.length >= count || x < 0 || x >= floor.cols || y >= floor.rows || y < floor.topOf(x)) return;
+    if ((x >= floor.sorter.x && y >= floor.sorter.y) || taken.has(key)) return;
+    taken.add(key);
+    homes.push({ x, y });
+  };
+  // Row by row from the north wall: every other cell first, then the gaps between them.
+  for (let row = 0; row < floor.rows && homes.length < count; row++) {
+    for (let x = WEST_MARGIN; x < floor.cols; x += 2) park(x, floor.topOf(x) + row);
+    for (let x = WEST_MARGIN + 1; x < floor.cols; x += 2) park(x, floor.topOf(x) + row);
+  }
+  // Last resort: any open cell west of the aisles.
+  for (let y = 0; y < floor.rows; y++) for (let x = 0; x < WEST_MARGIN; x++) park(x, y);
+  return homes.map((home, i) => ({ id: `R${i + 1}`, name: robotName(i), home }));
+}
+
 export function compileWorld(spec: WorldSpec): World {
   const cut = cutouts(spec.shape ?? 'rect', spec.aisles);
   const hallX = WEST_MARGIN + spec.aisles * BLOCK_WIDTH - 1;
@@ -64,14 +89,6 @@ export function compileWorld(spec: WorldSpec): World {
       shelves.push({ id: `S${shelves.length + 1}`, x: x0 + 1, y, access: { x: x0 + 2, y }, owner: '' });
     }
   }
-
-  const robots: RobotDef[] = Array.from({ length: spec.robots }, (_, i) => {
-    const x = WEST_MARGIN + i * 2;
-    return { id: `R${i + 1}`, name: robotName(i), home: { x, y: topOf(x) } };
-  });
-  shelves.forEach((shelf, i) => {
-    shelf.owner = robots[Math.floor((i / shelves.length) * robots.length)].id;
-  });
 
   const zones: ZoneArea[] = [];
   let nextBlock = 0;
@@ -123,6 +140,26 @@ export function compileWorld(spec: WorldSpec): World {
 
   const walls: Cell[] = [];
   for (let x = 0; x < cols; x++) for (let y = 0; y < topOf(x); y++) walls.push({ x, y });
+
+  // Never park on anything a robot has to reach or pass: shelf faces, charger bays, loading stations, belts or the sorter hand-off.
+  const robots = parkRobots(spec.robots, {
+    cols,
+    rows,
+    topOf,
+    sorter,
+    taken: [
+      ...shelves,
+      ...shelves.map((s) => s.access),
+      ...chargers,
+      ...chargers.map((c) => c.bay),
+      ...conveyors.flatMap((c) => [...c.path, ...c.stations]),
+      sorter.bypass,
+      ...docks,
+    ],
+  });
+  shelves.forEach((shelf, i) => {
+    shelf.owner = robots[Math.floor((i / shelves.length) * robots.length)].id;
+  });
 
   const tripEstimate = spec.aisles * BLOCK_WIDTH + spec.shelvesPerAisle + drop + 22;
   const load = { light: 0.9, steady: 1.3, heavy: 1.8 }[spec.demand];

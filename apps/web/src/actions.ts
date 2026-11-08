@@ -1,4 +1,4 @@
-import type { Candidate, Environment, Incident, ProviderStatus, StreamEvent } from '@tv/core';
+import { componentIds, type Candidate, type Environment, type Incident, type ProviderStatus, type SpecEdit, type SpendSummary, type StreamEvent } from '@tv/core';
 import { matchEntities } from './entities';
 import { runner } from './runner';
 import { authFetch, useAuth } from './auth';
@@ -42,10 +42,20 @@ function common(event: StreamEvent) {
       break;
     case 'usage':
       store().set({ usage: [...store().usage, event.usage] });
+      void fetchSpend();
       break;
     case 'findings':
       store().set({ findings: event.findings });
       break;
+    case 'explanation': {
+      // Later answers add wording for new labels without losing what was already explained
+      const before = store().explanation;
+      const next = event.explanation;
+      store().set({
+        explanation: before ? { ...before, ...next, metrics: { ...before.metrics, ...next.metrics }, findings: next.findings.length ? next.findings : before.findings } : next,
+      });
+      break;
+    }
     case 'error':
       store().addMessage({ role: 'app', text: event.message });
       break;
@@ -64,7 +74,73 @@ function loadEnvironment(environment: Environment) {
   // A new design starts over, so it leaves any live session around the old one.
   if (useLive.getState().id) leaveLive();
   runner.load(environment);
-  store().set({ environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null });
+  store().set({ environment, environmentKey: store().environmentKey + 1, report: null, appliedId: null, selected: null, refusal: null, explanation: null });
+}
+
+const FRESH_MS = 6000;
+let freshTimer: ReturnType<typeof setTimeout> | null = null;
+
+// A structural change from chat or the 3D view: the run restarts on the new design, but the camera stays where the user left it.
+function rebuildInPlace(environment: Environment, added: string[]) {
+  const ids = new Set(componentIds(environment.domain, environment.spec));
+  const layout = environment.layout && Object.fromEntries(Object.entries(environment.layout).filter(([id]) => ids.has(id)));
+  const next: Environment = { ...environment, layout: layout && Object.keys(layout).length ? layout : undefined };
+  if (!next.layout) delete next.layout;
+  runner.load(next);
+  const { selected, rebuilds } = store();
+  const fresh = added.filter((id) => ids.has(id));
+  store().set({
+    environment: next,
+    rebuilds: rebuilds + 1,
+    report: null,
+    appliedId: null,
+    refusal: null,
+    selected: fresh[0] ?? (selected && ids.has(selected) ? selected : null),
+    fresh,
+  });
+  if (freshTimer) clearTimeout(freshTimer);
+  if (fresh.length) freshTimer = setTimeout(() => store().set({ fresh: [] }), FRESH_MS);
+}
+
+/** Deletes or duplicates a component from the 3D view; the agents check the change before it lands. */
+export async function editComponent(edit: SpecEdit) {
+  const { environment, editing, chatting } = store();
+  if (!environment || editing || chatting) return;
+  const title = runner.run?.inspect(edit.id)?.title ?? edit.id;
+  store().addMessage({ role: 'user', text: `${edit.op === 'remove' ? 'Delete' : 'Duplicate'} ${title}` });
+  store().set({ editing: true, chatting: true });
+  try {
+    await stream('/api/edit', { environment, edit }, (event) => {
+      common(event);
+      if (event.type !== 'reply') return;
+      reply(event.text);
+      // Another change may have landed while the agents were checking this one
+      if (event.action.kind === 'rebuild' && store().environment?.spec === environment.spec) {
+        rebuildInPlace({ ...event.action.environment, layout: store().environment?.layout }, event.action.added ?? []);
+      }
+    });
+  } catch (error) {
+    store().addMessage({ role: 'app', text: String(error) });
+  }
+  store().set({ editing: false, chatting: false });
+}
+
+/** Moves a component while it's dragged. Layout lives on the environment, so a shared link keeps it. */
+export function moveComponent(id: string, at: [number, number]) {
+  const environment = store().environment;
+  if (!environment) return;
+  store().set({ environment: { ...environment, layout: { ...environment.layout, [id]: at } } });
+}
+
+let movedBefore = false;
+export function finishMove(id: string) {
+  if (movedBefore) return;
+  movedBefore = true;
+  const title = runner.run?.inspect(id)?.title ?? id;
+  store().addMessage({
+    role: 'app',
+    text: `Moved ${title}. Where things sit is only for the view: the simulator doesn't read positions, so the numbers stay the same. Select a component to duplicate or delete it, and the agents will check what that does.`,
+  });
 }
 
 export async function shareRun() {
@@ -141,6 +217,17 @@ export async function fetchStatus() {
   } catch {
     store().set({ status: null });
   }
+  void fetchSpend();
+}
+
+// Lifetime Prune savings from the server's spend ledger
+export async function fetchSpend() {
+  try {
+    const res = await fetch('/api/spend');
+    if (res.ok) store().set({ spend: (await res.json()) as SpendSummary });
+  } catch {
+    // The showcase keeps its last numbers when the server blips.
+  }
 }
 
 export async function buildEnvironment(prompt: string) {
@@ -160,6 +247,31 @@ export async function buildEnvironment(prompt: string) {
     store().addMessage({ role: 'app', text: String(error) });
   }
   store().set({ building: false });
+  if (store().environment && !store().refusal) void explainRun(prompt);
+}
+
+// Asks the Explainer to put this run in the words of whoever would run it. The rule-based wording shows until it answers.
+let explaining: { key: number; asked: Set<string>; calls: number } = { key: -1, asked: new Set(), calls: 0 };
+const MAX_EXPLAINS = 4;
+
+async function explainRun(prompt: string) {
+  const { environment, findings, environmentKey } = store();
+  if (!environment) return;
+  if (explaining.key !== environmentKey) explaining = { key: environmentKey, asked: new Set(), calls: 0 };
+  if (explaining.calls >= MAX_EXPLAINS) return;
+  explaining.calls++;
+  // The dock's metrics appear once the runner has stepped
+  for (let i = 0; i < 20 && !store().telemetry.stats.length; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  for (const stat of store().telemetry.stats) explaining.asked.add(stat.label);
+  try {
+    await stream('/api/explain', { prompt, environment, findings, metrics: store().telemetry.stats }, (event) => {
+      // Dragging a component replaces the environment object, so compare the build instead
+      if (store().environmentKey !== environmentKey) return;
+      common(event);
+    });
+  } catch {
+    // The rule-based wording stays.
+  }
 }
 
 export function startOver() {
@@ -185,7 +297,7 @@ export async function sendChat(message: string) {
       reply(event.text);
       const { action } = event;
       if (action.kind === 'patch') runner.applyPatches(action.patches);
-      if (action.kind === 'rebuild') loadEnvironment(action.environment);
+      if (action.kind === 'rebuild') rebuildInPlace(action.environment, action.added ?? []);
       if (action.kind === 'inject') void breakThing(action.incident);
     });
   } catch (error) {
@@ -217,3 +329,23 @@ export function applyCandidate(candidate: Candidate) {
   store().set({ appliedId: candidate.id, reportOpen: false });
   store().addMessage({ role: 'app', text: `Applied: ${candidate.title}.` });
 }
+
+// A stat label the Explainer hasn't seen (another station became the busiest, or the design was rebuilt from chat)
+// gets its wording on the next quiet moment, a few calls at most per design.
+let freshen: ReturnType<typeof setTimeout> | null = null;
+function unexplained() {
+  const state = store();
+  if (!state.environment || state.building || state.status?.gemini === 'off') return false;
+  if (explaining.key === state.environmentKey && explaining.calls >= MAX_EXPLAINS) return false;
+  const asked = explaining.key === state.environmentKey ? explaining.asked : new Set<string>();
+  const known = Object.keys(state.explanation?.metrics ?? {}).map((k) => k.toLowerCase());
+  return state.telemetry.stats.some((m) => !asked.has(m.label) && !known.includes(m.label.toLowerCase()));
+}
+useStore.subscribe(() => {
+  if (freshen || !unexplained()) return;
+  freshen = setTimeout(() => {
+    freshen = null;
+    // The build's own request may have covered these labels in the meantime
+    if (unexplained()) void explainRun(store().prompt);
+  }, 2500);
+});

@@ -118,6 +118,22 @@ describe('building blocks', () => {
     expect(problems(spec)).toEqual([]);
   });
 
+  it('counts up on its 555 clock, and its reset and preset switches prove every LED', () => {
+    const spec = design([{ id: 'cnt', kind: 'counter', bits: 8 }]);
+    const built = electronics.compile(spec);
+    expect(built.parts.filter((p) => p.custom?.label === '74HC161 4-bit counter')).toHaveLength(2);
+    expect(problems(spec)).toEqual([]);
+    expect(electronics.proof!(built)).toMatch(/^5 of 5 behaviour tests pass/);
+    const run = electronics.createRun(built, 1) as unknown as { step(): void; readings: Map<string, { amps: number }> };
+    const leds = built.parts.filter((p) => p.type === 'led');
+    const count = () => leds.reduce((sum, p, i) => sum + ((run.readings.get(p.id)?.amps ?? 0) > 0.002 ? 2 ** i : 0), 0);
+    for (let t = 0; t < 36; t++) run.step();
+    const early = count();
+    for (let t = 0; t < 60; t++) run.step();
+    expect(count()).toBeGreaterThan(early + 3);
+    expect(electronics.specSchema.safeParse({ parts: [], wires: [], blocks: [{ id: 'c', kind: 'counter', bits: 2 }] }).success).toBe(false);
+  });
+
   it('holds each kind to a width that still builds, and says so', () => {
     const tooWide = electronics.specSchema.safeParse({ parts: [], wires: [], blocks: [{ id: 'mul', kind: 'multiplier', bits: 12 }] });
     expect(tooWide.success).toBe(false);

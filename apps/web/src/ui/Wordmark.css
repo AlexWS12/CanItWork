@@ -1,0 +1,46 @@
+/* Type (weight, letter-spacing) comes from .wordmark in TopBar.css; the size is inherited */
+.wordmark-circuit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wordmark-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-pill);
+  transition:
+    background-color var(--dur-short) var(--ease-out),
+    opacity var(--dur-short) var(--ease-out);
+}
+
+.wordmark-power {
+  background: var(--color-accent);
+}
+
+.wordmark-end {
+  background: var(--color-teal);
+}
+
+.wordmark-it {
+  color: var(--color-teal);
+  transition: color var(--dur-short) var(--ease-out);
+}
+
+/* Paused: the design is still valid, just stopped, so "It" stays teal; the end dot greys and the power dot dims */
+.wordmark-circuit[data-state='paused'] .wordmark-power {
+  opacity: 0.5;
+}
+
+.wordmark-circuit[data-state='paused'] .wordmark-end {
+  background: var(--color-muted);
+}
+
+.wordmark-circuit[data-state='incident'] .wordmark-it {
+  color: var(--color-danger);
+}
+
+.wordmark-circuit[data-state='incident'] .wordmark-end {
+  background: var(--color-danger);
+}
