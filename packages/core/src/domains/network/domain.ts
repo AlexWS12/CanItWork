@@ -105,7 +105,8 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
     if (issues.some((i) => i.severity === 'error')) return issues;
 
     for (const node of spec.nodes) {
-      if (role(node) !== 'stage') continue;
+      // A station with several units, like six elevators, survives losing one, so only a lone unit is a single point of failure.
+      if (role(node) !== 'stage' || (node.count ?? 1) > 1) continue;
       const stranded = cutOff(spec, role, node.id);
       if (stranded.length) issues.push({ severity: 'warning', target: node.id, message: `${name(node)} is a single point of failure for ${list(stranded.map(name))}` });
     }
@@ -174,7 +175,14 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
     }
     out.push({ claim: def.surge.claim, incident: { type: 'surge', value: def.surge.value } });
     const busiest = run.busiest();
-    if (busiest && !out.some((h) => h.incident.target === busiest.id)) {
+    if (busiest && (busiest.count ?? 1) > 1 && !out.some((h) => h.incident.type === 'unit_down')) {
+      const units = busiest.count ?? 1;
+      const load = run.states.get(busiest.id)!.utilization;
+      out.push({
+        claim: `${name(busiest)} runs at ${Math.round(load * 100)}% load: losing one of its ${units} units leaves the rest at ${Math.round((load * units * 100) / (units - 1))}%.`,
+        incident: { type: 'unit_down', target: busiest.id },
+      });
+    } else if (busiest && !out.some((h) => h.incident.target === busiest.id)) {
       out.push({
         claim: `${name(busiest)} already runs at ${Math.round(run.states.get(busiest.id)!.utilization * 100)}% load: if it slows down, everything behind it backs up.`,
         incident: { type: 'node_slow', target: busiest.id, value: 2.5 },
@@ -201,7 +209,10 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
       ? { author: 'Operations rules', title: def.words.shed, rationale: 'Take load off the network until it stabilises.', patches: [{ op: 'shed', fraction: 0.25 }, ...reclose] }
       : null;
 
-    if ((incident?.type === 'node_down' || incident?.type === 'node_slow') && node) {
+    if (incident?.type === 'unit_down' && node) {
+      out.push({ author: 'Operations rules', title: def.words.restore(name(node)), rationale: 'Repair the failed unit.', patches: [{ op: 'restore', node: node.id }] });
+      out.push(scaleUp(node));
+    } else if ((incident?.type === 'node_down' || incident?.type === 'node_slow') && node) {
       out.push({ author: 'Operations rules', title: def.words.restore(name(node)), rationale: 'Bring it back on backup capacity.', patches: [{ op: 'restore', node: node.id }] });
       const linked = (from: string, to: string) => spec.edges.some((e) => e.from === from && e.to === to);
       const alternative = spec.nodes.find((n) => n.id !== node.id && n.kind === node.kind && role(n) === role(node));
@@ -294,8 +305,9 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
 Kinds and defaults:
 ${kindDoc}
 One tick is ${def.tick}. Flow runs one way from sources to end points, with no loops. ${def.guidance}`,
-    incidentTypes: ['node_down', 'node_slow', 'link_down', 'surge'],
-    incidentDoc: `{"type":"node_down","target":"node id"}
+    incidentTypes: ['node_down', 'unit_down', 'node_slow', 'link_down', 'surge'],
+    incidentDoc: `{"type":"node_down","target":"node id"} (the whole station)
+{"type":"unit_down","target":"node id"} (one of its units fails; the rest keep working)
 {"type":"node_slow","target":"node id","value":slowdown factor}
 {"type":"link_down","target":"from->to"}
 {"type":"surge","value":multiplier 1.2-5}`,
