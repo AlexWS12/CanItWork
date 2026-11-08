@@ -122,9 +122,42 @@ describe('monthly cost', () => {
     expect(costOfFix(database, schema(), [{ op: 'batch_query', query: 'history' }])).toBe(0);
   });
 
-  it('has no price list for domains that are not software or databases', () => {
+  it('has no monthly price list for circuits, which cost their parts once', () => {
+    const electronics = DOMAINS.electronics;
+    expect(designCost(electronics, electronics.compile(electronics.rules.spec('a blinking LED')))).toBeNull();
+  });
+
+  it('prices every other domain, so every fix the council proposes says what it costs', () => {
+    for (const domain of Object.values(DOMAINS)) {
+      if (domain.id === 'electronics') continue;
+      const cost = designCost(domain, domain.compile(domain.rules.spec(domain.examples[0])));
+      expect(cost?.usd, domain.id).toBeGreaterThan(0);
+      expect(cost!.lines.length, domain.id).toBeGreaterThan(0);
+    }
+  });
+
+  it('charges a hospital by the beds, nurses and scanners it staffs, so opening beds costs what they do', () => {
+    const hospital = DOMAINS.hospital;
+    const model = hospital.compile(hospital.rules.spec(hospital.examples[0]));
+    const er = (model as { nodes: Array<{ id: string; kind: string; count?: number }> }).nodes.find((n) => n.kind === 'er')!;
+    expect(costOfFix(hospital, model, [{ op: 'scale', node: er.id, count: (er.count ?? 1) + 4 }])).toBe(100_000);
+  });
+
+  it('charges a power grid its plants and the fuel they burn for the power they make', () => {
+    const power = DOMAINS.power;
+    const model = power.compile(power.rules.spec(power.examples[0]));
+    const cost = designCost(power, model)!;
+    const fuelled = (model as { nodes: Array<{ kind: string; label?: string; id: string }> }).nodes.find((n) => n.kind === 'gas' || n.kind === 'coal');
+    if (fuelled) expect(cost.lines.find((l) => l.label === (fuelled.label ?? fuelled.id))!.usd).toBeGreaterThan(300_000);
+  });
+
+  it('charges a warehouse per robot and a fleet per unit, so adding them costs money', () => {
     const warehouse = DOMAINS.warehouse;
-    expect(designCost(warehouse, warehouse.compile(warehouse.rules.spec('a warehouse')))).toBeNull();
+    expect(costOfFix(warehouse, warehouse.compile(warehouse.rules.spec('a warehouse')), [{ op: 'add_robot' }])).toBe(1_500);
+    const fleet = DOMAINS.fleet;
+    const model = fleet.compile(fleet.rules.spec(fleet.examples[0]));
+    const role = (model as { roles: Array<{ id: string; behavior: string; ground?: boolean }> }).roles[0];
+    expect(costOfFix(fleet, model, [{ op: 'add_units', role: role.id, count: 2 }])).toBeGreaterThan(0);
   });
 
   it('writes money plainly, and a change with its sign', () => {

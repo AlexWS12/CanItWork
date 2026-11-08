@@ -16,6 +16,10 @@ export interface KindDef {
   rate?: number;
   /** Work that can wait here. */
   buffer?: number;
+  /** What one unit costs to run for a month, in US dollars: its staff, equipment, upkeep and space. */
+  monthly?: number;
+  /** What each unit of work through it costs, in US dollars: fuel for a MW for a tick, freight or handling for a pallet. */
+  perUnit?: number;
 }
 
 export interface NetNode {

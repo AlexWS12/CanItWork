@@ -1,4 +1,17 @@
-import { SYSTEM, checkPatches, type Breakable, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type TimedEvent } from '../../domain';
+import { money, usd } from '../../cost';
+import {
+  SYSTEM,
+  checkPatches,
+  type Breakable,
+  type Evaluation,
+  type Incident,
+  type Inspection,
+  type Metric,
+  type MonthlyCost,
+  type Point,
+  type Run,
+  type TimedEvent,
+} from '../../domain';
 import { createRng, type Rng } from '../../rng';
 import { FleetPatchSchema, type FleetSpec, type Role } from './schema';
 
@@ -59,6 +72,11 @@ function crosses(ax: number, ay: number, bx: number, by: number, r: { x: number;
   }
   return true;
 }
+
+// A month of one unit by what it does, on lease with batteries and upkeep (a ground rover a third more), and a charging pad.
+const UNIT_USD: Record<Role['behavior'], number> = { search: 900, deliver: 1_200, relay: 700, patrol: 900, escort: 1_100, idle: 500 };
+const GROUND_SHARE = 1.3;
+const CHARGER_USD = 200;
 
 export class FleetRun implements Run {
   readonly log: TimedEvent[] = [];
@@ -541,6 +559,19 @@ export class FleetRun implements Run {
     };
   }
 
+  /** The month's cost of the fleet: every unit on the books (one lost this month still is), and the base's chargers. */
+  cost(): MonthlyCost {
+    const lines: MonthlyCost['lines'] = [];
+    for (const role of this.spec.roles) {
+      const units = this.units.filter((u) => u.role.id === role.id).length;
+      if (!units) continue;
+      lines.push({ label: `${units} ${role.label ?? role.id}`, usd: usd(units * UNIT_USD[role.behavior] * (role.ground ? GROUND_SHARE : 1)) });
+    }
+    lines.push({ label: `${this.spec.base.chargers} charger${this.spec.base.chargers === 1 ? '' : 's'}`, usd: this.spec.base.chargers * CHARGER_USD });
+    lines.sort((a, b) => b.usd - a.usd);
+    return { usd: usd(lines.reduce((sum, l) => sum + l.usd, 0)), lines };
+  }
+
   evaluation(): Evaluation {
     const c = this.counts();
     const metrics: Metric[] = [];
@@ -548,6 +579,7 @@ export class FleetRun implements Run {
     if (c.total && this.has('search')) metrics.push({ label: 'targets reported', value: `${c.found}/${c.total}` });
     if (c.needed && this.has('deliver')) metrics.push({ label: 'deliveries', value: `${c.served}/${c.needed}` });
     metrics.push({ label: 'units lost', value: c.lost }, { label: 'time in contact', value: `${Math.round(c.connected * 100)}%` });
+    metrics.push({ label: 'monthly cost', value: money(this.cost().usd) });
     // Progress averaged over the run, so finishing sooner scores higher and a delay shows even when the mission ends up complete.
     const score = this.tick ? this.progressSum / this.tick : this.progress();
     metrics.unshift({ label: 'mission done', value: `${Math.round(this.progress() * 100)}%` });
@@ -564,6 +596,8 @@ export class FleetRun implements Run {
     const inContact = airborne.length ? airborne.filter((u) => this.connected.has(u.id)).length / airborne.length : 1;
     out.push({ label: 'in contact', value: `${Math.round(inContact * 100)}%`, tone: inContact < 0.6 ? 'danger' : inContact < 0.9 ? 'warn' : undefined });
     out.push({ label: 'units lost', value: c.lost, tone: c.lost ? 'danger' : undefined });
+    const cost = this.cost();
+    out.push({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.map((l) => ({ label: l.label, value: money(l.usd) })) });
     return out;
   }
 
