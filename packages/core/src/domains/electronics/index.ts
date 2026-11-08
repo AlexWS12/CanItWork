@@ -925,5 +925,28 @@ A burned part stays dead until replace_part, and that includes the board (use it
     spec: buildCircuit,
     hypotheses,
     recoveries,
+    // A board or module often has several pins of one name (GND twice on a Pico); the repeats get their own names so the part is
+    // valid, and wires naming the pin stay on the first, which is how those pins are tied together on the board anyway.
+    mend: (spec) => {
+      const notes: string[] = [];
+      const parts = spec.parts.map((part) => {
+        if (!part.custom) return part;
+        const seen = new Map<string, number>();
+        const pins = part.custom.pins.map((pin) => {
+          const n = (seen.get(pin) ?? 0) + 1;
+          seen.set(pin, n);
+          return n === 1 ? pin : `${pin}_${n}`;
+        });
+        if (pins.every((pin, i) => pin === part.custom!.pins[i])) return part;
+        notes.push(
+          `gave ${part.id}'s repeated ${[...seen]
+            .filter(([, n]) => n > 1)
+            .map(([pin]) => pin)
+            .join(', ')} pins their own names`,
+        );
+        return { ...part, custom: { ...part.custom, pins } };
+      });
+      return notes.length ? { spec: { ...spec, parts }, notes } : null;
+    },
   },
 };

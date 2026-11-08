@@ -26,7 +26,13 @@ Everything on `alex/queues-and-polish` since #22, with main merged in (no confli
 
 ## Testing
 
-- 575 tests pass; typecheck and formatting clean.
+- 580 tests pass; typecheck and formatting clean.
 - All 88 shipped verified designs still pass on this code (the 88th is the deliberate LED-with-no-resistor demo).
-- Full eval: 78 of 100 cases pass, with Gemini quota outages rerun. The remaining failures are mostly logic-circuit repairs that need `gemini-3.5-flash` quota and flow overloads that the new overload numbers target. See `docs/reports/eval-2026-11-08.md`.
+- Full eval: 90 of 100 cases pass, with Gemini quota outages rerun. The remaining failures are mostly logic-circuit repairs that need `gemini-3.5-flash` quota. See `docs/reports/eval-2026-11-08.md`.
+
+## Since the last PR
+
+- Each domain settles, without a model, what the repairs leave: loops dropped, unstated arrivals fitted to about 90% load, fleet relays added, repeated circuit pins renamed. The trace shows it as "Settling what the repairs left".
+- The eval compiles only electronics designs, so warehouses are no longer misread.
+- The dictation mic is gone: browser speech recognition struggled with accents.
 - Checked in the browser: the 16-bit calculator (12345 + 54321 lights 66666), two-tab live sessions with shared Recovery Council, Auth0 sign-in and private links against the real tenant, and saved runs and sessions in Tiger Data.

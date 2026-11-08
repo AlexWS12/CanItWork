@@ -433,3 +433,31 @@ describe('stations with several units', () => {
     expect(r.backlog()).toBeCloseTo(queued);
   });
 });
+
+describe('mending what repairs left', () => {
+  it('drops the link that closes a loop', () => {
+    const spec = lineSpec();
+    spec.edges.push({ from: 'f', to: 'a' });
+    const issues = line.validate(spec);
+    expect(issues.some((i) => /loop/.test(i.message))).toBe(true);
+    const mended = line.rules.mend!(spec, issues, [])!;
+    expect(mended.notes[0]).toMatch(/dropped the link f → a/);
+    expect(line.validate(mended.spec).some((i) => i.severity === 'error')).toBe(false);
+  });
+
+  it('fits an overload to about 90% when the user never stated the arrival rate', () => {
+    const spec = lineSpec();
+    spec.nodes[0].rate = 40;
+    const issues = line.validate(spec);
+    expect(issues.some((i) => /over capacity/.test(i.message))).toBe(true);
+    const mended = line.rules.mend!(spec, issues, [])!;
+    expect(mended.notes[0]).toMatch(/runs at about 90%/);
+    expect(line.validate(mended.spec).some((i) => /over capacity/.test(i.message))).toBe(false);
+  });
+
+  it('leaves an arrival rate the user wrote down as it is', () => {
+    const spec = lineSpec();
+    spec.nodes[0].rate = 40;
+    expect(line.rules.mend!(spec, line.validate(spec), [40])).toBeNull();
+  });
+});

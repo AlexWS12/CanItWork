@@ -1,0 +1,12 @@
+import { config } from 'dotenv';
+config({ path: '../../.env' });
+process.env.DESIGN_COUNCIL = 'off';
+process.env.DESIGN_CACHE = 'off';
+process.env.SWARMS_API_KEY = '';
+const { build } = await import('./src/agents');
+const events: any[] = [];
+await build(process.argv[2], (e) => events.push(e));
+for (const e of events) if (e.type === 'step' && e.status !== 'running') console.log(e.status, '|', e.title, '|', e.engine, '|', (e.detail ?? '').slice(0, 300));
+for (const e of events) if (e.type === 'refusal' || e.type === 'error') console.log(e.type, JSON.stringify(e).slice(0, 300));
+const env = events.find((e) => e.type === 'environment')?.environment;
+if (env) console.log('SPEC', JSON.stringify(env.spec).slice(0, 600));

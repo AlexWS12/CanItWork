@@ -162,6 +162,53 @@ export function networkDomain(def: NetDomainDef): Domain<NetSpec, NetSpec> {
     return issues;
   }
 
+  // What the Architect's repairs left, fixed without a model: a link that closes a loop is dropped, and an overload is fitted by
+  // scaling the arrivals (or demand) so the busiest station runs at 90%, unless the user stated those rates themselves.
+  function mend(spec: NetSpec, issues: Issue[], stated: number[]) {
+    const next = structuredClone(spec);
+    const notes: string[] = [];
+    const byId = (id: string) => next.nodes.find((n) => n.id === id);
+    if (issues.some((i) => /form a loop/.test(i.message))) {
+      const kept: NetEdge[] = [];
+      const reaches = (from: string, to: string) => {
+        const seen = new Set([from]);
+        const queue = [from];
+        while (queue.length) {
+          const at = queue.shift()!;
+          if (at === to) return true;
+          for (const e of kept) if (e.from === at && !seen.has(e.to)) (seen.add(e.to), queue.push(e.to));
+        }
+        return false;
+      };
+      for (const e of next.edges) {
+        if (reaches(e.to, e.from))
+          notes.push(`dropped the link ${name(byId(e.from) ?? ({ id: e.from } as NetNode))} → ${name(byId(e.to) ?? ({ id: e.to } as NetNode))}, which closed a loop`);
+        else kept.push(e);
+      }
+      next.edges = kept;
+    }
+    if (issues.some((i) => /over capacity/.test(i.message)) && netOrder(next).length === next.nodes.length) {
+      const ends = next.nodes.filter((n) => role(n) === (def.mode === 'demand' ? 'sink' : 'source'));
+      const rates = () => ends.map((n) => steady(next).rateOf(n));
+      // A rate the user wrote down is theirs; only rates the Architect chose are fitted.
+      if (ends.length && !rates().some((r) => stated.includes(r))) {
+        for (let pass = 0; pass < 3; pass++) {
+          const run = steady(next);
+          const worst = next.nodes.filter((n) => role(n) === 'stage').sort((a, b) => run.states.get(b.id)!.utilization - run.states.get(a.id)!.utilization)[0];
+          const load = worst ? run.states.get(worst.id)!.utilization : 0;
+          if (!worst || load <= 1.0) break;
+          const factor = 0.9 / load;
+          for (const n of ends) n.rate = Math.max(0.1, Math.round(run.rateOf(n) * factor * 10) / 10);
+          if (pass === 0) {
+            const total = Math.round(ends.reduce((sum, n) => sum + (n.rate ?? 0), 0) * 10) / 10;
+            notes.push(`set ${def.mode === 'demand' ? 'demand' : 'arrivals'} to ${total} ${def.unit} per tick in total so ${name(worst)} runs at about 90%, still busy`);
+          }
+        }
+      }
+    }
+    return notes.length ? { spec: next, notes } : null;
+  }
+
   function hypotheses(spec: NetSpec): Hypothesis[] {
     const out: Hypothesis[] = [];
     const stages = spec.nodes.filter((n) => role(n) === 'stage');
@@ -336,6 +383,6 @@ One tick is ${def.tick}. Flow runs one way from sources to end points, with no l
     describe: (spec) => JSON.stringify(spec),
     createRun: (spec, seed) => new NetRun(config, spec, seed),
     variants,
-    rules: { spec: def.template, hypotheses, recoveries },
+    rules: { spec: def.template, hypotheses, recoveries, mend },
   };
 }

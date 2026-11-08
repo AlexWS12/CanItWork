@@ -278,5 +278,20 @@ Use realistic numbers: a quadcopter flies 10-15 m/s for 20-30 minutes with a 300
     if (relay) out.push({ title: 'One more relay', patches: [{ op: 'add_units', role: relay.id, count: 1 }] });
     return out;
   },
-  rules: { spec: template, hypotheses, recoveries },
+  rules: {
+    spec: template,
+    hypotheses,
+    recoveries,
+    // Searchers that fly out of radio range get relays, enough to carry the link from base to the far corner, as the check advises.
+    mend: (spec, issues) => {
+      if (!issues.some((i) => /lose contact past/.test(i.message)) || spec.roles.some((r) => r.behavior === 'relay')) return null;
+      const searchers = spec.roles.filter((r) => r.behavior === 'search');
+      if (!searchers.length) return null;
+      const lead = searchers[0];
+      const range = Math.min(lead.range, spec.base.range ?? lead.range);
+      const count = Math.max(1, Math.ceil(farthestCorner(spec) / range) - 1);
+      const relay = RoleSchema.parse({ id: 'relay', label: 'Relay', behavior: 'relay', count, speed: lead.speed, endurance: lead.endurance * 1.5, range: lead.range });
+      return { spec: { ...spec, roles: [...spec.roles, relay] }, notes: [`added ${count} relay drone${count > 1 ? 's' : ''} so finds reach base from the far corner`] };
+    },
+  },
 };

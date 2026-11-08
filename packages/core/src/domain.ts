@@ -123,6 +123,11 @@ export interface Domain<Spec = any, Model = any> {
     hypotheses(model: Model): Hypothesis[];
     recoveries(model: Model, incident: Incident | undefined): RecoveryOption[];
     patch?(text: string, model: Model): { patches: unknown[]; reply: string } | null;
+    /**
+     * Deterministic fixes for what the Architect's repairs left, such as a loop in a flow or an overload whose arrival rate the
+     * user never stated. `stated` is every number in the user's request, which a mend must leave as it is.
+     */
+    mend?(spec: Spec, issues: Issue[], stated: number[]): { spec: Spec; notes: string[] } | null;
   };
 }
 
