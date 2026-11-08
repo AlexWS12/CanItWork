@@ -109,8 +109,9 @@ Swarms bills every run, including runs that fail. Leave `SWARMS_API_KEY` blank w
 ## How it works
 
 ```
-prompt ─▶ Interpreter ─▶ Architect ─▶ Validator ─▶ Simulator ─▶ Red Team ─▶ Simulator tests each claim
-          Jev, Gemini    Gemini       domain rules             Swarms
+prompt ─▶ Interpreter ─▶ Architect ─▶ Validator ─▶ Reviewer ─▶ Simulator ─▶ Red Team ─▶ Simulator tests each claim
+          Jev, Gemini    Gemini or a  domain rules  Gemini                   Swarms
+                         Swarms Design Council
 
 failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Analyst ─▶ Apply
            Swarms                                               Gemini
@@ -119,6 +120,8 @@ failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Anal
 - **Interpreter** picks the domain, or refuses and explains why. Jev answers which domain fits and how likely each simulator is to model the request; code routes on those probabilities and hands unsure cases to Gemini.
 - **Architect** writes a structured design and lists anything it couldn't represent.
 - **Validator** checks the design with the domain's own rules and by simulating it. In electronics it runs the design for a simulated minute at each sensor's extremes and rejects anything that burns out, never turns on or fails to hold its targets, saying why in terms the Architect can act on. A rejected design goes back to the Architect up to twice. Anything still failing is listed next to the environment, and a design with errors is refused instead of shown.
+- **Reviewer** reads the request beside the finished design, as built, and sends back anything it shrank or left out, such as one gate built for a 16-bit calculator or three robots for nine. The checks prove a design works; the Reviewer checks it is the design that was asked for.
+- **Repairs** keep every number the user stated, including "a" or "one", and fix overloads by adding capacity the user didn't fix before lowering loads they didn't state, so a described rush stays a rush.
 - **Red Team** states how the design should break, as failures the simulator can run. Each claim is shown as Confirmed or Refuted with the measurement.
 - **Recovery Council** proposes fixes after a failure, and the simulator ranks them.
 - **Design Council** (optional): three Swarms architects (Literalist, Engineer, Builder) design the same request in parallel. The simulator validates and runs each design, and the best one is built. A design that misses the schema gets one Gemini repair instead of being dropped. The leaderboard shows in the agent trace. `npx tsx apps/server/scripts/try-council.ts "your prompt"` runs one council build and prints its spend.
@@ -126,6 +129,8 @@ failure ─▶ Recovery Council ─▶ Simulator ranks each proposal ─▶ Anal
 - **Verified cache:** a design that passed every check is remembered under its exact prompt and rebuilt with no model calls. It is checked again before use, and one that no longer passes is dropped. Exact matching only, because a semantic cache once returned five robots when nine were asked for. `apps/server/data/verified-designs.json` ships 88 seeds across all 13 domains.
 
 Agents propose and the simulators decide. Simulators are deterministic, so an environment, seed and event log always replay to the same result.
+
+**Working together:** Share can start a live session. Everyone with the invite sees the same run, and every break, fix, switch flip, play and pause shows up for all of them, with who did it in the chat. The agents work for the whole room: when someone breaks the system, everyone watches the Recovery Council's steps and gets the same fix proposals, and anyone can apply one. Because the simulators are deterministic, the server only relays the action log; each browser replays it and lands on exactly the same state. Someone joining late starts from the whole log and the agents' work so far, and a screen that falls behind catches up to the session's clock.
 
 **Share** copies a link that holds the whole run (environment, seed and event log, deflated into the URL, about 2 KB for a 2-bit calculator), so no server is needed. Opening it replays the run tick by tick and recomputes its provenance hash, a SHA-256 of the environment, scenario and result. The app then says whether the hash matches the link. Edit one event in the link and it reports the mismatch. Share can also show the link as a QR code, drawn in the browser so the run never goes to an outside service.
 
@@ -141,11 +146,13 @@ Agents propose and the simulators decide. Simulators are deterministic, so an en
 - **Behaviour tests:** a design carries its own truth table (inputs set, outputs on or off), and the validator runs every row. A failing row is traced to its cause, such as "LED_S1 is driven by U3.Y1 = A1 || B1 with A1=0 from U1.Y2" or "Q1's C-E switch is open: B is 0.43 V above E, needs 0.65 V". The Architect gets that as its repair note.
 - **Red Team setups:** a claim can set inputs first, so an attack is judged in a state where its damage shows. On a 2-bit calculator, burning the XOR chip with 0 + 3 on the switches drops outputs from 100% to 49%.
 - **Packages and breadboards:** parts are drawn by package (DIP, module, TO-92, TO-220, axial, radial, bulb, display), so any chip or board looks right from its pin count and label, with its part number printed on top. Low-voltage signal circuits go on a breadboard: chips straddle the channel in datasheet pin order, leads sit in holes, and each wire is a jumper.
+- **Building blocks:** circuits too big to wire by hand are one line in a design, such as `{"kind":"adder","bits":16}`, and compile into real 74HC gate chips, switches, LEDs, wiring and behaviour tests. Blocks cover adders and adder-subtractors (up to 32 bits), comparators (32), multipliers (8) and ALUs (16). A 16-bit calculator is 20 chips and 341 wires that pass 10 of 10 tests, including 65535 + 1.
+- **Several breadboards:** a circuit too big for one board continues on full-size 63-column boards, two to a row with rail jumpers between them; no chip straddles a board's edge, and the build guide names each hole's board. A 16-bit calculator takes 5 boards.
 - **Build guide:** the Build tab lists the parts and gives numbered steps that name breadboard holes (pin 1 of U1 in f3, R2 from d5 to the top − rail), taken from the same layout the view draws.
 
 ## Measuring it
 
-`npm run eval:suite -w @tv/server -- [domain | case id | id prefix- | new | routing | breadth]` sends standalone prompts through the whole pipeline against the live API and scores the result. There are 94 cases across all 13 domains, many phrased the way people actually ask, and a case can accept more than one domain when either is a fair reading. The checks cover routing, parts, counts and roles, whether the design's own behaviour tests pass, and whether it shipped with checks still failing. It bypasses the cache, leaves Swarms off unless `EVAL_SWARMS=on`, logs every call to the spend ledger, and stops at `EVAL_DAILY_CAP` calls a day (default 500) to protect a free-tier key's quota.
+`npm run eval:suite -w @tv/server -- [domain | case id | id prefix- | new | routing | breadth]` sends standalone prompts through the whole pipeline against the live API and scores the result. There are 100 cases across all 13 domains, including 16-bit calculators, multipliers, comparators and ALUs, many phrased the way people actually ask, and a case can accept more than one domain when either is a fair reading. The checks cover routing, parts, counts and roles, whether the design's own behaviour tests pass, and whether it shipped with checks still failing. It bypasses the cache, leaves Swarms off unless `EVAL_SWARMS=on`, logs every call to the spend ledger, and stops at `EVAL_DAILY_CAP` calls a day (default 500) to protect a free-tier key's quota.
 
 Latest runs: 57 of 57 on the strict suite, 19 of 19 on breadth and 16 of 16 on fleet and queue prompts. [docs/reports](docs/reports) has the run reports.
 
@@ -170,6 +177,9 @@ A flow domain such as power or airports is mostly a config for the flow engine: 
 - Flow domains move averages, not individuals: patients, flights or pallets are a flow with capacities, not agents with their own histories.
 - Fleet units move in 2D and don't avoid each other.
 - Without keys, only the built-in templates are available.
+- Live sessions are kept in the server's memory, so a restart ends them; saved runs persist.
+- Counters aren't a building block yet: at a clock slow enough to watch, the top bits of a wide counter take minutes to light.
+- On big multi-board circuits, some switches sit a board away from the chips they feed, so the wiring runs long.
 
 ## Working on it
 
@@ -177,4 +187,4 @@ A flow domain such as power or airports is mostly a config for the flow engine: 
 
 ## Planned
 
-More domains, Vultr hosting, Tiger Data storage, Auth0 sign-in, Solana publishing and an M5Stack controller.
+More domains, a counter block, Vultr hosting, Solana publishing and an M5Stack controller. Saved runs already go to Tiger Data's Postgres once `DATABASE_URL` is set.
