@@ -1,5 +1,5 @@
 import { DOMAINS, domainList, type DomainId } from '@tv/core';
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { buildEnvironment, showHero } from '../actions';
 import { reducedMotion } from '../motion';
 import { useStore } from '../store';
@@ -65,76 +65,7 @@ function useFeatured() {
   return { featured, verified };
 }
 
-// The title intro plays once per page load. While it runs, the root carries data-intro="playing" and the
-// CSS animations in Landing.css and TopBar.css apply; removing it shows every element in its end state.
-const INTRO_MS = 4350;
-let introStarted = false;
-
-function playIntro() {
-  if (introStarted) return;
-  introStarted = true;
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  document.documentElement.dataset.intro = 'playing';
-  setTimeout(endIntro, INTRO_MS);
-}
-
-function endIntro() {
-  delete document.documentElement.dataset.intro;
-}
-
-const TAGLINE = ['Describe a system.', 'Run it.', 'Break it.', 'Fix it.'];
-
-// The wordmark on a circuit trace. The intro asks "Can it?", then "Work?", slides the words together into
-// "CanItWork?", runs current from the amber power dot through the node under "It" to the teal output,
-// and the "?" lifts away once it arrives. W is the width of "CanIt" (where the node sits), TW of the word.
-function CircuitTitle() {
-  const canIt = useRef<HTMLSpanElement>(null);
-  const word = useRef<HTMLSpanElement>(null);
-  const [{ w, tw }, setSize] = useState({ w: 310, tw: 560 });
-  useLayoutEffect(() => {
-    playIntro();
-    const measure = () => {
-      if (canIt.current && word.current) {
-        setSize({ w: canIt.current.getBoundingClientRect().width, tw: word.current.getBoundingClientRect().width });
-      }
-    };
-    measure();
-    void document.fonts.ready.then(measure);
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
-  return (
-    <div className="wm" style={{ '--w': `${w}px`, '--tw': `${tw}px` } as CSSProperties}>
-      <h1 aria-label="CanItWork" className="wm-title">
-        <span className="wm-q wm-q1" aria-hidden>
-          Can it?
-        </span>
-        <span className="wm-q wm-q2" aria-hidden>
-          Work<span className="wm-amber">?</span>
-        </span>
-        <span ref={word} className="wm-word" aria-hidden>
-          <span ref={canIt} className="wm-canit">
-            Can<span className="wm-it">It</span>
-          </span>
-          <span className="wm-work">Work</span>
-        </span>
-        {/* The wrapper rides with "Work" during the merge; the inner "?" lifts away on its own */}
-        <span className="wm-qm" aria-hidden>
-          <span className="wm-qm-glyph">?</span>
-        </span>
-      </h1>
-      <svg className="wm-trace" width={tw} height="24" viewBox={`0 0 ${tw} 24`} aria-hidden>
-        <line className="wm-seg wm-seg-a" x1="6" y1="12" x2={w} y2="12" pathLength={1} />
-        <line className="wm-seg wm-seg-b" x1={w} y1="12" x2={tw - 6} y2="12" pathLength={1} />
-        <circle className="wm-dot wm-d0" cx="6" cy="12" r="6" />
-        <circle className="wm-dot wm-d1" cx={w} cy="12" r="5" />
-        <circle className="wm-dot wm-d2" cx={tw - 6} cy="12" r="6" />
-      </svg>
-    </div>
-  );
-}
-
-// The live hero: real showcase designs taking turns behind the page, each a simulation running, not a picture
+// The live hero: real showcase designs take turns behind the page, each a simulation running, not a picture
 const HERO: Array<{ id: DomainId; label: string }> = [
   { id: 'electronics', label: 'Breadboard' },
   { id: 'warehouse', label: 'Warehouse' },
@@ -144,39 +75,69 @@ const HERO: Array<{ id: DomainId; label: string }> = [
 ];
 const HERO_SECONDS = 14;
 
-function Hero() {
-  const showcase = useStore((s) => s.showcase);
-  const name = useStore((s) => (s.showcase ? s.environment?.name : null));
+// A small line icon per kind of system, drawn on a 24 by 24 grid
+const ICON: Record<DomainId, string> = {
+  electronics: 'M7 7h10v10H7z M10 4v3 M14 4v3 M10 17v3 M14 17v3 M4 10h3 M4 14h3 M17 10h3 M17 14h3',
+  software: 'M3 5h7v5H3z M14 14h7v5h-7z M14 5h7v5h-7z M6.5 10v6.5H14 M10 7.5h4',
+  database: 'M5 6c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3z M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6 M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3',
+  warehouse: 'M3 20V4h18v16 M3 10h18 M3 15h18 M8 4v6 M14 10v5',
+  power: 'M13 2L5 14h6l-1 8 8-12h-6z',
+  water: 'M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z',
+  supply: 'M3 7h11v9H3z M14 10h4l3 3v3h-7 M6.5 18.5a1.5 1.5 0 1 0 0-.1 M17.5 18.5a1.5 1.5 0 1 0 0-.1',
+  hospital: 'M9 3h6v6h6v6h-6v6H9v-6H3V9h6z',
+  factory: 'M3 21V10l6 4V10l6 4V5h6v16z M7 17h2 M12 17h2',
+  airport: 'M2 16l20-6-2-2-7 2-5-6H6l3 7-5 1-2-2H1z M3 21h18',
+  callcenter: 'M4 14v-2a8 8 0 0 1 16 0v2 M4 14h3v6H4z M17 14h3v6h-3z',
+  queues: 'M5 8a2 2 0 1 0 0-.1 M12 8a2 2 0 1 0 0-.1 M19 8a2 2 0 1 0 0-.1 M3 20v-4a2 2 0 0 1 4 0v4 M10 20v-4a2 2 0 0 1 4 0v4 M17 20v-4a2 2 0 0 1 4 0v4',
+  fleet: 'M9 9h6v6H9z M9 9L5 5 M15 9l4-4 M9 15l-4 4 M15 15l4 4 M3 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M17 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
+};
+
+const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1) + '.';
+
+/** Which showcase runs behind the page: it moves on by itself until someone picks one, or not at all with reduced motion. */
+function useHero() {
   const [turn, setTurn] = useState(0);
   const [held, setHeld] = useState(false);
   const current = HERO[turn % HERO.length];
   useEffect(() => {
     void showHero(current.id);
   }, [current.id]);
-  // Moves on by itself unless someone picked a scene or asked for less motion
   useEffect(() => {
     if (held || reducedMotion()) return;
     const timer = setTimeout(() => setTurn((t) => t + 1), HERO_SECONDS * 1000);
     return () => clearTimeout(timer);
   }, [turn, held]);
+  const choose = (i: number) => {
+    setHeld(true);
+    setTurn(i);
+  };
+  return { current, held, choose };
+}
+
+/** The card naming the system running behind the page, and the tabs that pick another. */
+function NowModelling({ hero }: { hero: ReturnType<typeof useHero> }) {
+  const name = useStore((s) => (s.showcase ? s.environment?.name : null));
+  const prompt = useStore((s) => (s.showcase ? s.environment?.summary : null));
   return (
-    <aside className="hero-caption" aria-label="Live scene">
-      <p className="hero-now">
-        <span className="hero-live" aria-hidden />
-        Live simulation{showcase && name ? ` · ${name}` : ''}
-      </p>
-      <div className="hero-tabs" role="tablist" aria-label="Kinds of system">
+    <aside className="now-modelling" aria-label="Live simulation">
+      <div className="now-card">
+        <span className="now-kicker">
+          <span className="now-dot" aria-hidden />
+          Now modelling
+        </span>
+        <b>{DOMAINS[hero.current.id].label}</b>
+        <span className="now-name">{name ?? 'Loading the scene'}</span>
+        {prompt ? <span className="now-summary">{prompt}</span> : null}
+      </div>
+      <div className="now-tabs" role="tablist" aria-label="Pick a system to watch">
         {HERO.map((h, i) => (
           <button
             key={h.id}
             role="tab"
-            aria-selected={current.id === h.id}
-            data-run={!held && current.id === h.id}
+            aria-selected={hero.current.id === h.id}
+            data-run={!hero.held && hero.current.id === h.id}
             style={{ '--hero': `${HERO_SECONDS}s` } as CSSProperties}
-            onClick={() => {
-              setHeld(true);
-              setTurn(i);
-            }}
+            onClick={() => hero.choose(i)}
           >
             {h.label}
           </button>
@@ -206,8 +167,7 @@ function Refusal() {
 export function Landing() {
   const [text, setText] = useState('');
   const { featured, verified } = useFeatured();
-  const [selected, setSelected] = useState<DomainId | null>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
+  const hero = useHero();
   const building = useStore((s) => s.building);
   const messages = useStore((s) => s.messages);
   const last = messages[messages.length - 1];
@@ -216,42 +176,26 @@ export function Landing() {
   };
   // Examples build straight away; typing in the box is how to change one first
   const use = (example: string) => {
-    endIntro();
     setText(example);
     submit(example);
   };
-  const domain = selected ? DOMAINS[selected] : null;
-  // A domain's verified designs come first: they open instantly with no model calls
-  const ready = domain ? verified.filter((v) => v.domain === domain.id).map((v) => v.prompt) : [];
-  const examples = domain ? [...ready, ...domain.examples.filter((e) => !ready.includes(e))].slice(0, 4) : [];
+  const kinds = domainList();
+  // Each tile offers a design that passed every check before when there is one: it opens instantly with no model calls
+  const exampleOf = (id: DomainId) => verified.find((v) => v.domain === id)?.prompt ?? DOMAINS[id].examples[0];
   if (building) return <Building />;
   return (
     <div className="landing">
-      <div className="landing-copy">
-        <header className="landing-head">
-          <CircuitTitle />
-          <p className="tagline">
-            {TAGLINE.map((phrase, i) => (
-              <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>
-                {`${phrase} `}
-              </span>
-            ))}
-          </p>
-          <div className="agent-team">
-            <p>A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
-            <ol aria-label="The agents behind every build">
-              {TEAM.map((agent) => (
-                <li key={agent.name} title={`${agent.name} (${agent.engine}) ${agent.does}`}>
-                  <span className="agent-pill" data-engine={agent.engine === 'Swarms' ? 'swarms' : undefined}>
-                    <b>{agent.name}</b>
-                    <small>{agent.engine}</small>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </header>
-        <div className="landing-main">
+      <section className="hero" id="top">
+        <div className="landing-copy">
+          <span className="eyebrow">Simulate anything · {kinds.length} kinds of system</span>
+          <h1 className="hero-title">
+            Describe a system.
+            <br />
+            <span className="hero-muted">Run it.</span> <span className="hero-accent">Break it.</span>
+            <br />
+            Fix it.
+          </h1>
+          <p className="hero-lede">A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
           <form
             className="hero-input"
             onSubmit={(e) => {
@@ -259,17 +203,16 @@ export function Landing() {
               submit(text);
             }}
           >
+            <label htmlFor="describe" className="sr-only">
+              Describe a system
+            </label>
             <textarea
-              ref={input}
-              aria-label="Describe a system"
+              id="describe"
               autoFocus
-              rows={2}
+              rows={3}
               value={text}
-              placeholder="Describe a system in your own words"
-              onChange={(e) => {
-                endIntro();
-                setText(e.target.value);
-              }}
+              placeholder="Describe a system in your own words. A circuit, a warehouse, an app, a hospital…"
+              onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -278,68 +221,104 @@ export function Landing() {
               }}
             />
             <div className="hero-actions">
+              <span className="hero-hint">Enter to build · Shift+Enter for a new line</span>
               <button type="submit" disabled={!text.trim()}>
-                Build
+                Build it
               </button>
             </div>
           </form>
           <Refusal />
           {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
-          <section className="prompts" aria-labelledby="prompts-title">
-            <h2 id="prompts-title">Try</h2>
-            <ul className="prompt-list">
-              {featured.map((example, i) => (
-                <li key={example} style={{ '--i': i } as CSSProperties}>
-                  <button onClick={() => use(example)}>{example}</button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-        <section className="landing-domains" aria-labelledby="domains-title" style={{ '--n': domainList().length } as CSSProperties}>
-          <h2 id="domains-title">What it can build · {domainList().length} kinds of system</h2>
-          <div className="domain-groups">
-            {grouped().map((group, i) =>
-              group.length ? (
-                <div className="domain-group" key={GROUPS[i]}>
-                  <h3>{GROUPS[i]}</h3>
-                  <ul className="domain-chips">
-                    {group.map((d) => (
-                      <li key={d.id} style={{ '--i': domainList().findIndex((x) => x.id === d.id) } as CSSProperties}>
-                        <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
-                          {d.label}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null,
-            )}
+          <div className="hero-try">
+            <span>Try</span>
+            {featured.slice(0, 3).map((example) => (
+              <button key={example} onClick={() => use(example)}>
+                {example}
+              </button>
+            ))}
           </div>
-          <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
-          {domain && (
-            // Keyed by domain so choosing another chip remounts the card and replays its reveal
-            <div key={domain.id} className="domain-detail">
-              <p>{domain.blurb}</p>
-              <ul className="prompt-list">
-                {examples.map((example, i) => (
-                  <li key={example} style={{ '--i': i } as CSSProperties}>
-                    <button onClick={() => use(example)}>
-                      {example}
-                      {ready.includes(example) && (
-                        <span className="ready" title="Passed every check before: opens instantly with no model calls">
-                          verified
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </section>
-      </div>
-      <Hero />
+        </div>
+        <NowModelling hero={hero} />
+        <a className="scroll-cue" href="#how">
+          Scroll
+        </a>
+      </section>
+
+      <section className="landing-section" id="how" aria-labelledby="how-title">
+        <div className="section-head">
+          <div>
+            <span className="eyebrow eyebrow-green">How it works</span>
+            <h2 id="how-title">
+              Six agents argue.
+              <br />
+              The simulator settles it.
+            </h2>
+          </div>
+          <p>Agents propose. Nothing ships until the simulator runs it and every check passes.</p>
+        </div>
+        <div className="relay">
+          <span className="relay-track" aria-hidden>
+            <span className="relay-token" />
+          </span>
+          <ol className="agent-cards">
+            {TEAM.map((agent, i) => (
+              <li key={agent.name} style={{ '--i': i } as CSSProperties}>
+                <span className="agent-top">
+                  <span className="agent-n">{String(i + 1).padStart(2, '0')}</span>
+                  <span className="agent-engine" data-engine={agent.engine}>
+                    {agent.engine}
+                  </span>
+                </span>
+                <b>{agent.name}</b>
+                <span className="agent-does">{sentence(agent.does)}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section className="landing-section landing-kinds" id="systems" aria-labelledby="systems-title">
+        <div className="section-head">
+          <div>
+            <span className="eyebrow">What it can build</span>
+            <h2 id="systems-title">
+              {kinds.length === 13 ? 'Thirteen' : kinds.length} kinds of system.
+              <br />
+              <span className="hero-muted">From a breadboard to a power grid.</span>
+            </h2>
+          </div>
+        </div>
+        <ul className="kind-tiles">
+          {kinds.map((d) => (
+            <li key={d.id}>
+              <button onClick={() => use(exampleOf(d.id))}>
+                <span className="kind-top">
+                  <span className="kind-icon" data-group={groupOf(d.id)} aria-hidden>
+                    <svg width="24" height="24" viewBox="0 0 24 24">
+                      <path d={ICON[d.id]} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span className="kind-group">{GROUPS[groupOf(d.id)]}</span>
+                </span>
+                <b>{d.label}</b>
+                <span className="kind-example">{exampleOf(d.id)}</span>
+                {verified.some((v) => v.domain === d.id) && <span className="kind-ready">Opens instantly</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="landing-band" aria-label="No guessing">
+        <span className="eyebrow eyebrow-green">No guessing</span>
+        <p>If it can’t model what you describe, it says so instead of guessing.</p>
+        <a href="#top">Describe a system</a>
+      </section>
+
+      <footer className="landing-footer">
+        <b>CanItWork</b>
+        <span>Gemini · Swarms · TypeSafe Jev · Tiger Data</span>
+      </footer>
     </div>
   );
 }

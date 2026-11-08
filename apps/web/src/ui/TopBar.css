@@ -1,21 +1,17 @@
-/* Landing: a floating strip with the wordmark, the service status and the account */
+/* Landing: a full-width header over the live scene, the wordmark on the left and the service status and account on the right */
 .status {
   position: fixed;
-  top: var(--gutter);
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100% - var(--gutter) * 2);
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
   z-index: 5;
+  padding: var(--space-4) clamp(var(--space-4), 5vw, 72px);
   font-size: var(--text-sm);
   white-space: nowrap;
-}
-
-/* Joins the landing title intro (intro-in is in Landing.css) */
-:root[data-intro='playing'] .status {
-  animation: intro-in 400ms var(--ease-out) 2350ms both;
+  background: linear-gradient(var(--color-bg-scrim), transparent);
 }
 
 .wordmark {
@@ -25,7 +21,8 @@
 }
 
 .status .wordmark {
-  margin-right: var(--space-2);
+  margin-right: auto;
+  font-size: var(--text-lg);
 }
 
 /* Running: a full-width bar holds identity and state */

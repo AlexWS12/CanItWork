@@ -31,6 +31,13 @@ const stats = {};
 if (flag('landing')) {
   await page.waitForTimeout(9000);
   await page.screenshot({ path: path.join(out, 'landing.png') });
+  // Each section below the first screen, scrolled into view
+  for (const id of ['how', 'systems']) {
+    await page.evaluate((s) => document.getElementById(s)?.scrollIntoView(), id);
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: path.join(out, `landing-${id}.png`) });
+  }
+  await page.evaluate(() => document.getElementById('top')?.scrollIntoView());
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(3000);
   await page.screenshot({ path: path.join(out, 'landing-phone.png') });
