@@ -55,6 +55,9 @@ const selfTested = (n: number): Check => [
 ];
 const nodes = (s: Spec): Array<{ kind: string; label: string }> => s.nodes ?? [];
 const tables = (s: Spec): Array<{ name: string; rows: number }> => s.tables ?? [];
+// Fleets: how many units have a behaviour.
+const roleCount = (s: Spec, behavior: string) =>
+  (s.roles ?? []).filter((r: { behavior: string }) => r.behavior === behavior).reduce((a: number, r: { count: number }) => a + r.count, 0);
 // Flow-network domains: how many units of a kind the design has (count, default 1, summed over nodes).
 const units = (kind: string) => (s: Spec) => (s.nodes ?? []).filter((n: { kind: string }) => n.kind === kind).reduce((a: number, n: { count?: number }) => a + (n.count ?? 1), 0);
 const kind = (k: string): Check => [k, (s) => units(k)(s) > 0];
@@ -342,6 +345,79 @@ const CASES: Case[] = [
   { id: 'b-elevators', domain: ['queues', 'callcenter', 'factory'], prompt: 'An elevator bank in a 20 floor office building at 9am', checks: [] },
   { id: 'b-coffee', domain: 'queues', prompt: 'A coffee shop with two baristas and a long morning line', checks: [] },
   { id: 'b-toll', domain: 'queues', prompt: 'A highway toll plaza with 6 booths, 2 of them electronic, at rush hour', checks: [] },
+  // Fleets and queues, asked the way people ask.
+  {
+    id: 'fq-wildfire',
+    domain: 'fleet',
+    prompt: 'Firefighting drones: 3 thermal scouts find hotspots in a 1.5 km forest and 4 water drones drop water on them',
+    checks: [
+      ['3 scouts', (s) => roleCount(s, 'search') === 3],
+      ['4 deliverers', (s) => roleCount(s, 'deliver') === 4],
+    ],
+  },
+  { id: 'fq-warehouse-drones', domain: ['fleet', 'warehouse'], prompt: 'Indoor drones scanning inventory shelves at night', checks: [] },
+  {
+    id: 'fq-ocean',
+    domain: 'fleet',
+    prompt: 'Autonomous boats searching a bay for an oil spill, with a mothership as base',
+    checks: [['search role', (s) => roleCount(s, 'search') > 0]],
+  },
+  {
+    id: 'fq-campus',
+    domain: 'fleet',
+    prompt: 'A campus food delivery robot fleet: 8 robots, 20 dorms, one kitchen',
+    checks: [
+      ['8 robots', (s) => (s.roles ?? []).reduce((a: number, r: { count: number }) => a + r.count, 0) === 8],
+      ['20 targets', (s) => s.targets === 20],
+      ['known', (s) => s.known === true],
+    ],
+  },
+  {
+    id: 'fq-no-relay',
+    domain: 'fleet',
+    prompt: 'Five survey drones mapping a 3 km quarry with short-range radios and no relay',
+    checks: [['no relay as asked', (s) => roleCount(s, 'relay') === 0]],
+    stressed: true,
+  },
+  {
+    id: 'fq-escort',
+    domain: 'fleet',
+    prompt: 'Medical supply drones delivering to field hospitals, each escorted by a security drone',
+    checks: [['escort role', (s) => roleCount(s, 'escort') > 0]],
+  },
+  { id: 'fq-wind', domain: 'fleet', prompt: 'Delivery drones in a 15 m/s wind over the city', checks: [['wind 15', (s) => s.wind === 15]] },
+  {
+    id: 'fq-patrol-rovers',
+    domain: 'fleet',
+    prompt: 'Four security rovers patrolling a factory yard around three warehouses',
+    checks: [
+      ['ground', (s) => (s.roles ?? []).some((r: { ground?: boolean }) => r.ground)],
+      ['obstacles', (s) => (s.area?.obstacles ?? []).length >= 3],
+    ],
+  },
+  {
+    id: 'fq-supermarket',
+    domain: 'queues',
+    prompt: 'A supermarket on Saturday: 8 checkouts, 4 self-service tills and one customer service desk',
+    checks: [['8 checkouts', (s) => (s.nodes ?? []).some((n: { count?: number }) => n.count === 8)]],
+  },
+  {
+    id: 'fq-dmv',
+    domain: 'queues',
+    prompt: 'A DMV office with a ticket kiosk, 5 service windows and a long waiting room',
+    checks: [['5 windows', (s) => (s.nodes ?? []).some((n: { count?: number }) => n.count === 5)]],
+  },
+  { id: 'fq-stadium', domain: 'queues', prompt: 'Stadium entrance before kickoff: ticket scanners then bag checks for 40,000 fans', checks: [] },
+  { id: 'fq-drive-thru', domain: 'queues', prompt: 'A fast food drive-thru with an order window and a pickup window', checks: [] },
+  { id: 'fq-clinic', domain: ['queues', 'hospital'], prompt: 'A walk-in clinic front desk with 2 receptionists and 3 doctors', checks: [] },
+  {
+    id: 'fq-roundabout',
+    domain: 'queues',
+    prompt: 'A four-way intersection where the north road gets twice the traffic',
+    checks: [['lanes', (s) => (s.nodes ?? []).some((n: { kind: string }) => n.kind === 'lane')]],
+  },
+  { id: 'fq-elevators-down', domain: 'queues', prompt: 'A 30 floor office tower with 6 elevators where 2 are out of service', checks: [] },
+  { id: 'fq-bank', domain: 'queues', prompt: 'A bank branch at lunch hour with 3 tellers and an ATM', checks: [] },
   // Software
   {
     id: 's-cache',
@@ -492,7 +568,8 @@ const chosen = filters.length
           domainsOf(c).includes(f) ||
           (f === 'new' && !domainsOf(c).some((d) => ['electronics', 'software', 'database', 'warehouse'].includes(d))) ||
           (f === 'routing' && c.id.startsWith('x-')) ||
-          (f === 'breadth' && c.id.startsWith('b-')),
+          (f === 'breadth' && c.id.startsWith('b-')) ||
+          (f.endsWith('-') && c.id.startsWith(f)),
       ),
     )
   : installed;

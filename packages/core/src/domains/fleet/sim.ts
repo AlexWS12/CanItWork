@@ -551,7 +551,7 @@ export class FleetRun implements Run {
     // Progress averaged over the run, so finishing sooner scores higher and a delay shows even when the mission ends up complete.
     const score = this.tick ? this.progressSum / this.tick : this.progress();
     metrics.unshift({ label: 'mission done', value: `${Math.round(this.progress() * 100)}%` });
-    return { score: Math.round(score * 1000) / 10, scoreLabel: 'mission progress, averaged over time (%)', metrics, series: this.series };
+    return { score: Math.round(score * 1000) / 10, scoreLabel: 'out of 100 for mission progress over time', metrics, series: this.series };
   }
 
   telemetry(): Metric[] {

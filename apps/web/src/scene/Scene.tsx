@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing';
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import type { Environment } from '@tv/core';
 import { VIEWS } from '../domains';
 import { reducedMotion } from '../motion';
 import { runner } from '../runner';
@@ -13,14 +14,17 @@ function Clock() {
   return null;
 }
 
+const lookAt = (environment: Environment | null): [number, number, number] => (environment && VIEWS[environment.domain].target?.(environment)) || [0, 0, 0];
+
 function CameraRig() {
   const environment = useStore((s) => s.environment);
   const key = useStore((s) => s.environmentKey);
   const camera = useThree((s) => s.camera);
   useEffect(() => {
     const position = environment ? VIEWS[environment.domain].camera(environment) : ([-6, 30, 30] as const);
-    camera.position.set(position[0], position[1], position[2]);
-    camera.lookAt(0, 0, 0);
+    const [tx, ty, tz] = lookAt(environment);
+    camera.position.set(position[0] + tx, position[1] + ty, position[2] + tz);
+    camera.lookAt(tx, ty, tz);
   }, [key, environment === null, camera]);
   return null;
 }
@@ -77,7 +81,7 @@ export function Scene() {
           <View />
         </group>
       )}
-      <OrbitControls enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} minDistance={10} maxDistance={160} target={[0, 0, 0]} />
+      <OrbitControls enableDamping={!reducedMotion()} dampingFactor={0.08} maxPolarAngle={1.32} minDistance={10} maxDistance={160} target={lookAt(environment)} />
       <EffectComposer multisampling={0}>
         <Bloom intensity={0.75} luminanceThreshold={1} luminanceSmoothing={0.2} mipmapBlur />
         <Vignette eskil={false} offset={0.28} darkness={0.72} />

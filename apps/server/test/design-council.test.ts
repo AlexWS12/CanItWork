@@ -61,6 +61,39 @@ describe('design council', () => {
     expect((environment(events)?.spec as { robots: number }).robots).toBe(6);
   });
 
+  it('mends a design that misses the schema instead of dropping that architect', async () => {
+    process.env.GEMINI_API_KEY = 'g';
+    process.env.SWARMS_API_KEY = 'key';
+    process.env.DESIGN_COUNCIL = 'on';
+    let mends = 0;
+    mockFetch((url, init) => {
+      const body = String(init.body);
+      if (url.includes('swarms') && body.includes('Design Council')) {
+        const slipped = JSON.stringify({ name: 'Slipped', summary: 's', spec: { ...DEFAULT_SPEC, robots: 'nine' } });
+        return json({
+          output: [
+            { role: 'Literalist', content: draft(1) },
+            { role: 'Engineer', content: slipped },
+          ],
+          usage: { total_cost: 0.02 },
+        });
+      }
+      if (url.includes('swarms'))
+        return json({ output: [{ role: 'RedTeam', content: JSON.stringify({ hypotheses: [{ claim: 'c', incident: { type: 'block_conveyor', target: 'C1' } }] }) }] });
+      if (body.includes('You route requests')) return json(openAiReply(JSON.stringify({ domain: 'warehouse', reason: 'r' })));
+      if (body.includes("doesn't match the schema")) {
+        mends++;
+        return json(openAiReply(draft(9)));
+      }
+      return json(openAiReply(draft(2)));
+    });
+    const { events, emit } = collect();
+    await build('a busy warehouse', emit);
+    expect(mends).toBe(1);
+    const council = steps(events).find((s) => s.title === 'Convening the design council');
+    expect(council?.detail).toMatch(/Engineer \d+, mended/);
+  });
+
   it('falls back to the single Architect when the council fails', async () => {
     process.env.GEMINI_API_KEY = 'g';
     process.env.SWARMS_API_KEY = 'key';

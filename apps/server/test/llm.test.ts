@@ -138,3 +138,19 @@ describe('Prune rest period', () => {
     expect((await checkedStatus()).checks?.prune).toBe('failing');
   });
 });
+
+describe('Prune rest period on a rejected upstream key', () => {
+  isolateEnv();
+  it('also rests Prune when its upstream Gemini key is rejected', async () => {
+    process.env.PRUNE_API_KEY = 'p';
+    process.env.GEMINI_API_KEY = 'g';
+    const calls = mockFetch((url) =>
+      url.includes('withprune')
+        ? new Response(JSON.stringify({ error: 'gemini rejected the API key or access', code: 'provider_upstream_4xx' }), { status: 401 })
+        : json(openAiReply(JSON.stringify({ ok: true }))),
+    );
+    await ask();
+    await ask();
+    expect(calls.filter((u) => u.includes('withprune')).length).toBe(1);
+  });
+});

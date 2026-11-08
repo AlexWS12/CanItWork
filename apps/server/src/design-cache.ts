@@ -97,6 +97,11 @@ const SHOWCASE = [
   'A chat app with websockets, a message broker and a database',
   'An e-commerce schema with products, carts and reviews',
   'A warehouse with 6 robots and 3 aisles',
+  'A swarm of organized drones with different roles',
+  'Firefighting drones: 3 thermal scouts find hotspots in a 1.5 km forest and 4 water drones drop water on them',
+  'A supermarket on Saturday: 8 checkouts, 4 self-service tills and one customer service desk',
+  'An emergency room on a busy Friday night',
+  'A neighbourhood microgrid with rooftop solar and a battery',
 ];
 
 export const showcase = () =>

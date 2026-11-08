@@ -3,6 +3,7 @@ import type { ComponentType } from 'react';
 import { Schema, schemaExtent } from './database/Schema';
 import { Bench, benchExtent } from './electronics/Bench';
 import { Network, networkExtent } from './network/Network';
+import { Queues, queuesExtent, towerFocus } from './queues/Queues';
 import { Fleet } from './fleet/Fleet';
 import { Topology, topologyExtent } from './software/Topology';
 import { Warehouse } from './warehouse/Warehouse';
@@ -10,6 +11,8 @@ import { Warehouse } from './warehouse/Warehouse';
 interface View {
   Scene: ComponentType;
   camera(environment: Environment): [number, number, number];
+  /** Where the camera looks, the origin unless a scene is tall or off-centre. The camera position is relative to it. */
+  target?(environment: Environment): [number, number, number];
 }
 
 const tilted = (span: number): [number, number, number] => [-span * 0.1, span * 0.78, span * 0.78];
@@ -63,7 +66,20 @@ export const VIEWS: Record<DomainId, View> = {
     },
   },
   power: network,
-  queues: network,
+  queues: {
+    Scene: Queues,
+    camera(environment) {
+      const spec = environment.spec as NetSpec;
+      const { width, depth } = queuesExtent(spec);
+      // A tower needs the camera far enough back to see its top floor.
+      const tall = (towerFocus(environment)?.height ?? 0) * 2.3;
+      return tilted(Math.max(26, width * 0.95, depth * 1.4, tall));
+    },
+    target(environment) {
+      const focus = towerFocus(environment);
+      return focus ? [focus.x * 0.5, focus.height * 0.38, focus.z * 0.5] : [0, 0, 0];
+    },
+  },
   water: network,
   supply: network,
   hospital: network,
