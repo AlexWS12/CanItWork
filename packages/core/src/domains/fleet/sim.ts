@@ -1,4 +1,4 @@
-import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { SYSTEM, checkPatches, type Breakable, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type TimedEvent } from '../../domain';
 import { createRng, type Rng } from '../../rng';
 import { FleetPatchSchema, type FleetSpec, type Role } from './schema';
 
@@ -580,10 +580,45 @@ export class FleetRun implements Run {
     return out;
   }
 
+  check(patches: unknown[]) {
+    return checkPatches(FleetPatchSchema, patches, (p) => {
+      if ((p.op === 'add_units' || p.op === 'set_role') && !this.role(p.role)) return `There is no ${p.role} role here.`;
+      if (p.op === 'add_role' && this.role(p.role.id)) return `There is already a ${p.role.id} role.`;
+      if (p.op === 'add_chargers' && this.spec.base.chargers + p.count > 40) return 'The base has room for 40 chargers at most.';
+      if (p.op === 'restore' && !this.unit(p.unit)) return `There is no unit called ${p.unit}.`;
+      return null;
+    });
+  }
+
   inspect(target: string): Inspection | null {
+    if (target === SYSTEM) {
+      return {
+        title: 'Mission settings',
+        rows: [
+          ['Units', this.units.length],
+          ['Chargers', this.spec.base.chargers],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'number',
+            label: 'Battery kept for the trip home',
+            hint: 'Units turn back once their battery drops to this. Higher is safer but leaves less time on the job.',
+            value: Math.round(this.spec.reserve),
+            min: 5,
+            max: 60,
+            step: 5,
+            unit: '%',
+            patch: { op: 'set_reserve' },
+            key: 'percent',
+          },
+        ],
+      };
+    }
     if (target === 'base') {
       return {
         title: 'Base',
+        edits: this.spec.base.chargers < 40 ? [{ label: 'Add a charger', patches: [{ op: 'add_chargers', count: 1 }] }] : [],
         rows: [
           ['Chargers working', `${this.spec.base.chargers - this.chargersDown} of ${this.spec.base.chargers}`],
           ['Charging now', this.units.filter((u) => u.status === 'charging').length],
@@ -607,6 +642,38 @@ export class FleetRun implements Run {
       u.status === 'lost'
         ? [{ label: 'Bring it back', incident: { type: 'repair', target: u.id }, destructive: false }]
         : [{ label: `Lose ${u.id}`, incident: { type: 'lose_unit', target: u.id }, destructive: true }];
-    return { title: u.id, rows, actions };
+    const role = u.role;
+    const name = role.label ?? role.id;
+    return {
+      title: u.id,
+      rows,
+      actions,
+      settings: [
+        {
+          kind: 'number',
+          label: `Speed of every ${name}`,
+          value: Math.round(role.speed),
+          min: 1,
+          max: 60,
+          step: 1,
+          unit: ' m/s',
+          patch: { op: 'set_role', role: role.id },
+          key: 'speed',
+        },
+        {
+          kind: 'number',
+          label: `Endurance of every ${name}`,
+          hint: 'Minutes on a full battery.',
+          value: Math.round(role.endurance),
+          min: 1,
+          max: 240,
+          step: 1,
+          unit: ' min',
+          patch: { op: 'set_role', role: role.id },
+          key: 'endurance',
+        },
+      ],
+      edits: [{ label: `Add another ${name}`, patches: [{ op: 'add_units', role: role.id, count: 1 }] }],
+    };
   }
 }

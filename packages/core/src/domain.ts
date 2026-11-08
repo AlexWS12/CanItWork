@@ -57,19 +57,41 @@ export interface Inspection {
   rows: Array<[string, string | number]>;
   actions: Array<{ label: string; incident: Incident; destructive: boolean }>;
   /** Hand edits to the design as it runs, such as deleting this component; applied like any fix */
-  edits?: Array<{ label: string; patches: unknown[] }>;
+  edits?: Array<{ label: string; patches: unknown[]; destructive?: boolean }>;
+  /** One line under the edits, such as how to move the thing by hand */
+  editHint?: string;
   /** Settings the design runs with, changed by hand mid-run like any fix */
   settings?: Setting[];
 }
+
+/**
+ * What the Inspector asks a run for to show the settings the whole system runs with, such as a warehouse's dispatch
+ * policy or a service's retries. A run that has none returns null for it.
+ */
+export const SYSTEM = '@system';
 
 /**
  * One setting, as plain data: changing it applies `{ ...patch, [key]: value }`. A number is shown as `value` with
  * `unit` and sent divided by `scale`, so a fraction can be shown as a percentage.
  */
 export type Setting = { label: string; hint?: string; patch: Record<string, unknown>; key: string } & (
-  | { kind: 'choice'; value: string; options: Array<{ label: string; value: string }> }
+  | { kind: 'choice'; value: string | number; options: Array<{ label: string; value: string | number }> }
   | { kind: 'number'; value: number; min: number; max: number; step: number; unit: string; scale?: number }
 );
+
+/**
+ * The check most domains need for a hand edit: the patch has to parse as one of the domain's fixes. Anything that
+ * parses is left to the run to apply, as an agent's fix would be.
+ */
+export function checkPatches(schema: ZodType<any, any, any>, patches: unknown[], exists: (patch: any) => string | null = () => null): string | null {
+  for (const patch of patches) {
+    const parsed = schema.safeParse(patch);
+    if (!parsed.success) return parsed.error.issues[0]?.message ?? 'That edit is not one this simulator can make.';
+    const reason = exists(parsed.data);
+    if (reason) return reason;
+  }
+  return null;
+}
 
 export const settingPatch = (setting: Setting, value: string | number) => ({
   ...setting.patch,

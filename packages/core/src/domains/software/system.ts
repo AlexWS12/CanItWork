@@ -1,6 +1,6 @@
-import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { SYSTEM, checkPatches, type Breakable, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type TimedEvent } from '../../domain';
 import { createRng, type Rng } from '../../rng';
-import { DEFAULT_CAPACITY, DEFAULT_LATENCY, replicaZones, zonesOf, type SystemEdge, type SystemNode, type SystemPatch, type SystemSpec } from './schema';
+import { DEFAULT_CAPACITY, DEFAULT_LATENCY, SystemPatchSchema, replicaZones, zonesOf, type SystemEdge, type SystemNode, type SystemPatch, type SystemSpec } from './schema';
 
 const TIMEOUT_MS = 1000;
 const CACHE_HIT = 0.8;
@@ -362,6 +362,21 @@ export class SystemRun implements Run {
     this.refreshZones();
   }
 
+  check(patches: unknown[]) {
+    return checkPatches(SystemPatchSchema, patches, (patch: SystemPatch) => {
+      const id = 'node' in patch ? patch.node : patch.op === 'add_cache' ? patch.before : null;
+      if (id !== null && !this.node(id)) return `There is no ${id} here.`;
+      if (patch.op === 'add_cache') {
+        const node = this.node(patch.before)!;
+        if (node.kind === 'client' || node.kind === 'cache' || node.kind === 'queue') return `A cache can't go in front of a ${node.kind}.`;
+        if (this.spec.edges.some((e) => e.to === node.id && this.node(e.from)?.kind === 'cache')) return `There is already a cache in front of ${node.label ?? node.id}.`;
+      }
+      if ((patch.op === 'make_optional' || patch.op === 'add_queue') && !this.spec.edges.some((e) => e.from === patch.from && e.to === patch.to))
+        return `There is no call from ${patch.from} to ${patch.to}.`;
+      return null;
+    });
+  }
+
   private applyPatch(patch: SystemPatch) {
     switch (patch.op) {
       case 'scale': {
@@ -523,6 +538,30 @@ export class SystemRun implements Run {
   }
 
   inspect(target: string): Inspection | null {
+    if (target === SYSTEM) {
+      return {
+        title: 'System settings',
+        rows: [
+          ['Services', this.spec.nodes.length],
+          ['Traffic', `${Math.round(this.spec.traffic)} rps`],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'number',
+            label: 'Retries',
+            hint: 'How often a failed call is tried again. More retries ride out blips but pile load on a struggling service.',
+            value: this.spec.retries,
+            min: 0,
+            max: 5,
+            step: 1,
+            unit: '',
+            patch: { op: 'set_retries' },
+            key: 'retries',
+          },
+        ],
+      };
+    }
     const node = this.node(target);
     const state = this.states.get(target);
     if (!node || !state) return null;
@@ -550,9 +589,26 @@ export class SystemRun implements Run {
     if (node.zones?.length) rows.push(['Zones', node.zones.map((z) => (this.downZones.has(z) ? `${z} (down)` : z)).join(', ')]);
     const restoreZones = lostZones.map((z) => ({ label: `Restore ${z}`, incident: { type: 'recover', target: z }, destructive: false }));
     if (node.kind === 'client') return { title: node.label ?? node.id, rows, actions: restoreZones };
+    const replicas = node.replicas ?? 1;
+    const cacheable = node.kind !== 'cache' && node.kind !== 'queue' && !this.check([{ op: 'add_cache', before: node.id }]);
     return {
       title: node.label ?? node.id,
       rows,
+      settings: [
+        {
+          kind: 'number',
+          label: 'Replicas',
+          hint: 'Copies sharing its load.',
+          value: replicas,
+          min: Math.max(1, node.zones?.length ?? 1),
+          max: Math.min(50, Math.max(10, replicas * 3)),
+          step: 1,
+          unit: '',
+          patch: { op: 'scale', node: node.id },
+          key: 'replicas',
+        },
+      ],
+      edits: cacheable ? [{ label: 'Put a cache in front', patches: [{ op: 'add_cache', before: node.id }] }] : [],
       actions: broken
         ? [{ label: 'Restore', incident: { type: 'recover', target }, destructive: false }, ...restoreZones]
         : [

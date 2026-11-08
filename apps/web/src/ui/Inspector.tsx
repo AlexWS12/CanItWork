@@ -70,7 +70,8 @@ export function Inspector() {
           {view.settings.map((setting) => (
             <SettingControl key={setting.label} setting={setting} disabled={busy} onChange={(value) => setRefusal(editFloor([settingPatch(setting, value)]))} />
           ))}
-          {refusal && (
+          {/* With edit buttons below, the refusal shows once, under them */}
+          {refusal && !view.edits?.length && (
             <p className="edit-hint edit-refusal" role="alert">
               {refusal}
             </p>
@@ -82,7 +83,7 @@ export function Inspector() {
           {view.edits.map((edit) => (
             <button
               key={edit.label}
-              className="action danger"
+              className={edit.destructive ? 'action danger' : 'action'}
               disabled={busy}
               onClick={() => {
                 const reason = editFloor(edit.patches);
@@ -94,9 +95,11 @@ export function Inspector() {
               {edit.label}
             </button>
           ))}
-          <p className={refusal ? 'edit-hint edit-refusal' : 'edit-hint'} role={refusal ? 'alert' : undefined}>
-            {refusal ?? 'Drag it to move it on the floor.'}
-          </p>
+          {(refusal ?? view.editHint) && (
+            <p className={refusal ? 'edit-hint edit-refusal' : 'edit-hint'} role={refusal ? 'alert' : undefined}>
+              {refusal ?? view.editHint}
+            </p>
+          )}
         </div>
       ) : null}
       {editable && (
