@@ -37,7 +37,7 @@ export interface SpendSummary {
   bypass: string | null;
 }
 
-export type AgentId = 'interpreter' | 'architect' | 'validator' | 'simulator' | 'redteam' | 'council' | 'editor' | 'analyst' | 'explainer';
+export type AgentId = 'interpreter' | 'architect' | 'validator' | 'reviewer' | 'simulator' | 'redteam' | 'council' | 'editor' | 'analyst' | 'explainer';
 
 export interface StepEvent {
   type: 'step';
@@ -128,5 +128,7 @@ export interface ProviderStatus {
   swarms: boolean;
   prune: boolean;
   typesafe: boolean;
-  checks?: Record<'gemini' | 'swarms' | 'prune' | 'typesafe', KeyCheck>;
+  /** Where saved runs and live sessions are kept: Tiger Data's Postgres, or a local file. */
+  storage?: 'postgres' | 'file';
+  checks?: Record<'gemini' | 'swarms' | 'prune' | 'typesafe', KeyCheck> & { storage?: KeyCheck };
 }

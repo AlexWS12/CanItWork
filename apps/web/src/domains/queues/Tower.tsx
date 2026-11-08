@@ -88,19 +88,22 @@ export function Tower({ node, environment }: { node: NetNode; environment: Envir
     const busy = !state.down && (state.utilization > 0.02 || waiting > 0.5);
     if (runner.running && busy) clock.current += dt * runner.speed;
     const lit = new Set<number>();
+    // Cars out of service, drawn from the end of the bank, park dark at the lobby with a red light.
+    const out = state.down ? cars : Math.min(cars, Math.ceil((state.lost * cars) / Math.max(1, node.count ?? 1)));
     for (let i = 0; i < cars; i++) {
       const car = carRefs.current[i];
       if (!car) continue;
-      const trip = state.down ? { y: 0, floor: 0, phase: 'loading' as const } : tripAt(clock.current + i * 1.9, i, Math.max(1, drawn - 1));
+      const broken = i >= cars - out;
+      const trip = broken ? { y: 0, floor: 0, phase: 'loading' as const } : tripAt(clock.current + i * 1.9, i, Math.max(1, drawn - 1));
       car.position.y = trip.y;
       const light = carLights.current[i];
       if (light) {
-        light.color.set(state.down ? '#ef4444' : busy ? '#fef3c7' : '#64748b');
-        light.emissive.set(state.down ? '#ef4444' : busy ? '#fbbf24' : '#000000');
-        light.emissiveIntensity = state.down ? 1.2 : busy ? 1.4 : 0;
+        light.color.set(broken ? '#ef4444' : busy ? '#fef3c7' : '#64748b');
+        light.emissive.set(broken ? '#ef4444' : busy ? '#fbbf24' : '#000000');
+        light.emissiveIntensity = broken ? 1.2 : busy ? 1.4 : 0;
       }
-      const riding = !state.down && busy && (trip.phase === 'up' || trip.phase === 'loading');
-      const stepping = !state.down && busy && trip.phase === 'stop';
+      const riding = !broken && busy && (trip.phase === 'up' || trip.phase === 'loading');
+      const stepping = !broken && busy && trip.phase === 'stop';
       const load = Math.max(1, Math.min(RIDERS, Math.round(waiting / Math.max(1, cars)) || 1));
       riderRefs.current[i]?.forEach((r, k) => r && (r.visible = riding && k < load));
       landingRefs.current[i]?.forEach((r, k) => {

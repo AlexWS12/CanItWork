@@ -13,6 +13,7 @@ export const AGENT_LABEL: Record<StepEvent['agent'], string> = {
   interpreter: 'Interpreter',
   architect: 'Architect',
   validator: 'Validator',
+  reviewer: 'Reviewer',
   simulator: 'Simulator',
   redteam: 'Red Team',
   council: 'Recovery Council',

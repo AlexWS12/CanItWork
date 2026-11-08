@@ -383,3 +383,53 @@ describe('new domain presets', () => {
     expect(best).toBeGreaterThan(hurt + 10);
   });
 });
+
+describe('stations with several units', () => {
+  const banked = (count: number, capacity = 10) => {
+    const spec = lineSpec();
+    spec.nodes[3] = { id: 'f', kind: 'finish', count, capacity };
+    return spec;
+  };
+
+  it('loses one unit at a time: the rest keep serving, and losing the last stops the station', () => {
+    const r = steps(run(banked(4)), 20);
+    r.inject({ type: 'unit_down', target: 'f' });
+    steps(r, 1);
+    expect(r.states.get('f')!.capacity).toBeCloseTo(30);
+    expect(r.states.get('f')!.down).toBe(false);
+    expect(r.inspect('f')!.rows).toContainEqual(['Units', '3 of 4 running']);
+    r.inject({ type: 'unit_down', target: 'f', value: 3 });
+    expect(r.states.get('f')!.down).toBe(true);
+    r.inject({ type: 'recover', target: 'f' });
+    steps(r, 1);
+    expect(r.states.get('f')!.capacity).toBeCloseTo(40);
+  });
+
+  it('hurts only when the units left cannot carry the load', () => {
+    const roomy = steps(run(banked(4)), 20);
+    roomy.inject({ type: 'unit_down', target: 'f' });
+    expect(steps(roomy, 40).ratio).toBeGreaterThan(0.99);
+    const tight = steps(run(banked(3, 2.2)), 20);
+    tight.inject({ type: 'unit_down', target: 'f' });
+    expect(steps(tight, 40).ratio).toBeLessThan(0.9);
+  });
+
+  it('only calls a lone unit a single point of failure', () => {
+    expect(messages(banked(2)).some((m) => m.includes('single point of failure'))).toBe(false);
+    expect(messages(banked(1))).toContain('f is a single point of failure for out');
+  });
+
+  it('offers to repair the failed unit or add more after losing one', () => {
+    const titles = line.rules.recoveries(banked(3), { type: 'unit_down', target: 'f' }).map((r) => r.title);
+    expect(titles).toEqual(['Fix f', 'Grow f']);
+  });
+
+  it('counts people between stations as moving, not waiting, in flow mode', () => {
+    const spec = lineSpec();
+    spec.edges = spec.edges.map((e) => (e.from === 'f' ? { ...e, delay: 6 } : e));
+    const r = steps(run(spec), 30);
+    expect(r.links.get('f->out')!.pipeline.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+    const queued = spec.nodes.filter((n) => r.role(n) === 'stage').reduce((sum, n) => sum + r.states.get(n.id)!.queue + r.heldAt(n.id), 0);
+    expect(r.backlog()).toBeCloseTo(queued);
+  });
+});

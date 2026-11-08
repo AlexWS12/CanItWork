@@ -1,6 +1,6 @@
 import type { Usage } from '@tv/core';
 import { describe, expect, it, vi } from 'vitest';
-import { ShieldBlock, resetChecks } from '../src/llm';
+import { ShieldBlock, resetChecks, resetPruneRest } from '../src/llm';
 import { checkedStatus } from '../src/status';
 import { ask, isolateEnv, json, mockFetch, openAiReply } from './helpers';
 
@@ -121,6 +121,42 @@ describe('Prune rest period', () => {
     await ask();
     expect(calls.filter((u) => u.includes('withprune')).length).toBe(1);
     expect(calls.filter((u) => u.includes('googleapis')).length).toBe(2);
+  });
+
+  it('sits out a per-minute limit through Prune instead of benching it, but benches it for the day’s quota', async () => {
+    process.env.PRUNE_API_KEY = 'p';
+    process.env.GEMINI_API_KEY = 'g';
+    vi.useFakeTimers();
+    let prune = 0;
+    const perMinute = JSON.stringify({
+      error: {
+        code: 429,
+        message: 'exceeded your current quota',
+        details: [{ violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }] }, { retryDelay: '2s' }],
+      },
+      code: 'provider_upstream_4xx',
+    });
+    const calls = mockFetch((url) => (url.includes('withprune') && prune++ === 0 ? new Response(perMinute, { status: 429 }) : json(openAiReply(JSON.stringify({ ok: true })))));
+    const answer = ask();
+    await vi.advanceTimersByTimeAsync(2500);
+    await answer;
+    vi.useRealTimers();
+    expect(calls.filter((u) => u.includes('withprune')).length).toBe(2);
+    expect(calls.filter((u) => u.includes('googleapis')).length).toBe(0);
+
+    resetPruneRest();
+    const perDay = JSON.stringify({
+      error: {
+        code: 429,
+        message: 'exceeded your current quota',
+        details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }, { retryDelay: '17969s' }],
+      },
+      code: 'provider_upstream_4xx',
+    });
+    const later = mockFetch((url) => (url.includes('withprune') ? new Response(perDay, { status: 429 }) : json(openAiReply(JSON.stringify({ ok: true })))));
+    await ask();
+    await ask();
+    expect(later.filter((u) => u.includes('withprune')).length).toBe(1);
   });
 
   it('skips Prune when it rejects its vaulted Gemini key, and says so in the status', async () => {

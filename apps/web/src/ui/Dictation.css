@@ -1,0 +1,48 @@
+/* The mic sits beside the send button: quiet until it is listening, then it pulses in the accent colour */
+.hero-input .mic,
+.chat-input .mic {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  align-self: stretch;
+  min-width: 40px;
+  padding: 0 var(--space-2);
+  background: var(--color-fill);
+  color: var(--color-muted);
+  border: var(--rule);
+  border-radius: var(--radius-sm);
+  font-weight: 400;
+}
+
+.hero-input .mic:hover:not(:disabled),
+.chat-input .mic:hover:not(:disabled) {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}
+
+.hero-input .mic[aria-pressed='true'],
+.chat-input .mic[aria-pressed='true'] {
+  background: var(--color-accent-fill);
+  color: var(--color-accent);
+  border-color: var(--color-accent-line);
+  animation: mic-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  50% {
+    box-shadow: 0 0 0 4px var(--color-accent-tint);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-input .mic[aria-pressed='true'],
+  .chat-input .mic[aria-pressed='true'] {
+    animation: none;
+  }
+}
+
+.mic-error {
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+  color: var(--color-danger-soft);
+}

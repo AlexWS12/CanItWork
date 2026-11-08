@@ -9,7 +9,7 @@ beforeEach(() => resetChecks());
 describe('key checks', () => {
   it('leaves everything unchecked when no keys are set', async () => {
     const calls = mockFetch(() => json({}));
-    expect((await checkedStatus()).checks).toEqual({ gemini: 'unchecked', swarms: 'unchecked', prune: 'unchecked', typesafe: 'unchecked' });
+    expect((await checkedStatus()).checks).toEqual({ gemini: 'unchecked', swarms: 'unchecked', prune: 'unchecked', typesafe: 'unchecked', storage: 'unchecked' });
     expect(calls).toEqual([]);
   });
 
@@ -19,7 +19,7 @@ describe('key checks', () => {
     process.env.SWARMS_API_KEY = 's';
     process.env.TYPESAFE_API_KEY = 't';
     const calls = mockFetch(() => json({ data: [] }));
-    expect((await checkedStatus()).checks).toEqual({ gemini: 'ok', swarms: 'ok', prune: 'ok', typesafe: 'ok' });
+    expect((await checkedStatus()).checks).toEqual({ gemini: 'ok', swarms: 'ok', prune: 'ok', typesafe: 'ok', storage: 'unchecked' });
     expect(calls.every((url) => url.endsWith('/models'))).toBe(true);
   });
 

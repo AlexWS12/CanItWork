@@ -22,6 +22,69 @@
   gap: var(--space-4);
 }
 
+/* The agent pipeline behind every build, read left to right */
+.agent-team {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.agent-team p {
+  color: var(--color-muted);
+  font-size: var(--text-md);
+  max-width: 62ch;
+}
+
+.agent-team ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.agent-team li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.agent-team li:not(:last-child)::after {
+  content: '→';
+  color: var(--color-accent);
+}
+
+.agent-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--rule);
+  border-radius: 999px;
+  background: var(--color-surface);
+}
+
+.agent-pill b {
+  font-weight: 500;
+  font-size: var(--text-sm);
+}
+
+.agent-pill small {
+  font-size: var(--text-xs, var(--text-sm));
+  color: var(--color-muted);
+}
+
+.agent-pill[data-engine='swarms'] {
+  border-color: var(--color-teal-line);
+}
+
+.agent-pill[data-engine='swarms'] small {
+  color: var(--color-teal);
+}
+
 .landing-main {
   display: flex;
   flex-direction: column;
@@ -342,6 +405,16 @@
   color: var(--color-muted);
 }
 
+.hero-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-self: flex-end;
+}
+
+.hero-input {
+  flex-wrap: wrap;
+}
+
 .hero-input button {
   align-self: flex-end;
   background: var(--color-accent);
@@ -411,6 +484,31 @@
   position: relative;
   min-width: 0;
   align-self: start;
+}
+
+.domain-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.domain-group h3 {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+  margin-bottom: var(--space-1);
+}
+
+.prompt-list .ready {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-teal-line, var(--color-accent-line));
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  color: var(--color-teal, var(--color-accent));
+  white-space: nowrap;
 }
 
 .domain-chips {
@@ -524,7 +622,11 @@
     flex-direction: column;
   }
 
-  .hero-input button {
+  .hero-actions {
     align-self: stretch;
+  }
+
+  .hero-actions button[type='submit'] {
+    flex: 1;
   }
 }

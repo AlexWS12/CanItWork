@@ -1,5 +1,18 @@
 import { useFrame } from '@react-three/fiber';
-import { LEADED, STRADDLES, layoutBreadboard as layoutCore, pinsOf, type BoardLayout as CoreLayout, type CircuitRun, type CircuitSpec, type Part, type Spot } from '@tv/core';
+import {
+  BOARD_COLUMNS,
+  LEADED,
+  STRADDLES,
+  boardOf,
+  layoutBreadboard as layoutCore,
+  localColumn,
+  pinsOf,
+  type BoardLayout as CoreLayout,
+  type CircuitRun,
+  type CircuitSpec,
+  type Part,
+  type Spot,
+} from '@tv/core';
 import { useMemo, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
@@ -19,44 +32,76 @@ const zA = (row: number) => -0.375 - (4 - row) * PITCH;
 const zB = (row: number) => 0.375 + row * PITCH;
 const RAIL_Z = { top: { '+': zA(0) - 0.55, '-': zA(0) - 0.85 }, bottom: { '+': zB(4) + 0.55, '-': zB(4) + 0.85 } } as const;
 
+const BOARD_DEPTH = RAIL_Z.bottom['-'] - RAIL_Z.top['-'] + 0.6;
+const BOARD_GAP = { x: 1.4, z: 1.8 };
+
 export interface BoardLayout extends Omit<CoreLayout, 'offBoard'> {
   x0: number;
   offBoard: Map<string, [number, number]>;
+  /** Where each board sits: a big circuit spreads over full-size boards in a grid, wired together by their rails. */
+  origins: Array<[number, number]>;
+  boardColumns: number;
+}
+
+// A circuit that fits one board keeps a board sized to it; a bigger one uses full-size 63-column boards, two to a row so the stage between the panels frames them.
+function grid(boards: number, columns: number) {
+  if (boards === 1) return { boardColumns: columns, origins: [[0, 0]] as Array<[number, number]> };
+  const perRow = 2;
+  const rows = Math.ceil(boards / perRow);
+  const width = BOARD_COLUMNS * PITCH + 0.5;
+  const origins = Array.from({ length: boards }, (_, b): [number, number] => {
+    const inRow = Math.min(perRow, boards - Math.floor(b / perRow) * perRow);
+    return [((b % perRow) - (inRow - 1) / 2) * (width + BOARD_GAP.x), (Math.floor(b / perRow) - (rows - 1) / 2) * (BOARD_DEPTH + BOARD_GAP.z)];
+  });
+  return { boardColumns: BOARD_COLUMNS, origins };
 }
 
 export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
   const core = layoutCore(spec);
-  const x0 = -((core.columns - 1) * PITCH) / 2;
+  const { boardColumns, origins } = grid(core.boards, core.columns);
+  const x0 = -((boardColumns - 1) * PITCH) / 2;
   const offBoard = new Map<string, [number, number]>();
-  let ox = x0 + 0.6;
+  // Supplies and boards sit above the first board.
+  let ox = origins[0][0] + x0 + 0.6;
   for (const id of core.offBoard) {
     const part = spec.parts.find((p) => p.id === id)!;
     const width = part.type === 'arduino' ? 7.6 : part.custom && pinsOf(part).length > 8 ? 3.4 : 2.8;
-    offBoard.set(id, [ox + width / 2, RAIL_Z.top['-'] - 2.6 - (part.type === 'arduino' ? 1.6 : 0)]);
+    offBoard.set(id, [ox + width / 2, origins[0][1] + RAIL_Z.top['-'] - 2.6 - (part.type === 'arduino' ? 1.6 : 0)]);
     ox += width + 0.6;
   }
-  return { ...core, x0, offBoard };
+  return { ...core, x0, offBoard, origins, boardColumns };
+}
+
+// Where a column sits: its board's origin plus its place along that board.
+function columnAt(layout: BoardLayout, col: number) {
+  const multi = layout.origins.length > 1;
+  const [ox, oz] = layout.origins[multi ? Math.min(layout.origins.length - 1, boardOf(col)) : 0];
+  return { x: ox + layout.x0 + (multi ? localColumn(col) : col) * PITCH, z: oz };
 }
 
 export function spotPosition(layout: BoardLayout, spot: Spot, lift = 0.06) {
-  const x = layout.x0 + spot.col * PITCH;
-  if (spot.kind === 'rail') return new THREE.Vector3(x, lift, RAIL_Z[spot.side][spot.rail]);
-  return new THREE.Vector3(x, lift, spot.half === 'A' ? zA(spot.row) : zB(spot.row));
+  const { x, z } = columnAt(layout, spot.col);
+  if (spot.kind === 'rail') return new THREE.Vector3(x, lift, z + RAIL_Z[spot.side][spot.rail]);
+  return new THREE.Vector3(x, lift, z + (spot.half === 'A' ? zA(spot.row) : zB(spot.row)));
 }
 
 export function breadboardExtent(spec: CircuitSpec) {
   const layout = layoutBreadboard(spec);
-  const width = layout.columns * PITCH + 1;
+  const width = layout.boardColumns * PITCH + 1;
+  const xs = layout.origins.map(([x]) => x);
+  const zs = layout.origins.map(([, z]) => z);
+  const span = Math.max(...xs) - Math.min(...xs) + width;
   const offRow = layout.offBoard.size ? 4.6 : 0;
-  const right = Math.max(width / 2, ...[...layout.offBoard.values()].map(([x]) => x + 2));
-  return { width: Math.max(width, right * 2), depth: 6.2 + offRow, centerX: 0, centerZ: -offRow / 2 };
+  const right = Math.max(span / 2, ...[...layout.offBoard.values()].map(([x]) => x + 2));
+  return { width: Math.max(span, right * 2), depth: Math.max(...zs) - Math.min(...zs) + 6.2 + offRow, centerX: 0, centerZ: -offRow / 2 };
 }
 
-function Holes({ layout }: { layout: BoardLayout }) {
+function Holes({ layout, board }: { layout: BoardLayout; board: number }) {
   const mesh = useRef<THREE.InstancedMesh>(null!);
   const points = useMemo(() => {
     const out: THREE.Vector3[] = [];
-    for (let c = 0; c < layout.columns; c++) {
+    const first = layout.origins.length > 1 ? board * BOARD_COLUMNS : 0;
+    for (let c = first; c < first + layout.boardColumns; c++) {
       for (let r = 0; r < 5; r++) {
         out.push(spotPosition(layout, { kind: 'strip', col: c, half: 'A', row: r }, 0.181));
         out.push(spotPosition(layout, { kind: 'strip', col: c, half: 'B', row: r }, 0.181));
@@ -87,8 +132,8 @@ function Holes({ layout }: { layout: BoardLayout }) {
   );
 }
 
-function BoardBody({ layout }: { layout: BoardLayout }) {
-  const width = layout.columns * PITCH + 0.5;
+function BoardBody({ layout, board }: { layout: BoardLayout; board: number }) {
+  const width = layout.boardColumns * PITCH + 0.5;
   const railLine = (side: 'top' | 'bottom', rail: Rail) => {
     const z = RAIL_Z[side][rail] + (side === 'top' ? -1 : 1) * (rail === '-' ? 0.17 : -0.17) * (side === 'top' ? -1 : 1);
     return (
@@ -98,18 +143,48 @@ function BoardBody({ layout }: { layout: BoardLayout }) {
       </mesh>
     );
   };
+  const [ox, oz] = layout.origins[board];
   return (
     <group>
-      <mesh position={[0, 0.09, 0]} receiveShadow castShadow onClick={(e) => (e.stopPropagation(), select(null))}>
-        <boxGeometry args={[width, 0.18, RAIL_Z.bottom['-'] - RAIL_Z.top['-'] + 0.6]} />
-        <meshStandardMaterial color="#eceae4" roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.183, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[width - 0.2, 0.28]} />
-        <meshStandardMaterial color="#d6d3cb" roughness={0.9} />
-      </mesh>
-      {(['top', 'bottom'] as const).flatMap((side) => (['+', '-'] as const).map((rail) => railLine(side, rail)))}
-      <Holes layout={layout} />
+      <group position={[ox, 0, oz]}>
+        <mesh position={[0, 0.09, 0]} receiveShadow castShadow onClick={(e) => (e.stopPropagation(), select(null))}>
+          <boxGeometry args={[width, 0.18, RAIL_Z.bottom['-'] - RAIL_Z.top['-'] + 0.6]} />
+          <meshStandardMaterial color="#eceae4" roughness={0.85} />
+        </mesh>
+        <mesh position={[0, 0.183, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[width - 0.2, 0.28]} />
+          <meshStandardMaterial color="#d6d3cb" roughness={0.9} />
+        </mesh>
+        {(['top', 'bottom'] as const).flatMap((side) => (['+', '-'] as const).map((rail) => railLine(side, rail)))}
+      </group>
+      <Holes layout={layout} board={board} />
+    </group>
+  );
+}
+
+// Short jumpers carry the supply rails from each board to the next, as on a real multi-board build.
+function RailBridges({ layout }: { layout: BoardLayout }) {
+  if (layout.origins.length < 2) return null;
+  return (
+    <group>
+      {layout.origins.slice(1).flatMap((_, i) =>
+        (['top', 'bottom'] as const).flatMap((side) =>
+          (['+', '-'] as const).map((rail) => {
+            const from = spotPosition(layout, { kind: 'rail', col: (i + 1) * BOARD_COLUMNS - 1, side, rail }, 0.22);
+            const to = spotPosition(layout, { kind: 'rail', col: (i + 1) * BOARD_COLUMNS + 1, side, rail }, 0.22);
+            const lift = from
+              .clone()
+              .lerp(to, 0.5)
+              .setY(0.22 + Math.min(1.6, from.distanceTo(to) * 0.08));
+            return (
+              <group key={`${i}${side}${rail}`}>
+                <Segment from={from} to={lift} radius={0.03} color={rail === '+' ? '#ef4444' : '#1f2937'} />
+                <Segment from={lift} to={to} radius={0.03} color={rail === '+' ? '#ef4444' : '#1f2937'} />
+              </group>
+            );
+          }),
+        ),
+      )}
     </group>
   );
 }
@@ -295,11 +370,14 @@ export function BoardParts({
   };
   return (
     <group>
-      <BoardBody layout={layout} />
+      {layout.origins.map((_, board) => (
+        <BoardBody key={board} layout={layout} board={board} />
+      ))}
+      <RailBridges layout={layout} />
       {spec.parts.filter(STRADDLES).map((part) => {
         const chip = layout.chips.get(part.id)!;
-        const x = layout.x0 + (chip.col + (chip.half - 1) / 2) * PITCH;
-        const at = new THREE.Vector3(x, 0.08, 0);
+        const { x, z } = columnAt(layout, chip.col);
+        const at = new THREE.Vector3(x + ((chip.half - 1) / 2) * PITCH, 0.08, z);
         return (
           <group key={part.id}>
             <group position={at} onClick={pickOrToggle(part)}>

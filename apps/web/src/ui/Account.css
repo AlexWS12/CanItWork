@@ -1,0 +1,222 @@
+/* Account: the avatar menu, the saved-systems dialog and the notice for a private link */
+.account {
+  position: relative;
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: var(--color-accent-fill);
+  border-color: var(--color-accent-line);
+  color: var(--color-accent);
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 40;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2);
+  background: var(--color-surface-opaque);
+  border: var(--rule-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 18px 50px oklch(9% 0.012 261 / 0.55);
+  white-space: normal;
+}
+
+.account-who {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  border-bottom: var(--rule);
+  margin-bottom: var(--space-1);
+}
+
+.account-who span {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.account-menu button {
+  text-align: left;
+  background: none;
+  border: 0;
+  min-height: 0;
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.account-menu button:hover {
+  background: var(--color-accent-fill);
+}
+
+.systems-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: oklch(9% 0.012 261 / 0.6);
+}
+
+.systems {
+  width: min(560px, 100%);
+  max-height: min(640px, 100%);
+  overflow-y: auto;
+  padding: var(--space-4);
+  background: var(--color-surface-opaque);
+  border: var(--rule-strong);
+  border-radius: var(--radius-md);
+}
+
+.systems header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.systems h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.systems header button {
+  min-height: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--text-lg);
+  background: none;
+  border: 0;
+}
+
+.systems ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.systems-note {
+  color: var(--color-muted);
+  font-size: var(--text-md);
+}
+
+.saved-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: var(--rule);
+}
+
+.saved-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.saved-name {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  font-weight: 600;
+  text-align: left;
+}
+
+.saved-name:hover {
+  color: var(--color-accent);
+}
+
+.saved-meta {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.saved-actions,
+.saved-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.saved-actions select,
+.saved-actions button,
+.saved-people input,
+.saved-people button {
+  font-size: var(--text-sm);
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+}
+
+.saved-people input {
+  flex: 1;
+  min-width: 0;
+}
+
+.saved-actions .danger {
+  color: var(--color-danger-soft);
+  border-color: var(--color-danger);
+}
+
+.saved-error {
+  font-size: var(--text-sm);
+  color: var(--color-danger-soft);
+}
+
+.locked-run {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  z-index: 55;
+  transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface-opaque);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 18px 50px oklch(9% 0.012 261 / 0.55);
+}
+
+.locked-run p {
+  flex: 1 1 260px;
+  font-size: var(--text-md);
+}
+
+.locked-run b {
+  color: var(--color-accent);
+}
+
+.locked-run button {
+  min-height: 0;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-3);
+}
+
+.locked-run .locked-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}

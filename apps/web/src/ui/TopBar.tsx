@@ -1,13 +1,17 @@
 import { DOMAINS, type KeyCheck, type ProviderStatus } from '@tv/core';
+import { useState } from 'react';
 import { startOver } from '../actions';
 import { useStore } from '../store';
 import { ticks } from './labels';
+import { AccountButton } from './Account';
+import { LivePill } from './LivePill';
 import { PrunePill } from './PruneSavings';
 import { ShareButton } from './SharePanel';
 import { Wordmark } from './Wordmark';
 import './TopBar.css';
 
 const CHECK_LABEL: Record<KeyCheck, string> = { ok: 'key works', failing: 'key failing', unchecked: 'key not checked' };
+const DATABASE_LABEL: Record<KeyCheck, string> = { ok: 'database answers', failing: 'database not answering', unchecked: 'not checked' };
 
 // Key problems stay in each chip's tooltip; ?debug spells them out on screen
 const debug = new URLSearchParams(location.search).has('debug');
@@ -20,6 +24,7 @@ const chipsOf = (status: ProviderStatus | null | undefined): Chip[] =>
         ['Gemini', status.gemini !== 'off', status.gemini, status.checks?.gemini],
         ['Jev', status.typesafe, status.typesafe ? 'TypeSafe' : 'off', status.checks?.typesafe],
         ['Swarms', status.swarms, status.swarms ? 'hosted' : 'off', status.checks?.swarms],
+        ['Tiger Data', status.storage === 'postgres', status.storage === 'postgres' ? 'Postgres' : 'local file', status.checks?.storage],
       ]
     : [];
 
@@ -32,7 +37,7 @@ function Integrations({ variant }: { variant: 'chip' | 'dot' }) {
       {status && !live && <span className="offline">Local rules, no AI connected</span>}
       {status === null && <span className="offline">Server offline</span>}
       {chips.map(([name, on, how, check]) => {
-        const label = `${name}: ${how}${on && check ? `, ${CHECK_LABEL[check]}` : ''}`;
+        const label = `${name}: ${how}${on && check ? `, ${(name === 'Tiger Data' ? DATABASE_LABEL : CHECK_LABEL)[check]}` : ''}`;
         return (
           <span key={name} className={variant} data-on={on} data-check={on && (debug || check !== 'failing') ? check : undefined} title={label}>
             <span className="integration-name">{name}</span>
@@ -78,6 +83,7 @@ export function TopBar() {
         <Wordmark />
         <Integrations variant="chip" />
         <PrunePill />
+        <AccountButton />
       </div>
     );
   }
@@ -96,10 +102,12 @@ export function TopBar() {
       </div>
       <PrunePill />
       <Integrations variant="dot" />
+      <LivePill />
       <ShareButton />
       <button className="new-system" onClick={startOver}>
         New system
       </button>
+      <AccountButton />
     </header>
   );
 }

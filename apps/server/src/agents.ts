@@ -18,6 +18,7 @@ import {
   type Metric,
   type Hypothesis,
   type Incident,
+  type Issue,
   type RecoveryReport,
   type StepEvent,
   type StreamEvent,
@@ -411,6 +412,45 @@ export function servedFromCache(prompt: string): { id: DomainId; draft: Draft } 
   return { id: hit.domain, draft: parsed.data as Draft };
 }
 
+const ReviewSchema = z.object({ shortfalls: z.array(z.string()).max(4).default([]) });
+
+// What a design becomes once its building blocks expand, as part counts, so the Reviewer judges the real hardware rather than a block's name.
+function asBuilt(domain: Domain, spec: unknown) {
+  try {
+    const built = domain.compile(spec) as { parts?: Array<{ type: string; custom?: { label?: string } }> };
+    if (!Array.isArray(built.parts) || built === spec) return '';
+    const counts = new Map<string, number>();
+    for (const part of built.parts) counts.set(part.custom?.label ?? part.type, (counts.get(part.custom?.label ?? part.type) ?? 0) + 1);
+    return [...counts].map(([name, n]) => `${n}× ${name}`).join(', ');
+  } catch {
+    return '';
+  }
+}
+
+// The Reviewer reads the request beside the finished design and names where it falls short of what was asked,
+// such as 1 bit built for a 16-bit calculator, 3 robots for 9, or a component the user named left out. The checks
+// only prove a design works; this proves it is the design that was asked for. Findings go back to the Architect.
+async function review(prompt: string, domain: Domain, draft: Draft, emit: Emit, step: Step): Promise<Issue[]> {
+  if (!hasGemini()) return [];
+  const built = asBuilt(domain, draft.spec);
+  try {
+    const shortfalls = await step('reviewer', 'gemini', 'Reviewing it against your request', async (detail) => {
+      const result = await chatJson({
+        feature: 'reviewer',
+        schema: ReviewSchema,
+        onUsage: onUsage(emit),
+        system: `You are the Reviewer on a team that builds simulations of the system a user describes, in the ${domain.label} domain. You compare what the user asked for with the design the Architect produced and list each concrete way the design falls short of the request: a smaller scale than asked (fewer bits, units, floors, robots, lanes, servers), a part, component or feature the user named that is missing, or a different kind of system. A design may use building blocks, which expand into the real parts listed under "As built" (a 16-bit adder block is 24 logic gate chips with 33 switches and 17 LEDs); judge the design by what is built, and never ask to replace a block with individual parts. Only list real gaps against the user's own words. Ignore style, values the user didn't state, things listed as not modelled, and anything the simulator can't represent. Write each shortfall as one short instruction to the Architect, such as "The user asked for a 16-bit calculator but the design adds 1 bit; use an adder block with 16 bits". Return {"shortfalls": []} when the design delivers what was asked. Answer with JSON only: {"shortfalls": [string]}.`,
+        user: `Request: ${prompt}\nDesign (${domain.label}): ${JSON.stringify(draft.spec).slice(0, 9000)}${built ? `\nAs built: ${built}` : ''}\nNot modelled: ${draft.unmodelled.join('; ') || 'nothing'}`,
+      });
+      detail(result.shortfalls.length ? result.shortfalls.join('; ') : 'It delivers what you asked for');
+      return result.shortfalls;
+    });
+    return shortfalls.map((message) => ({ severity: 'warning', repair: true, message: `Short of the request: ${message}` }) as Issue);
+  } catch {
+    return [];
+  }
+}
+
 async function cachedDesign(prompt: string, step: Step): Promise<{ id: DomainId; draft: Draft } | null> {
   const served = servedFromCache(prompt);
   if (!served) return null;
@@ -442,6 +482,8 @@ export async function build(prompt: string, emit: Emit) {
     );
     return found;
   });
+  // A design from the verified cache already matched this exact request, so only fresh designs are reviewed.
+  if (!cached && !issues.some((i) => i.severity === 'error')) issues = [...issues, ...(await review(prompt, domain, draft, emit, step))];
   const errorsOf = () => issues.filter((i) => i.severity === 'error').map((i) => i.message);
   const toRepair = () => issues.filter((i) => i.severity === 'error' || i.repair).map((i) => i.message);
 
@@ -458,7 +500,7 @@ export async function build(prompt: string, emit: Emit) {
             schema: draftSchema(domain),
             onUsage: onUsage(emit),
             system: architectPrompt(domain),
-            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. Values the user did not state are yours to change: when a check finds overload, first bring unstated loads (arrival rates, demand, call volume, current draw) in line with the stated sizes. Keep a problem only if the user asked to see it, such as a system they said is overwhelmed, or if no unstated value can fix it. Fix everything else.`,
+            user: `Request: ${prompt}\nYour previous design: ${JSON.stringify(previous)}\nThe checks found: ${found.join('; ')}\nReturn a corrected design. Every number the user stated (counts, sizes, rates, voltages) is fixed: never change it to silence a check. A count said as "a", "an", "one" or "single" is stated too: "a shop counter" is exactly one counter. Values the user did not state are yours to change. When a check finds overload, first add capacity the user didn't fix (more units, servers, lanes or lines, bigger buffers, a stronger supply). Lower unstated loads (arrival rates, demand, call volume, current draw) only when every size is stated, and when the user described a heavy load in words (a rush, peak hour, busy, Black Friday) keep it heavy: the busiest part should still run at 85-95%. Keep a problem only if the user asked to see it, such as a system they said is overwhelmed, or if nothing you may change can fix it. Fix everything else. The summary describes the system as built; don't mention the checks or what you changed.`,
           })) as Draft;
         }),
       async () => previous,

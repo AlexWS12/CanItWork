@@ -88,7 +88,7 @@ function Counters({ node }: { node: NetNode }) {
     if (!run || !state) return;
     const busy = state.down ? 0 : Math.min(n, Math.round(Math.min(1, state.utilization) * n + (state.queue > 0 ? n : 0)));
     for (let i = 0; i < n; i++) {
-      const open = !state.down;
+      const open = !state.down && i < n - Math.round((state.lost * n) / Math.max(1, node.count ?? 1));
       const serving = open && i < Math.max(busy, state.queue > 0 ? n : 0);
       lights.current[i]?.color.set(!open ? '#334155' : serving ? '#22c55e' : '#facc15');
       if (lights.current[i]) lights.current[i]!.emissive.set(!open ? '#000000' : serving ? '#22c55e' : '#facc15');
@@ -294,7 +294,14 @@ function StationLabel({ node, x = 0, y = 3.1 }: { node: NetNode; x?: number; y?:
     const kind = role(run, node);
     const waiting = Math.round(state.queue + run.heldAt(node.id));
     const n = servers(node);
-    const text = kind === 'source' ? '' : kind === 'sink' ? `${Math.round(state.served)} / min` : state.down ? 'closed' : `${waiting} waiting · ${n} open`;
+    const text =
+      kind === 'source'
+        ? ''
+        : kind === 'sink'
+          ? `${Math.round(state.served)} / min`
+          : state.down
+            ? 'closed'
+            : `${waiting} waiting · ${n - Math.round((state.lost * n) / Math.max(1, node.count ?? 1))} open`;
     if (el.textContent !== text) el.textContent = text;
     el.dataset.state = state.down ? 'down' : waiting >= run.bufferOf(node) * 0.9 && run.bufferOf(node) > 0 ? 'full' : waiting > 0 ? 'busy' : 'ok';
     el.style.display = text ? '' : 'none';

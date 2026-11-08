@@ -1,4 +1,4 @@
-import { buildGuide, guideText, type CircuitSpec } from '@tv/core';
+import { DOMAINS, buildGuide, guideText, type CircuitSpec } from '@tv/core';
 import { useMemo, useState } from 'react';
 import { useStore } from '../store';
 import './BuildGuide.css';
@@ -7,7 +7,7 @@ import './BuildGuide.css';
 export function BuildGuidePanel() {
   const environment = useStore((s) => s.environment);
   const [copied, setCopied] = useState(false);
-  const guide = useMemo(() => (environment?.domain === 'electronics' ? buildGuide(environment.spec as CircuitSpec) : null), [environment]);
+  const guide = useMemo(() => (environment?.domain === 'electronics' ? buildGuide(DOMAINS.electronics.compile(environment.spec) as CircuitSpec) : null), [environment]);
   if (!environment || !guide) return <p className="guide-empty">Build an electronics circuit to get its parts list and wiring steps.</p>;
   const text = guideText(environment.name, guide);
   const copy = async () => {

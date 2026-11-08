@@ -3,34 +3,53 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
 import { Building } from './Building';
+import { MicButton } from './Dictation';
 import './Landing.css';
 
 const pick = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
-const HARDWARE: DomainId[] = ['electronics'];
-const SOFTWARE: DomainId[] = ['software', 'database'];
-const groupOf = (id: DomainId) => (HARDWARE.includes(id) ? 0 : SOFTWARE.includes(id) ? 1 : 2);
+type Verified = { prompt: string; domain: DomainId };
 
-// One example each from hardware, software and operations, so three prompts still show the range
-function featuredExamples() {
-  const groups: Array<ReturnType<typeof domainList>> = [[], [], []];
+const GROUPS = ['Hardware', 'Software', 'Operations', 'Robots and drones'] as const;
+
+// The agents behind every build, in every domain. Agents propose; the simulator decides.
+const TEAM = [
+  { name: 'Interpreter', engine: 'Jev + Gemini', does: 'works out which simulator fits what you described, or says none does' },
+  { name: 'Architect', engine: 'Gemini', does: 'designs the system; with the Design Council on, three Swarms architects compete and the simulator picks the winner' },
+  { name: 'Validator', engine: 'Simulator', does: 'runs the design and sends it back with what failed until it passes' },
+  { name: 'Reviewer', engine: 'Gemini', does: 'checks the design against what you asked for and sends back anything it shrank or left out' },
+  { name: 'Red Team', engine: 'Swarms', does: 'predicts how the design breaks; the simulator confirms or refutes every claim' },
+  { name: 'Recovery Council', engine: 'Swarms', does: 'proposes fixes after a failure; the simulator ranks them by what they actually do' },
+];
+const groupOf = (id: DomainId) => (id === 'electronics' ? 0 : id === 'software' || id === 'database' ? 1 : id === 'fleet' ? 3 : 2);
+const grouped = () => {
+  const groups: Array<ReturnType<typeof domainList>> = GROUPS.map(() => []);
   for (const d of domainList()) groups[groupOf(d.id)].push(d);
-  return groups.filter((group) => group.length).map((group) => pick(pick(group).examples));
+  return groups;
+};
+
+// One example from each group, so four prompts still show the whole range
+function featuredExamples() {
+  return grouped()
+    .filter((group) => group.length)
+    .map((group) => pick(pick(group).examples));
 }
 
 // The server lists prompts it can rebuild from verified designs: they open instantly and cost no model calls, so they are featured when there is one for each group.
 function useFeatured() {
   const [featured, setFeatured] = useState(featuredExamples);
+  const [verified, setVerified] = useState<Verified[]>([]);
   useEffect(() => {
     let live = true;
     fetch('/api/examples')
       .then((res) => (res.ok ? (res.json() as Promise<{ examples?: Array<{ prompt: string; domain: DomainId }> }>) : null))
       .then((body) => {
-        const verified = body?.examples ?? [];
+        const verified = (body?.examples ?? []).filter((v) => v.domain in DOMAINS);
         if (!live || !verified.length) return;
+        setVerified(verified);
         const fallback = featuredExamples();
         setFeatured(
-          [0, 1, 2]
+          GROUPS.map((_, group) => group)
             .map((group, i) => {
               const options = verified.filter((v) => v.domain in DOMAINS && groupOf(v.domain) === group);
               return options.length ? pick(options).prompt : fallback[i];
@@ -43,7 +62,7 @@ function useFeatured() {
       live = false;
     };
   }, []);
-  return featured;
+  return { featured, verified };
 }
 
 // The title intro plays once per page load. While it runs, the root carries data-intro="playing" and the
@@ -134,7 +153,7 @@ function Refusal() {
 
 export function Landing() {
   const [text, setText] = useState('');
-  const featured = useFeatured();
+  const { featured, verified } = useFeatured();
   const [selected, setSelected] = useState<DomainId | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const building = useStore((s) => s.building);
@@ -150,6 +169,9 @@ export function Landing() {
     submit(example);
   };
   const domain = selected ? DOMAINS[selected] : null;
+  // A domain's verified designs come first: they open instantly with no model calls
+  const ready = domain ? verified.filter((v) => v.domain === domain.id).map((v) => v.prompt) : [];
+  const examples = domain ? [...ready, ...domain.examples.filter((e) => !ready.includes(e))].slice(0, 4) : [];
   if (building) return <Building />;
   return (
     <div className="landing">
@@ -162,6 +184,19 @@ export function Landing() {
             </span>
           ))}
         </p>
+        <div className="agent-team">
+          <p>A team of AI agents designs, attacks and repairs every system you describe. The simulator settles every argument.</p>
+          <ol aria-label="The agents behind every build">
+            {TEAM.map((agent) => (
+              <li key={agent.name} title={`${agent.name} (${agent.engine}) ${agent.does}`}>
+                <span className="agent-pill" data-engine={agent.engine === 'Swarms' ? 'swarms' : undefined}>
+                  <b>{agent.name}</b>
+                  <small>{agent.engine}</small>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </header>
       <div className="landing-main">
         <form
@@ -189,9 +224,12 @@ export function Landing() {
               }
             }}
           />
-          <button type="submit" disabled={!text.trim()}>
-            Build
-          </button>
+          <div className="hero-actions">
+            <MicButton text={text} onText={setText} />
+            <button type="submit" disabled={!text.trim()}>
+              Build
+            </button>
+          </div>
         </form>
         <Refusal />
         {last?.role === 'app' && <p className="landing-note">{last.text}</p>}
@@ -207,25 +245,41 @@ export function Landing() {
         </section>
       </div>
       <section className="landing-domains" aria-labelledby="domains-title" style={{ '--n': domainList().length } as CSSProperties}>
-        <h2 id="domains-title">What it can build</h2>
-        <ul className="domain-chips">
-          {domainList().map((d, i) => (
-            <li key={d.id} style={{ '--i': i } as CSSProperties}>
-              <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
-                {d.label}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <h2 id="domains-title">What it can build · {domainList().length} kinds of system</h2>
+        <div className="domain-groups">
+          {grouped().map((group, i) =>
+            group.length ? (
+              <div className="domain-group" key={GROUPS[i]}>
+                <h3>{GROUPS[i]}</h3>
+                <ul className="domain-chips">
+                  {group.map((d) => (
+                    <li key={d.id} style={{ '--i': domainList().findIndex((x) => x.id === d.id) } as CSSProperties}>
+                      <button aria-pressed={selected === d.id} onClick={() => setSelected(selected === d.id ? null : d.id)}>
+                        {d.label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null,
+          )}
+        </div>
         <p className="landing-honest">If it can't model what you describe, it says so instead of guessing.</p>
         {domain && (
           // Keyed by domain so choosing another chip remounts the card and replays its reveal
           <div key={domain.id} className="domain-detail">
             <p>{domain.blurb}</p>
             <ul className="prompt-list">
-              {domain.examples.map((example, i) => (
+              {examples.map((example, i) => (
                 <li key={example} style={{ '--i': i } as CSSProperties}>
-                  <button onClick={() => use(example)}>{example}</button>
+                  <button onClick={() => use(example)}>
+                    {example}
+                    {ready.includes(example) && (
+                      <span className="ready" title="Passed every check before: opens instantly with no model calls">
+                        verified
+                      </span>
+                    )}
+                  </button>
                 </li>
               ))}
             </ul>

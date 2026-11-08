@@ -55,6 +55,8 @@ export interface NodeState {
   demand: number;
   down: boolean;
   slow: number;
+  /** Units out of service at a station with several, such as one elevator of six. */
+  lost: number;
 }
 
 export interface LinkState {
@@ -119,7 +121,7 @@ export class NetRun implements Run {
   }
 
   private blank(): NodeState {
-    return { queue: 0, inflow: 0, served: 0, capacity: 0, utilization: 0, demand: 0, down: false, slow: 1 };
+    return { queue: 0, inflow: 0, served: 0, capacity: 0, utilization: 0, demand: 0, down: false, slow: 1, lost: 0 };
   }
 
   private blankLink(edge: NetEdge): LinkState {
@@ -144,7 +146,8 @@ export class NetRun implements Run {
   }
 
   private live(node: NetNode, state: NodeState) {
-    return state.down ? 0 : this.capacityOf(node) * state.slow;
+    const units = node.count ?? 1;
+    return state.down ? 0 : (this.capacityOf(node) * state.slow * Math.max(0, units - state.lost)) / units;
   }
 
   rateOf(node: NetNode) {
@@ -502,6 +505,14 @@ export class NetRun implements Run {
       case 'node_slow':
         if (state) state.slow = 1 / Math.max(1.5, incident.value ?? 3);
         break;
+      case 'unit_down': {
+        // One unit of several fails and the rest carry on; losing the last one takes the station down.
+        const node = this.node(target);
+        if (!state || !node) break;
+        state.lost = Math.min(node.count ?? 1, state.lost + Math.max(1, Math.round(incident.value ?? 1)));
+        if (state.lost >= (node.count ?? 1)) state.down = true;
+        break;
+      }
       case 'link_down':
         if (link) link.down = true;
         break;
@@ -512,6 +523,7 @@ export class NetRun implements Run {
         if (state) {
           state.down = false;
           state.slow = 1;
+          state.lost = 0;
         }
         if (link) Object.assign(link, { down: false, tripped: false, overload: 0 });
         if (!target) this.spike = 1;
@@ -533,8 +545,8 @@ export class NetRun implements Run {
       }
       case 'restore': {
         const state = this.states.get(patch.node);
-        if (state?.down) Object.assign(state, { down: false, slow: Math.min(state.slow, BACKUP) });
-        else if (state) state.slow = 1;
+        if (state?.down) Object.assign(state, { down: false, lost: 0, slow: Math.min(state.slow, BACKUP) });
+        else if (state) Object.assign(state, { slow: 1, lost: 0 });
         break;
       }
       case 'add_link': {
@@ -571,7 +583,8 @@ export class NetRun implements Run {
   backlog() {
     let total = 0;
     for (const node of this.spec.nodes) if (this.role(node) === 'stage') total += this.states.get(node.id)!.queue + this.heldAt(node.id);
-    for (const link of this.links.values()) total += link.pipeline.reduce((a, b) => a + b, 0);
+    // People on their way between stations, such as riders in an elevator, aren't waiting; stock in transit still counts in demand mode.
+    if (this.config.mode === 'demand') for (const link of this.links.values()) total += link.pipeline.reduce((a, b) => a + b, 0);
     return total;
   }
 
@@ -675,6 +688,14 @@ export class NetRun implements Run {
       out.push({ label: `${this.config.downVerb} ${this.name(source)}`, incident: { type: 'node_down', target: source.id }, keywords: [...words(source), 'down', 'fail'] });
     }
     if (busiest) out.push({ label: `Slow ${this.name(busiest)}`, incident: { type: 'node_slow', target: busiest.id, value: 2.5 }, keywords: [...words(busiest), 'slow'] });
+    // A station with several units, like a bank of elevators, can lose one and keep going on the rest.
+    const units = busiest?.count ?? 1;
+    if (busiest && units > 1 && out.length < 4)
+      out.push({
+        label: `${this.name(busiest)} loses 1 of ${units}`,
+        incident: { type: 'unit_down', target: busiest.id },
+        keywords: [...words(busiest), 'one', 'unit', 'single'],
+      });
     const { surge } = this.config;
     out.push({ label: surge.label, incident: { type: 'surge', value: surge.value }, keywords: surge.keywords });
     return out.slice(0, 5);
@@ -685,11 +706,12 @@ export class NetRun implements Run {
     const state = this.states.get(target);
     if (node && state) {
       const role = this.role(node);
-      const broken = state.down || state.slow !== 1;
+      const units = node.count ?? 1;
+      const broken = state.down || state.slow !== 1 || state.lost > 0;
       const rows: Inspection['rows'] = [
         ['Kind', node.kind],
-        ['Status', state.down ? 'Down' : state.slow !== 1 ? 'Degraded' : 'Running'],
-        ['Units', node.count ?? 1],
+        ['Status', state.down ? 'Down' : state.slow !== 1 || state.lost > 0 ? 'Degraded' : 'Running'],
+        ['Units', state.lost > 0 && !state.down ? `${units - state.lost} of ${units} running` : units],
       ];
       if (role === 'sink') {
         rows.push([this.config.mode === 'demand' ? 'Demand' : 'Received', `${Math.round(this.config.mode === 'demand' ? state.demand : state.inflow)} ${this.config.unit}/tick`]);
@@ -707,6 +729,7 @@ export class NetRun implements Run {
           ? [{ label: 'Bring it back', incident: { type: 'recover', target }, destructive: false }]
           : [
               { label: this.config.downVerb, incident: { type: 'node_down', target }, destructive: true },
+              ...(units > 1 && role !== 'sink' ? [{ label: 'Lose one unit', incident: { type: 'unit_down', target }, destructive: true }] : []),
               { label: 'Slow it down', incident: { type: 'node_slow', target, value: 2.5 }, destructive: true },
             ],
       };

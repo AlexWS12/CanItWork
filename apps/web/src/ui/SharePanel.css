@@ -1,95 +1,153 @@
-.share-anchor {
+/* Share: a small panel under the button with the link and an optional QR code */
+.share-wrap {
   position: relative;
 }
 
 .share-panel {
   position: absolute;
-  top: calc(100% + var(--space-3));
+  top: calc(100% + var(--space-2));
   right: 0;
-  width: 280px;
-  max-width: calc(100vw - var(--gutter) * 2);
-  padding: var(--space-4);
+  z-index: 40;
+  width: min(300px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
   background: var(--color-surface-opaque);
-  border: var(--rule);
+  border: var(--rule-strong);
   border-radius: var(--radius-md);
+  box-shadow: 0 18px 50px oklch(9% 0.012 261 / 0.55);
   backdrop-filter: blur(14px);
+  /* The top bar keeps its items on one line; the panel's sentences wrap */
   white-space: normal;
-  z-index: 6;
-  display: grid;
-  gap: var(--space-3);
+  text-align: left;
+}
+
+.share-title {
+  font-weight: 600;
+}
+
+.share-note {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.share-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.share-actions button {
+  flex: 1;
+  font-size: var(--text-sm);
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+}
+
+.share-actions .share-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+
+.share-actions .share-primary:hover {
+  background: var(--color-accent-hover);
 }
 
 .share-qr {
-  display: grid;
-  place-items: center;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.qr {
-  width: 100%;
+/* A QR code needs dark modules on white to scan, whatever the theme */
+.share-qr > div {
+  width: 220px;
+  max-width: 100%;
   aspect-ratio: 1;
+  padding: var(--space-1);
   background: #ffffff;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+  border-radius: var(--radius-sm, 8px);
 }
 
-.qr svg {
+.share-qr svg {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.qr-missing {
-  margin: 0;
-  padding: var(--space-4);
-  border: var(--rule);
-  border-radius: var(--radius-sm);
-  color: var(--color-muted);
+.share-qr figcaption {
   font-size: var(--text-sm);
-  text-align: center;
-}
-
-.share-lede {
-  margin: 0;
-  font-size: var(--text-md);
-}
-
-.share-link {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.share-link input {
-  flex: 1;
-  min-width: 0;
-  font: var(--text-sm) var(--font-mono);
-  padding: var(--space-1) var(--space-2);
   color: var(--color-muted);
-  background: transparent;
-  border: var(--rule);
-  border-radius: var(--radius-xs);
 }
 
-.share-meta {
-  margin: 0;
-  color: var(--color-muted);
+.share-warn {
   font-size: var(--text-sm);
-}
-
-.share-meta code {
-  font-family: var(--font-mono);
-  color: var(--color-teal);
-}
-
-.share-meta.warn {
   color: var(--color-accent);
 }
 
-@media (max-width: 900px) {
-  .share-panel {
-    position: fixed;
-    top: calc(var(--bar-h) + var(--gutter));
-    left: var(--gutter);
-    right: var(--gutter);
-    width: auto;
-  }
+.share-hash {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.share-hash code {
+  color: var(--color-text);
+}
+
+.share-save {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--rule);
+}
+
+.share-save fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.share-save label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.share-save .share-people {
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.share-save .share-primary {
+  font-size: var(--text-sm);
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+
+.share-save .share-primary:disabled {
+  opacity: 0.6;
+}
+
+.share-link {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-accent);
+  font-size: inherit;
+  text-decoration: underline;
 }

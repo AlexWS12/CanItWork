@@ -53,8 +53,7 @@ export async function decodeRun(hash = location.hash): Promise<SharedRun | null>
   try {
     const bytes = await squeeze(fromBase64Url(hash.slice(PREFIX.length)), 'decompress');
     const run = JSON.parse(new TextDecoder().decode(bytes)) as SharedRun;
-    const sane = Number.isInteger(run.tick) && run.tick >= 0 && run.tick <= MAX_SHARED_TICKS && Array.isArray(run.events) && run.events.length <= MAX_SHARED_EVENTS;
-    return sane && run.environment?.domain in DOMAINS ? run : null;
+    return sane(run) ? run : null;
   } catch {
     return null;
   }
@@ -62,4 +61,21 @@ export async function decodeRun(hash = location.hash): Promise<SharedRun | null>
 
 export const shortHash = (hash: string) => hash.slice(0, 12);
 
-export const isSharedLink = (hash = location.hash) => hash.startsWith(PREFIX);
+// A saved run's link is just its id; the run lives on the server, which decides who may open it.
+const SAVED = '#s=';
+export const savedRunLink = (id: string) => `${location.origin}${location.pathname}${SAVED}${id}`;
+export const savedIdOf = (hash = location.hash) => (hash.startsWith(SAVED) ? hash.slice(SAVED.length).replace(/[^A-Za-z0-9]/g, '') : null);
+
+export const isSharedLink = (hash = location.hash) => hash.startsWith(PREFIX) || hash.startsWith(SAVED) || hash.startsWith('#live=');
+
+export function sane(run: SharedRun | null | undefined): run is SharedRun {
+  return Boolean(
+    run &&
+    Number.isInteger(run.tick) &&
+    run.tick >= 0 &&
+    run.tick <= MAX_SHARED_TICKS &&
+    Array.isArray(run.events) &&
+    run.events.length <= MAX_SHARED_EVENTS &&
+    run.environment?.domain in DOMAINS,
+  );
+}
