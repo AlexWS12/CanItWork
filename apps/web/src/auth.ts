@@ -27,7 +27,8 @@ interface AuthState {
 export const useAuth = create<AuthState>(() => ({ enabled: false, ready: false, account: null, locked: null, mySystems: false }));
 
 let client: Auth0Client | null = null;
-const home = () => `${location.origin}${location.pathname}`;
+// Auth0 matches its allowed URLs exactly, so the site root is sent as "http://localhost:5173" with no trailing slash.
+const home = () => `${location.origin}${location.pathname === '/' ? '' : location.pathname}`;
 
 export async function initAuth() {
   try {
