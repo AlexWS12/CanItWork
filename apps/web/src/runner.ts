@@ -67,10 +67,14 @@ class Runner {
       const stepTime = 1 / (domain.ticksPerSecond * this.speed);
       this.acc += Math.min(dt, 0.1);
       while (this.acc >= stepTime) {
+        if (run.tick >= MAX_SHARED_TICKS) {
+          this.stopAtLimit();
+          break;
+        }
         run.step();
         this.acc -= stepTime;
       }
-      this.alpha = this.acc / stepTime;
+      this.alpha = this.running ? this.acc / stepTime : 0;
     }
     this.sincePublish += dt;
     if (this.sincePublish >= PUBLISH_EVERY) {
@@ -104,7 +108,28 @@ class Runner {
     });
   }
 
+  // A run that went on past what a screen can replay couldn't be shared, saved or joined, so it pauses at the limit and says why.
+  // Every screen in a live session reaches the same tick, so each pauses on its own; nothing needs relaying.
+  private stopAtLimit() {
+    this.running = false;
+    this.acc = 0;
+    this.publish();
+    useStore.getState().addMessage({
+      role: 'app',
+      text: `Paused at tick ${MAX_SHARED_TICKS.toLocaleString('en-US')}, the longest run a link or a live session can replay, so this one can still be shared and joined. Rebuild it to run again from the start.`,
+    });
+  }
+
+  /** Whether the run sits at the replay limit, where it can't step any further. */
+  atLimit() {
+    return (this.run?.tick ?? 0) >= MAX_SHARED_TICKS;
+  }
+
   toggle() {
+    if (!this.running && this.atLimit()) {
+      this.stopAtLimit();
+      return;
+    }
     this.running = !this.running;
     this.publish();
     this.onTransport?.(this.running, this.speed, this.run?.tick ?? 0);
@@ -126,6 +151,11 @@ class Runner {
   inject(incident: Incident) {
     const { run } = this;
     if (!run) return false;
+    // A break steps the run once, which would carry it past the replay limit.
+    if (this.atLimit()) {
+      this.stopAtLimit();
+      return false;
+    }
     run.inject(incident);
     const logged = run.log.at(-1);
     run.step();
@@ -146,7 +176,8 @@ class Runner {
   /** Brings in actions from a live session: replays the whole log to where this screen already is, so every screen agrees. */
   catchUp(environment: Environment, seed: number, events: TimedEvent[], tick: number) {
     const { running, speed } = this;
-    this.replay(environment, seed, Math.max(tick, this.run?.tick ?? 0), events);
+    // Never aim past the replay limit: a screen sent further than it can replay would stay behind and catch up again for ever.
+    this.replay(environment, seed, Math.min(MAX_SHARED_TICKS, Math.max(tick, this.run?.tick ?? 0)), events);
     this.running = running;
     this.speed = speed;
     this.publish();

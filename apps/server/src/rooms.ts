@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { DOMAINS, type Environment, type TimedEvent } from '@tv/core';
+import { DOMAINS, MAX_REPLAY_TICKS, type Environment, type TimedEvent } from '@tv/core';
 import type { Context, Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -33,7 +33,8 @@ interface Room {
   seed: number;
   events: TimedEvent[];
   // Where the clock stood when it last changed, so someone joining starts at the tick everyone else is on.
-  anchor: { tick: number; at: number; running: boolean; speed: number };
+  // "held" while nobody is connected: the clock stands still, so a session left open can't run on past what a joiner can replay.
+  anchor: { tick: number; at: number; running: boolean; speed: number; held?: boolean };
   members: Map<string, Member>;
   listeners: Map<string, (message: Message) => void>;
   // The agents' work so far, so someone joining late sees the same trace, findings and recovery as everyone else.
@@ -48,12 +49,26 @@ const MAX_AGENT_EVENTS = 400;
 const AGENT_TYPES = new Set(['step', 'findings', 'recovery', 'reply', 'error', 'said', 'applied']);
 const IDLE_MS = 6 * 60 * 60 * 1000;
 
+const perSecondOf = (room: Room) => DOMAINS[room.environment.domain]?.ticksPerSecond ?? 10;
+// The clock stops at the replay limit, as every screen's run does, so a late joiner can always replay to where everyone is.
 const tickOf = (room: Room) => {
-  const { tick, at, running, speed } = room.anchor;
-  if (!running) return tick;
-  const perSecond = DOMAINS[room.environment.domain]?.ticksPerSecond ?? 10;
-  return Math.floor(tick + ((Date.now() - at) / 1000) * perSecond * speed);
+  const { tick, at, running, speed, held } = room.anchor;
+  if (!running || held) return Math.min(tick, MAX_REPLAY_TICKS);
+  return Math.min(MAX_REPLAY_TICKS, Math.floor(tick + ((Date.now() - at) / 1000) * perSecondOf(room) * speed));
 };
+// How far ahead of the session's clock a screen may stamp an action: its own clock drifts a little between ten-second
+// re-syncs, so allow ten seconds at the fastest speed. Anything further, or past the replay limit, would send every
+// screen chasing a tick it can never replay.
+const SLACK_SECONDS = 10;
+const MAX_SPEED = 16;
+const plausible = (room: Room, tick: number) => tick <= MAX_REPLAY_TICKS && tick <= tickOf(room) + perSecondOf(room) * MAX_SPEED * SLACK_SECONDS;
+const TOO_FAR = 'That action is stamped past where this session can be replayed';
+/** Stops the clock while the room is empty, and starts it again from the same tick when someone comes back. */
+function hold(room: Room, held: boolean) {
+  if (Boolean(room.anchor.held) === held) return;
+  room.anchor = { ...room.anchor, tick: tickOf(room), at: Date.now(), held };
+  persist(room);
+}
 
 const broadcast = (room: Room, message: Message, except?: string) => {
   room.touched = Date.now();
@@ -89,6 +104,8 @@ async function getRoom(id: string): Promise<Room | null> {
   if (!saved || Date.now() - saved.touched > KEEP_MS || !(saved.environment?.domain in DOMAINS)) return null;
   const room: Room = { ...saved, agents: saved.agents ?? [], members: new Map(), listeners: new Map() };
   rooms.set(id, room);
+  // Nobody is connected to a session that just came back from storage, so its clock waits for the first person.
+  hold(room, true);
   return room;
 }
 
@@ -100,8 +117,8 @@ const roomId = () => {
 const Start = z.object({
   environment: z.object({ domain: z.string(), name: z.string() }).passthrough(),
   seed: z.number(),
-  tick: z.number().min(0),
-  events: z.array(z.object({ at: z.number() }).passthrough()).max(MAX_EVENTS),
+  tick: z.number().min(0).max(MAX_REPLAY_TICKS),
+  events: z.array(z.object({ at: z.number().min(0).max(MAX_REPLAY_TICKS) }).passthrough()).max(MAX_EVENTS),
   agents: z
     .array(z.object({ type: z.string() }).passthrough())
     .max(MAX_AGENT_EVENTS)
@@ -158,7 +175,8 @@ export function mountRooms(app: Hono) {
       environment: environment as unknown as Environment,
       seed,
       events: events as unknown as TimedEvent[],
-      anchor: { tick, at: Date.now(), running: true, speed: 1 },
+      // Held until the first person connects, so a session nobody opens doesn't run on by itself.
+      anchor: { tick, at: Date.now(), running: true, speed: 1, held: true },
       members: new Map(),
       listeners: new Map(),
       agents: agents.filter((a) => AGENT_TYPES.has(a.type)) as AgentEvent[],
@@ -178,6 +196,7 @@ export function mountRooms(app: Hono) {
       const queue: Message[] = [];
       let wake: (() => void) | null = null;
       let open = true;
+      hold(room, false);
       room.listeners.set(client, (message) => {
         queue.push(message);
         wake?.();
@@ -211,6 +230,7 @@ export function mountRooms(app: Hono) {
         clearInterval(ping);
         room.listeners.delete(client);
         room.members.delete(client);
+        if (!room.listeners.size) hold(room, true);
         broadcast(room, { type: 'presence', members: [...room.members.values()], left: member });
       }
     });
@@ -231,6 +251,7 @@ export function mountRooms(app: Hono) {
     if (!parsed.success || !by) return c.json({ error: 'Join the session first' }, 403);
     if (room.events.length >= MAX_EVENTS) return c.json({ error: 'This session has reached its limit of actions' }, 409);
     const event = parsed.data.event as unknown as TimedEvent;
+    if (!plausible(room, event.at)) return c.json({ error: TOO_FAR }, 409);
     room.events.push(event);
     broadcast(room, { type: 'event', event, by }, by.client);
     persist(room);
@@ -262,6 +283,7 @@ export function mountRooms(app: Hono) {
     const by = parsed.success ? room.members.get(parsed.data.client) : undefined;
     if (!parsed.success || !by) return c.json({ error: 'Join the session first' }, 403);
     const { running, speed, tick } = parsed.data;
+    if (!plausible(room, tick)) return c.json({ error: TOO_FAR }, 409);
     room.anchor = { tick, at: Date.now(), running, speed };
     broadcast(room, { type: 'transport', running, speed, tick, by }, by.client);
     persist(room);
