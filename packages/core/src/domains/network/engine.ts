@@ -26,6 +26,26 @@ export interface NetConfig {
   lostLabel: string;
   surge: { label: string; value: number; keywords: string[] };
   downVerb: string;
+  /** What one tick stands for, such as "one minute", so waits read in real time. */
+  tick?: string;
+}
+
+const MINUTES: Record<string, number> = { second: 1 / 60, minute: 1, hour: 60, day: 1440, week: 10080 };
+const COUNTS: Record<string, number> = { one: 1, a: 1, two: 2, five: 5, ten: 10, fifteen: 15, thirty: 30 };
+
+/** "ten minutes" → 10; unknown phrasings fall back to one minute a tick. */
+export function minutesPerTick(tick: string | undefined) {
+  const m = tick?.toLowerCase().match(/^(\w+)\s+(second|minute|hour|day|week)s?$/);
+  if (!m) return 1;
+  const count = COUNTS[m[1]] ?? Number(m[1]);
+  return (Number.isFinite(count) ? count : 1) * MINUTES[m[2]];
+}
+
+export function formatWait(minutes: number) {
+  if (minutes < 1) return '<1 min';
+  if (minutes < 90) return `${Math.round(minutes)} min`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 6) / 10} h`;
+  return `${Math.round(minutes / 144) / 10} days`;
 }
 
 export interface NodeState {
@@ -595,18 +615,51 @@ export class NetRun implements Run {
     };
   }
 
+  /** Flow mode: how long the average arrival waits right now, by Little's law (people in line over people served a tick). */
+  waitMinutes() {
+    let queued = 0;
+    for (const node of this.spec.nodes) if (this.role(node) === 'stage') queued += this.states.get(node.id)!.queue + this.heldAt(node.id);
+    if (queued < 0.5) return 0;
+    return (queued / Math.max(this.avgOut, EPS)) * minutesPerTick(this.config.tick);
+  }
+
   telemetry(): Metric[] {
     const pct = Math.round(this.ratio * 1000) / 10;
     const busiest = this.busiest();
     const load = busiest ? Math.round(this.states.get(busiest.id)!.utilization * 100) : 0;
     const backlog = Math.round(this.backlog());
     const out = this.outages();
-    return [
+    const loadTone = (l: number): Metric['tone'] => (l > 100 ? 'danger' : l > 85 ? 'warn' : undefined);
+    // Every stage's load, busiest first, so a station that isn't the bottleneck yet is still visible
+    const detail = this.spec.nodes
+      .filter((n) => this.role(n) === 'stage')
+      .map((n) => {
+        const state = this.states.get(n.id)!;
+        const l = Math.round(state.utilization * 100);
+        return { label: this.name(n), value: state.down ? 'closed' : `${l}%`, tone: state.down ? ('danger' as const) : loadTone(l), l: state.down ? Infinity : l };
+      })
+      .sort((a, b) => b.l - a.l)
+      .map(({ l: _, ...row }) => row);
+    const metrics: Metric[] = [
       { label: this.config.scoreLabel, value: `${pct}%`, tone: pct < 90 ? 'danger' : pct < 99 ? 'warn' : undefined },
-      { label: busiest ? `${this.name(busiest)} load` : 'load', value: `${load}%`, tone: load > 100 ? 'danger' : load > 85 ? 'warn' : undefined },
+      { label: busiest ? `${this.name(busiest)} load` : 'load', value: `${load}%`, tone: loadTone(load), detail: detail.length > 1 ? detail : undefined },
+    ];
+    if (this.config.mode === 'flow') {
+      const wait = this.waitMinutes();
+      const minutes = minutesPerTick(this.config.tick);
+      // When almost nobody is being served the wait has no end, so say that rather than an absurd number
+      const stuck = this.avgIn > EPS && this.avgOut < this.avgIn * 0.05;
+      metrics.push({
+        label: 'average wait',
+        value: stuck ? 'no end' : formatWait(wait),
+        tone: stuck || wait > minutes * 30 ? 'danger' : wait > minutes * 10 && this.ratio < 0.99 ? 'warn' : undefined,
+      });
+    }
+    metrics.push(
       { label: this.backlogLabel(), value: backlog, tone: this.config.mode === 'flow' && backlog > 0 && this.ratio < 0.99 ? 'warn' : undefined },
       { label: 'outages', value: out, tone: out ? 'danger' : undefined },
-    ];
+    );
+    return metrics;
   }
 
   breakables(): Breakable[] {

@@ -27,14 +27,19 @@ export function RecoveryChart({ report }: { report: RecoveryReport }) {
   const others = report.candidates.filter((c) => c.id !== report.winnerId);
   const all = [report.reference, report.unmitigated, ...report.candidates.map((c) => c.evaluation)];
   const maxT = Math.max(1, ...all.flatMap((e) => e.series.map((p) => p.t)));
-  const maxY = Math.max(1, ...all.flatMap((e) => e.series.map((p) => p.value)));
+  const values = all.flatMap((e) => e.series.map((p) => p.value));
+  const top = Math.max(1, ...values);
+  const low = Math.min(...values);
+  // Zoom in when every line sits near the top, so a 99.9 against 100 is visible rather than one flat line
+  const minY = low > top * 0.5 ? Math.max(0, Math.floor(low - Math.max(1, (top - low) * 0.25))) : 0;
+  const maxY = top === minY ? top + 1 : top;
   const x = (t: number) => PAD.left + (t / maxT) * (W - PAD.left - PAD.right);
-  const y = (v: number) => H - PAD.bottom - (v / maxY) * (H - PAD.top - PAD.bottom);
+  const y = (v: number) => H - PAD.bottom - ((v - minY) / (maxY - minY)) * (H - PAD.top - PAD.bottom);
   const line = (series: Point[]) => series.map((p) => `${x(p.t).toFixed(1)},${y(p.value).toFixed(1)}`).join(' ');
   const finish = (series: Point[]) => series[series.length - 1]?.value ?? 0;
 
   const labels = [
-    { text: 'No incident', value: report.reference.score, end: finish(report.reference.series), cls: 'ref' },
+    { text: 'Nothing wrong', value: report.reference.score, end: finish(report.reference.series), cls: 'ref' },
     winner && { text: short(winner.title), value: winner.evaluation.score, end: finish(winner.evaluation.series), cls: 'win' },
     { text: 'Do nothing', value: report.unmitigated.score, end: finish(report.unmitigated.series), cls: 'bad' },
   ].filter(Boolean) as Array<{ text: string; value: number; end: number; cls: string }>;
@@ -55,14 +60,17 @@ export function RecoveryChart({ report }: { report: RecoveryReport }) {
 
   return (
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${report.reference.scoreLabel} for each outcome`}>
-      {[0, 0.5, 1].map((f) => (
-        <g key={f}>
-          <line className="axis" x1={PAD.left} x2={W - PAD.right} y1={y(maxY * f)} y2={y(maxY * f)} />
-          <text className="tick-label" x={PAD.left - 6} y={y(maxY * f) + 3} textAnchor="end">
-            {Math.round(maxY * f)}
-          </text>
-        </g>
-      ))}
+      {[0, 0.5, 1].map((f) => {
+        const v = minY + (maxY - minY) * f;
+        return (
+          <g key={f}>
+            <line className="axis" x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} />
+            <text className="tick-label" x={PAD.left - 6} y={y(v) + 3} textAnchor="end">
+              {Math.round(v * 10) / 10}
+            </text>
+          </g>
+        );
+      })}
       <line className="incident" x1={x(report.tick)} x2={x(report.tick)} y1={PAD.top} y2={H - PAD.bottom} />
       <text className="tick-label incident-label" x={x(report.tick)} y={H - 6} textAnchor="middle">
         incident

@@ -65,33 +65,53 @@ function endIntro() {
 
 const TAGLINE = ['Describe a system.', 'Run it.', 'Break it.', 'Fix it.'];
 
-// "Can it?", then "Work?", then the two words slide together into the wordmark
-function IntroTitle() {
+// The wordmark on a circuit trace. The intro asks "Can it?", then "Work?", slides the words together into
+// "CanItWork?", runs current from the amber power dot through the node under "It" to the teal output,
+// and the "?" lifts away once it arrives. W is the width of "CanIt" (where the node sits), TW of the word.
+function CircuitTitle() {
   const canIt = useRef<HTMLSpanElement>(null);
-  const [w, setW] = useState(0);
+  const word = useRef<HTMLSpanElement>(null);
+  const [{ w, tw }, setSize] = useState({ w: 310, tw: 560 });
   useLayoutEffect(() => {
     playIntro();
-    const measure = () => canIt.current && setW(canIt.current.getBoundingClientRect().width);
+    const measure = () => {
+      if (canIt.current && word.current) {
+        setSize({ w: canIt.current.getBoundingClientRect().width, tw: word.current.getBoundingClientRect().width });
+      }
+    };
     measure();
     void document.fonts.ready.then(measure);
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
   }, []);
   return (
-    <h1 aria-label="CanItWork" className="intro-title" style={{ '--canit-w': `${w}px` } as CSSProperties}>
-      <span className="intro-q intro-can" aria-hidden>
-        Can it?
-      </span>
-      <span className="intro-q intro-work" aria-hidden>
-        Work?
-      </span>
-      <span className="intro-merged" aria-hidden>
-        <span ref={canIt} className="intro-canit">
-          CanIt
+    <div className="wm" style={{ '--w': `${w}px`, '--tw': `${tw}px` } as CSSProperties}>
+      <h1 aria-label="CanItWork" className="wm-title">
+        <span className="wm-q wm-q1" aria-hidden>
+          Can it?
         </span>
-        <span className="intro-worked">Work</span>
-      </span>
-    </h1>
+        <span className="wm-q wm-q2" aria-hidden>
+          Work<span className="wm-amber">?</span>
+        </span>
+        <span ref={word} className="wm-word" aria-hidden>
+          <span ref={canIt} className="wm-canit">
+            Can<span className="wm-it">It</span>
+          </span>
+          <span className="wm-work">Work</span>
+        </span>
+        {/* The wrapper rides with "Work" during the merge; the inner "?" lifts away on its own */}
+        <span className="wm-qm" aria-hidden>
+          <span className="wm-qm-glyph">?</span>
+        </span>
+      </h1>
+      <svg className="wm-trace" width={tw} height="24" viewBox={`0 0 ${tw} 24`} aria-hidden>
+        <line className="wm-seg wm-seg-a" x1="6" y1="12" x2={w} y2="12" pathLength={1} />
+        <line className="wm-seg wm-seg-b" x1={w} y1="12" x2={tw - 6} y2="12" pathLength={1} />
+        <circle className="wm-dot wm-d0" cx="6" cy="12" r="6" />
+        <circle className="wm-dot wm-d1" cx={w} cy="12" r="5" />
+        <circle className="wm-dot wm-d2" cx={tw - 6} cy="12" r="6" />
+      </svg>
+    </div>
   );
 }
 
@@ -123,18 +143,18 @@ export function Landing() {
   const submit = (prompt: string) => {
     if (prompt.trim() && !building) void buildEnvironment(prompt.trim());
   };
-  // Examples fill the input rather than building, so they can be edited first
+  // Examples build straight away; typing in the box is how to change one first
   const use = (example: string) => {
     endIntro();
     setText(example);
-    input.current?.focus();
+    submit(example);
   };
   const domain = selected ? DOMAINS[selected] : null;
   if (building) return <Building />;
   return (
     <div className="landing">
       <header className="landing-head">
-        <IntroTitle />
+        <CircuitTitle />
         <p className="tagline">
           {TAGLINE.map((phrase, i) => (
             <span key={phrase} className="phrase" style={{ '--i': i } as CSSProperties}>

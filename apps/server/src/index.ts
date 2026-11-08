@@ -6,9 +6,11 @@ import { config } from 'dotenv';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { StreamEvent } from '@tv/core';
-import { build, chat, describeFailure, recover, servedFromCache, type Emit } from './agents';
+import { build, chat, describeFailure, explain, recover, servedFromCache, type Emit } from './agents';
 import { showcase } from './design-cache';
 import { limitMessage, take, visitorOf } from './integrations/limit';
+import { pruneBypass } from './llm';
+import { summary } from './spend';
 import { checkedStatus, providerStatus } from './status';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +27,8 @@ app.use('/api/*', async (_, next) => {
 app.get('/api/status', async (c) => c.json(await checkedStatus(300)));
 
 app.get('/api/examples', (c) => c.json({ examples: showcase() }));
+
+app.get('/api/spend', (c) => c.json(summary(pruneBypass())));
 
 function agentStream(run: (emit: Emit) => Promise<void>) {
   return (c: Context) =>
@@ -69,6 +73,12 @@ app.post('/api/build', async (c) => {
 app.post('/api/recover', async (c) => {
   const input = await c.req.json();
   return limited(c) ?? agentStream((emit) => recover(input, emit))(c);
+});
+
+// Part of every build, so it never counts against the allowance; it is one small call and skips itself without Gemini.
+app.post('/api/explain', async (c) => {
+  const input = await c.req.json();
+  return agentStream((emit) => explain(input, emit))(c);
 });
 
 app.post('/api/chat', async (c) => {
