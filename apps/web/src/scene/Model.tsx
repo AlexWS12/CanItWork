@@ -118,7 +118,7 @@ export function Packed({ fallback, children }: { fallback: ReactNode; children: 
   );
 }
 
-const instanced = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material }>();
+const instanced = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material; size: THREE.Vector3 }>();
 
 /**
  * A pack model as one geometry and one material, for an instancedMesh that draws hundreds of copies in a single call (crates,
@@ -149,7 +149,8 @@ export function useInstancedModel(id: ModelId) {
     geometry.translate(-centre.x, -centre.y, -centre.z);
     geometry.scale(1 / size.x, 1 / size.y, 1 / size.z);
     geometry.computeBoundingSphere();
-    const made = { geometry, material: material! };
+    // Its real proportions, so a caller can give it a height or a length and keep its shape
+    const made = { geometry, material: material!, size };
     instanced.set(id, made);
     return made;
   }, [id, scene]);

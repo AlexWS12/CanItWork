@@ -1,5 +1,7 @@
 # CanItWork
 
+![CanItWork: describe any system, watch it run in 3D, checked by a simulator](brand/banner-github-1280x640.png)
+
 Describe a system in plain English and get an interactive model of it. Run it, break it, and compare fixes by what they actually do.
 
 CanItWork is a team of AI agents that builds a live simulation of any system you describe, and the same team runs every build in every domain:
@@ -14,6 +16,27 @@ The simulator settles every argument. It covers hardware, software, operations a
 Every agent call costs real money, so **Auth0 decides who can make the agents spend it**. Signing in unlocks new AI builds, limits follow the account instead of the network, and runs can be shared only with people whose identity Auth0 has verified. [docs/AUTH0.md](docs/AUTH0.md) explains why that matters and how it works.
 
 Built at SharkByte 2026.
+
+## Built with
+
+| Tool | What it does here |
+|---|---|
+| Gemini | The Architect, Reviewer and Explainer: designs systems, checks them against the request, and labels results in plain words |
+| TypeSafe Jev | The Interpreter's first opinion: which simulator fits a request, with a probability for each |
+| Prune | Routes every Gemini call and keeps the spend ledger |
+| Swarms | The Red Team, the Recovery Council and the optional Design Council |
+| Tiger Data | Postgres for saved runs and live sessions |
+| Auth0 | Sign-in, who may spend AI credits, and sharing runs with verified people |
+| Vultr | Hosting: one container serves the API and the web app ([deploy/README.md](deploy/README.md)) |
+| Kenney | CC0 3D models: people, vehicles, buildings, furniture and machines ([CREDITS](apps/web/public/models/CREDITS.md)) |
+
+## The look
+
+- **3D that looks like the system.** Every domain draws real models from Kenney's CC0 packs (people, trucks, planes, warehouse racks and boxes, conveyors, factories, houses, solar fields, beds and desks), with a code-built model standing in while a model loads or if it can't. A part with no model of its own is drawn as a dashed amber placeholder that says so, never a silent grey box. The camera frames each system to fit the screen and glides when it changes.
+- **The build shows its work.** While the agents work, each draft appears as a blue blueprint on the stage, turns over as the Validator sends it back, and goes solid once every check passes.
+- **Graphite with one accent.** Neutral graphite surfaces and amber for what needs attention; health is a small dot, not a badge.
+- **The landing runs real systems.** A verified design runs edge to edge behind the headline, with the prompt underneath, then three short chapters on how it works, the agents, the thirteen kinds of system and the prompt again.
+- **Logo: Blueprint to Solid.** A cube with two dashed blueprint faces and one solid amber face, a design going from draft to proven. PNGs of the mark, app icons, favicons, wordmarks and banners are in [brand/](brand), and `node brand/render.mjs` redraws them.
 
 ## What it can build
 
@@ -164,6 +187,8 @@ Agents propose and the simulators decide. Simulators are deterministic, so an en
 
 `npm run eval:suite -w @tv/server -- [domain | case id | id prefix- | new | routing | breadth]` sends standalone prompts through the whole pipeline against the live API and scores the result. There are 100 cases across all 13 domains, including 16-bit calculators, multipliers, comparators and ALUs, many phrased the way people actually ask, and a case can accept more than one domain when either is a fair reading. The checks cover routing, parts, counts and roles, whether the design's own behaviour tests pass, and whether it shipped with checks still failing. It bypasses the cache, leaves Swarms off unless `EVAL_SWARMS=on`, logs every call to the spend ledger, and stops at `EVAL_DAILY_CAP` calls a day (default 500) to protect a free-tier key's quota.
 
+`npm run capture -w @tv/web -- <label> [domain ...]` pictures every 3D view in a headless browser from verified designs, with draw calls and triangles per domain, so a change to the 3D can be compared before and after (`--ui` for the whole page, `--landing` for the landing at desktop and phone width). It needs the dev server running. Opening a design asks the Explainer for plain-word labels, which costs a fraction of a cent.
+
 Latest runs: 57 of 57 on the strict suite, 19 of 19 on breadth and 16 of 16 on fleet and queue prompts. [docs/reports](docs/reports) has the run reports.
 
 ## Adding a domain
@@ -195,4 +220,4 @@ A flow domain such as power or airports is mostly a config for the flow engine: 
 
 ## Planned
 
-More domains, a counter block, Vultr hosting, Solana publishing and an M5Stack controller. Saved runs already go to Tiger Data's Postgres once `DATABASE_URL` is set.
+More domains, a counter block, Solana publishing and an M5Stack controller. Saved runs already go to Tiger Data's Postgres once `DATABASE_URL` is set, and [deploy/README.md](deploy/README.md) deploys the app on Vultr.
