@@ -2,6 +2,7 @@ import { DOMAINS, domainList, type DomainId } from '@tv/core';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { buildEnvironment } from '../actions';
 import { useStore } from '../store';
+import { SignInButton } from './Account';
 import { Building } from './Building';
 import './Landing.css';
 
@@ -141,6 +142,7 @@ function Refusal() {
     <div className="refusal" role="status">
       <b>Nothing was built</b>
       <p>{refusal.reason}</p>
+      {refusal.signIn && <SignInButton />}
       {closest && (
         <p>
           The closest fit is {closest.label.toLowerCase()}: {closest.blurb.toLowerCase()}.

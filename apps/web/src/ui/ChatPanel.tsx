@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { sendChat } from '../actions';
 import { scrollBehavior } from '../motion';
 import { useStore } from '../store';
+import { SignInButton } from './Account';
 import './ChatPanel.css';
 import { AGENT_LABEL, ENGINE_LABEL } from './labels';
 
@@ -39,6 +40,7 @@ export function ChatPanel() {
               )}
               <div className="message" data-role="app">
                 {m.text}
+                {m.signIn && <SignInButton />}
               </div>
             </div>
           ),

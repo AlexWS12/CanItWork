@@ -20,6 +20,8 @@ export interface Message {
   role: 'user' | 'app';
   text: string;
   source?: { agent: AgentId; engine: Engine };
+  /** The server turned the request away until someone signs in, so the message offers the button. */
+  signIn?: boolean;
 }
 
 export interface Telemetry {

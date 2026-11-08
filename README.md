@@ -96,7 +96,9 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 | `GEMINI_RPM` | Paces direct Gemini calls under a free-tier key's per-minute limit, such as `12` |
 | `ARCHITECT_MODEL` | Model for the Architect. It falls back to `GEMINI_MODEL` when this one is busy or out of quota |
 | `ARCHITECT_REPAIR_MODEL` | Model for repairing a design the Validator sent back. It falls back to `ARCHITECT_MODEL` |
-| `RATE_LIMIT_PER_HOUR` | AI builds, chats and recoveries allowed per visitor an hour on a public deploy. Cached examples never count |
+| `RATE_LIMIT_PER_HOUR` | AI builds, chats and recoveries allowed per visitor an hour on a public deploy. A signed-in person is counted by their account, not their address. Cached examples never count |
+| `REQUIRE_SIGN_IN` | With Auth0 configured, `1` keeps the AI for signed-in people: guests are offered a Sign-in button instead. Cached examples stay free for everyone |
+| `GUEST_LIMIT_PER_HOUR` | With `REQUIRE_SIGN_IN`, AI builds a guest may try an hour before being asked to sign in. Unset means none |
 | `PORT` | API port. Defaults to 8787 |
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID` | Turn on sign-in with Auth0: the tenant domain and a Single Page Application's client ID, whose allowed callback, logout and web origin URLs include where the app runs. Neither is secret. Without them, sign-in stays hidden |
 | `AUTH0_AUDIENCE` | Optional Auth0 API identifier: with it, tokens are checked locally against the tenant's keys; without it, the server asks Auth0 once per sign-in |

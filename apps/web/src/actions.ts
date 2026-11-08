@@ -8,8 +8,9 @@ import { useStore, type Message } from './store';
 
 const store = () => useStore.getState();
 
+// Carries the sign-in token, so the server counts a signed-in person by their account and lets them past a sign-in gate.
 async function stream(path: string, body: unknown, onEvent: (e: StreamEvent) => void) {
-  const res = await fetch(path, {
+  const res = await authFetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -57,7 +58,7 @@ function common(event: StreamEvent) {
       break;
     }
     case 'error':
-      store().addMessage({ role: 'app', text: event.message });
+      store().addMessage({ role: 'app', text: event.message, ...(event.signIn ? { signIn: true } : {}) });
       break;
   }
 }

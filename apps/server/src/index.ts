@@ -9,7 +9,7 @@ import type { StreamEvent } from '@tv/core';
 import { build, chat, describeFailure, edit, explain, recover, servedFromCache, type Emit } from './agents';
 import { authConfig } from './auth';
 import { showcase } from './design-cache';
-import { limitMessage, take, visitorOf } from './integrations/limit';
+import { admit } from './integrations/limit';
 import { hasGemini, pruneBypass } from './llm';
 import { mountRooms } from './rooms';
 import { mountRuns, storageKind } from './runs';
@@ -68,23 +68,25 @@ function agentStream(run: (emit: Emit) => Promise<void>) {
 }
 
 // Stops a visitor over their hourly allowance before anything is spent, with a message the app shows like any other error.
-const limited = (c: Context, asRefusal = false) => {
-  const wait = take(visitorOf(c));
-  if (!wait) return null;
-  const message = limitMessage(wait);
-  return agentStream(async (emit) => emit(asRefusal ? { type: 'refusal', refusal: { reason: message, closest: null } } : { type: 'error', message }))(c);
+// Someone who could get through by signing in is told so, and the app offers the button.
+const limited = async (c: Context, asRefusal = false) => {
+  const refused = await admit(c);
+  if (!refused) return null;
+  const { message, signIn } = refused;
+  const flag = signIn ? { signIn } : {};
+  return agentStream(async (emit) => emit(asRefusal ? { type: 'refusal', refusal: { reason: message, closest: null, ...flag } } : { type: 'error', message, ...flag }))(c);
 };
 
 app.post('/api/build', async (c) => {
   const { prompt } = await c.req.json<{ prompt: string }>();
   // A verified-cache hit costs nothing, so it never counts against the allowance.
-  const blocked = servedFromCache(prompt) ? null : limited(c, true);
+  const blocked = servedFromCache(prompt) ? null : await limited(c, true);
   return blocked ?? agentStream((emit) => build(prompt, emit))(c);
 });
 
 app.post('/api/recover', async (c) => {
   const input = await c.req.json();
-  return limited(c) ?? agentStream((emit) => recover(input, emit))(c);
+  return (await limited(c)) ?? agentStream((emit) => recover(input, emit))(c);
 });
 
 // Part of every build, so it never counts against the allowance; it is one small call and skips itself without Gemini.
@@ -95,13 +97,13 @@ app.post('/api/explain', async (c) => {
 
 app.post('/api/chat', async (c) => {
   const input = await c.req.json();
-  return limited(c) ?? agentStream((emit) => chat(input, emit))(c);
+  return (await limited(c)) ?? agentStream((emit) => chat(input, emit))(c);
 });
 
 // A delete or duplicate from the 3D view. Without Gemini it runs only the validator and simulator, so it never counts.
 app.post('/api/edit', async (c) => {
   const input = await c.req.json();
-  return (hasGemini() ? limited(c) : null) ?? agentStream((emit) => edit(input, emit))(c);
+  return (hasGemini() ? await limited(c) : null) ?? agentStream((emit) => edit(input, emit))(c);
 });
 
 app.use('/*', serveStatic({ root: path.relative(process.cwd(), path.resolve(here, '../../web/dist')) || '.' }));
