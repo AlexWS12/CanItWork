@@ -2,6 +2,7 @@ import { DOMAINS, domainList, type DomainId } from '@tv/core';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { buildEnvironment, showHero } from '../actions';
 import { reducedMotion } from '../motion';
+import { preloadModels, type ModelId } from '../scene/Model';
 import { useStore } from '../store';
 import { Building } from './Building';
 import './Landing.css';
@@ -99,9 +100,36 @@ function useHero() {
   const [turn, setTurn] = useState(0);
   const [held, setHeld] = useState(false);
   const current = HERO[turn % HERO.length];
+  // One system fades out and the next fades in, rather than cutting from one to the other
   useEffect(() => {
-    void showHero(current.id);
+    const stage = document.querySelector<HTMLElement>('canvas.stage, .stage');
+    let live = true;
+    const swap = async () => {
+      if (stage && !reducedMotion()) {
+        stage.style.opacity = '0';
+        await new Promise((resolve) => setTimeout(resolve, 380));
+      }
+      if (!live) return;
+      await showHero(current.id);
+      // Gives the new view a moment to mount and start its glide before it shows
+      setTimeout(() => stage && (stage.style.opacity = '1'), 220);
+    };
+    void swap();
+    return () => {
+      live = false;
+      if (stage) stage.style.opacity = '1';
+    };
   }, [current.id]);
+  // Every pack model loads while the page is idle, so nothing pops in when its scene comes round
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((fn: () => void) => setTimeout(fn, 2000));
+    idle(() => {
+      void fetch('/models/manifest.json')
+        .then((r) => (r.ok ? (r.json() as Promise<ModelId[]>) : []))
+        .then(preloadModels)
+        .catch(() => undefined);
+    });
+  }, []);
   useEffect(() => {
     if (held || reducedMotion()) return;
     const timer = setTimeout(() => setTurn((t) => t + 1), HERO_SECONDS * 1000);

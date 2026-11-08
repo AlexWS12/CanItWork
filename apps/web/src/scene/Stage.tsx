@@ -12,6 +12,7 @@ import { LOOK } from './look';
 // The camera is fitted to what the system is made of (floors excluded), inside the part of the screen the panels leave clear.
 
 const IDLE_SECONDS = 8;
+const GLIDE_SECONDS = 1.6;
 const box = new THREE.Box3();
 const part = new THREE.Box3();
 const corner = new THREE.Vector3();
@@ -102,6 +103,19 @@ export function Stage({ content }: { content: React.RefObject<THREE.Group> }) {
   const rim = useRef<THREE.DirectionalLight>(null);
   const touched = useRef(false);
   const idle = useRef(0);
+  // Where the camera is heading after a reframe, and how long it has left to get there
+  const glide = useRef<{ position: THREE.Vector3; target: THREE.Vector3; left: number } | null>(null);
+  const framedOnce = useRef(false);
+  const settle = () => {
+    const g = glide.current;
+    if (!g) return;
+    camera.position.copy(g.position);
+    if (controls) {
+      controls.target.copy(g.target);
+      controls.update();
+    } else camera.lookAt(g.target);
+    glide.current = null;
+  };
 
   // Frame once the view has mounted, and again when late pieces (grow-in shelves, loaded models) have settled, unless the person moved the camera.
   useEffect(() => {
@@ -113,13 +127,17 @@ export function Stage({ content }: { content: React.RefObject<THREE.Group> }) {
       if (touched.current || !content.current) return;
       const bounds = contentBounds(content.current);
       if (bounds.isEmpty()) return;
-      const { center, distance } = fit(camera, bounds, direction, size);
+      // Fitted on a stand-in, so the real camera can glide there instead of jumping
+      const probe = camera.clone();
+      const { center, distance } = fit(probe, bounds, direction, size);
+      glide.current = { position: probe.position.clone(), target: center.clone(), left: GLIDE_SECONDS };
       if (controls) {
-        controls.target.copy(center);
         controls.minDistance = distance * 0.2;
         controls.maxDistance = distance * 3;
-        controls.update();
       }
+      // With reduced motion, or the very first framing, there is nothing to glide from
+      if (reducedMotion() || !framedOnce.current) settle();
+      framedOnce.current = true;
       const fog = scene.fog as THREE.Fog | null;
       if (fog) {
         fog.near = distance * 1.6;
@@ -158,9 +176,22 @@ export function Stage({ content }: { content: React.RefObject<THREE.Group> }) {
 
   // After a while untouched, the camera drifts slowly round the system
   useFrame((_, dt) => {
+    // A reframe eases the camera to its new place; a hand on the camera, or reduced motion, ends the glide
+    const g = glide.current;
+    if (g) {
+      if (touched.current) glide.current = null;
+      else {
+        g.left -= dt;
+        const ease = 1 - Math.exp(-dt * 4.5);
+        camera.position.lerp(g.position, ease);
+        if (controls) controls.target.lerp(g.target, ease);
+        else camera.lookAt(g.target);
+        if (g.left <= 0 || camera.position.distanceToSquared(g.position) < 1e-4) settle();
+      }
+    }
     if (!controls) return;
-    idle.current = controls.enabled ? idle.current + dt : 0;
-    controls.autoRotate = !reducedMotion() && idle.current > IDLE_SECONDS && Boolean(environment);
+    idle.current = controls.enabled && !glide.current ? idle.current + dt : 0;
+    controls.autoRotate = !reducedMotion() && !glide.current && idle.current > IDLE_SECONDS && Boolean(environment);
     controls.autoRotateSpeed = 0.35;
   });
 

@@ -82,6 +82,8 @@ p {
 
 .stage {
   inset: 0;
+  /* The landing hero fades between systems */
+  transition: opacity 380ms var(--ease-in-out);
 }
 
 .panel,
