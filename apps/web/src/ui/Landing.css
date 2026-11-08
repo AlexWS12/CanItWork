@@ -45,12 +45,21 @@
   max-width: 32ch;
 }
 
-/* Title intro (see playIntro in Landing.tsx). Outside the intro, only the merged word shows, at rest. */
-.intro-title {
+/* Wordmark on a circuit trace (see Wordmark in Landing.tsx). At rest: the word with a teal "It",
+   the trace fully drawn, and no "?". --w is the width of "CanIt", --tw of the whole word. */
+.wm {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: fit-content;
+  align-self: flex-start;
+}
+
+.wm-title {
   position: relative;
 }
 
-.intro-q {
+.wm-q {
   position: absolute;
   left: 0;
   top: 0;
@@ -58,22 +67,84 @@
   pointer-events: none;
 }
 
-.intro-merged {
+.wm-amber {
+  color: var(--color-accent);
+}
+
+.wm-word {
   display: inline-flex;
 }
 
-.intro-canit,
-.intro-worked {
+.wm-canit,
+.wm-work {
   display: inline-block;
 }
 
-/* At the start of the merge, "Work" sits where "Work?" was and "CanIt" a further 0.25em (28px at 112px) to its left */
-.intro-canit {
-  --from: calc(-1 * var(--canit-w) - 0.25em);
+.wm-it {
+  color: var(--color-teal);
 }
 
-.intro-worked {
-  --from: calc(-1 * var(--canit-w));
+/* At the start of the merge, "Work" (and the "?") sit where "Work?" was and "CanIt" a further 0.25em (28px at 112px) to its left */
+.wm-canit {
+  --from: calc(-1 * var(--w) - 0.25em);
+}
+
+.wm-work,
+.wm-qm {
+  --from: calc(-1 * var(--w));
+}
+
+.wm-qm {
+  position: absolute;
+  left: calc(var(--tw) + 4px);
+  top: 0;
+  color: var(--color-accent);
+  pointer-events: none;
+}
+
+.wm-qm-glyph {
+  display: inline-block;
+  opacity: 0;
+  transform-origin: 30% 80%;
+}
+
+.wm-trace {
+  display: block;
+  overflow: visible;
+}
+
+/* pathLength=1, so a dash offset of 1 hides a segment and 0 draws it whatever its length in pixels */
+.wm-seg {
+  stroke-width: 2;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.wm-seg-a {
+  stroke: var(--color-accent);
+}
+
+.wm-seg-b {
+  stroke: var(--color-teal);
+}
+
+.wm-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.wm-d0 {
+  fill: var(--color-accent);
+}
+
+.wm-d1 {
+  fill: var(--color-stage);
+  stroke: var(--color-teal);
+  stroke-width: 2;
+}
+
+.wm-d2 {
+  fill: var(--color-teal);
 }
 
 .tagline .phrase {
@@ -81,25 +152,59 @@
   white-space: pre;
 }
 
-:root[data-intro='playing'] .intro-can {
+/* Intro timeline: the 4a handoff's, with the holds on "Can it?" and "Work?" shortened, so every step
+   from the merge on runs 0.6 s earlier than in the handoff. The title settles at 3.5 s. */
+:root[data-intro='playing'] .wm-q1 {
   animation:
     intro-in 250ms var(--ease-out) 50ms both,
     intro-out 150ms var(--ease-out) 950ms forwards;
 }
 
-:root[data-intro='playing'] .intro-work {
+:root[data-intro='playing'] .wm-q2 {
   animation:
     intro-in 300ms var(--ease-out) 1000ms both,
     intro-out 1ms linear 1850ms forwards;
 }
 
-:root[data-intro='playing'] .intro-merged {
+:root[data-intro='playing'] .wm-word {
   animation: intro-in 1ms linear 1850ms both;
 }
 
-:root[data-intro='playing'] .intro-canit,
-:root[data-intro='playing'] .intro-worked {
+:root[data-intro='playing'] .wm-canit,
+:root[data-intro='playing'] .wm-work,
+:root[data-intro='playing'] .wm-qm {
   animation: intro-slide 360ms var(--ease-out) 1850ms both;
+}
+
+:root[data-intro='playing'] .wm-qm-glyph {
+  animation:
+    intro-in 1ms linear 1850ms both,
+    intro-q-out 300ms var(--ease-out) 3200ms forwards;
+}
+
+:root[data-intro='playing'] .wm-d0 {
+  animation: intro-pop 150ms var(--ease-out) 2250ms both;
+}
+
+/* The trace draws linearly, so the current reads as moving at a constant speed */
+:root[data-intro='playing'] .wm-seg-a {
+  animation: intro-draw 400ms linear 2300ms both;
+}
+
+:root[data-intro='playing'] .wm-d1 {
+  animation: intro-pop 150ms var(--ease-out) 2650ms both;
+}
+
+:root[data-intro='playing'] .wm-it {
+  animation: intro-teal 250ms var(--ease-out) 2700ms both;
+}
+
+:root[data-intro='playing'] .wm-seg-b {
+  animation: intro-draw 500ms linear 2700ms both;
+}
+
+:root[data-intro='playing'] .wm-d2 {
+  animation: intro-pop 150ms var(--ease-out) 3200ms both;
 }
 
 /* The Try rows fade on their own stagger, so only the input and the headings fade here */
@@ -151,6 +256,46 @@
   }
   to {
     transform: none;
+  }
+}
+
+@keyframes intro-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes intro-pop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes intro-teal {
+  from {
+    color: var(--color-text);
+  }
+  to {
+    color: var(--color-teal);
+  }
+}
+
+@keyframes intro-q-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.4);
   }
 }
 
