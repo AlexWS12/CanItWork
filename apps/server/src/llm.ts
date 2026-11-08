@@ -56,6 +56,13 @@ function pruneUpstreamProblem(error: string): string | null {
   return null;
 }
 
+// How long Prune sits out after its upstream key fails: a per-minute limit only as long as Gemini asks, the day's quota or a rejected key ten minutes.
+function restFor(error: string) {
+  const delay = Number(error.match(/"retryDelay":\s*"(\d+(?:\.\d+)?)s"/)?.[1] ?? NaN) * 1000;
+  const daily = /PerDay|per day/i.test(error) || /HTTP 40[13]/.test(error) || (Number.isFinite(delay) && delay > 60_000);
+  return daily ? PRUNE_REST_MS : Math.max(5_000, Number.isFinite(delay) ? delay : 15_000);
+}
+
 function routes(): Route[] {
   const out: Route[] = [];
   if (pruneKey() && Date.now() >= pruneRestUntil) out.push({ url: pruneBase(), key: pruneKey(), via: 'prune' });
@@ -187,7 +194,10 @@ async function completeWithRetry(...args: Parameters<typeof complete>) {
   try {
     return await complete(...args);
   } catch (error) {
-    if (args[0].via !== 'direct' || !(error instanceof ProviderBusy) || error.waitMs > MAX_WAIT_MS) throw error;
+    // A short wait is worth sitting out on a direct key. Through Prune, only when Gemini itself named the wait (a per-minute limit):
+    // Prune being down, or a limit with no wait given, falls back to the direct key at once.
+    if (!(error instanceof ProviderBusy) || error.waitMs > MAX_WAIT_MS) throw error;
+    if (args[0].via === 'prune' && !/"retryDelay"/.test(error.message)) throw error;
     await new Promise((resolve) => setTimeout(resolve, error.waitMs));
     return complete(...args);
   }
@@ -260,8 +270,10 @@ async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z
       if (error instanceof ShieldBlock) throw error;
       const upstream = route.via === 'prune' ? pruneUpstreamProblem(String(error)) : null;
       if (upstream) {
-        pruneRestUntil = Date.now() + PRUNE_REST_MS;
-        console.warn(`[llm] Prune's upstream Gemini ${upstream}; going direct for 10 minutes`);
+        // A per-minute limit clears in seconds, so Prune only sits out that wait; the day's quota or a rejected key benches it for ten minutes.
+        const rest = restFor(String(error));
+        pruneRestUntil = Date.now() + rest;
+        console.warn(`[llm] Prune's upstream Gemini ${upstream}; going direct for ${rest >= 60_000 ? `${Math.round(rest / 60_000)} minutes` : `${Math.round(rest / 1000)} s`}`);
       } else console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
       lastError = error;
     }
