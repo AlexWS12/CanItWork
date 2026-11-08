@@ -98,3 +98,66 @@
   color: var(--color-muted);
   font-size: var(--text-sm);
 }
+
+.floor-edits {
+  grid-template-columns: 1fr;
+}
+
+.edit-refusal {
+  color: var(--color-danger-soft);
+}
+
+.settings {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-line);
+}
+
+.setting {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.setting-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-muted);
+}
+
+.setting-label output {
+  color: var(--color-text);
+  font: var(--text-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.setting input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.setting-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+}
+
+.setting-choices button {
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.setting-choices button[aria-pressed='true'] {
+  background: var(--color-fill-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.setting-hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}

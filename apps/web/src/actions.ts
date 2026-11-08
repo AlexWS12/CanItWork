@@ -133,6 +133,19 @@ export function moveComponent(id: string, at: [number, number]) {
   store().set({ environment: { ...environment, layout: { ...environment.layout, [id]: at } } });
 }
 
+/**
+ * A hand edit to the running floor, such as moving a robot or a shelf. It goes in like any fix, so it's logged at its tick
+ * and replays; the run checks it first and the reason comes back when it can't land.
+ */
+export function editFloor(patches: unknown[]): string | null {
+  const run = runner.run;
+  if (!run) return 'Nothing is running.';
+  const reason = run.check?.(patches) ?? null;
+  if (reason) return reason;
+  runner.applyPatches(patches);
+  return null;
+}
+
 let movedBefore = false;
 export function finishMove(id: string) {
   if (movedBefore) return;

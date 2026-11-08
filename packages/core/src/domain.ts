@@ -56,7 +56,25 @@ export interface Inspection {
   title: string;
   rows: Array<[string, string | number]>;
   actions: Array<{ label: string; incident: Incident; destructive: boolean }>;
+  /** Hand edits to the design as it runs, such as deleting this component; applied like any fix */
+  edits?: Array<{ label: string; patches: unknown[] }>;
+  /** Settings the design runs with, changed by hand mid-run like any fix */
+  settings?: Setting[];
 }
+
+/**
+ * One setting, as plain data: changing it applies `{ ...patch, [key]: value }`. A number is shown as `value` with
+ * `unit` and sent divided by `scale`, so a fraction can be shown as a percentage.
+ */
+export type Setting = { label: string; hint?: string; patch: Record<string, unknown>; key: string } & (
+  | { kind: 'choice'; value: string; options: Array<{ label: string; value: string }> }
+  | { kind: 'number'; value: number; min: number; max: number; step: number; unit: string; scale?: number }
+);
+
+export const settingPatch = (setting: Setting, value: string | number) => ({
+  ...setting.patch,
+  [setting.key]: typeof value === 'number' && setting.kind === 'number' ? value / (setting.scale ?? 1) : value,
+});
 
 export interface Run {
   readonly tick: number;
@@ -64,6 +82,8 @@ export interface Run {
   step(): void;
   inject(incident: Incident): void;
   apply(patches: unknown[]): void;
+  /** Why these patches can't be applied to the run as it stands, or null; for domains that check hand edits. */
+  check?(patches: unknown[]): string | null;
   evaluation(): Evaluation;
   telemetry(): Metric[];
   breakables(): Breakable[];

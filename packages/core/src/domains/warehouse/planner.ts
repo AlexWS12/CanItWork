@@ -28,6 +28,12 @@ export class Grid {
     }
   }
 
+  /** Opens or blocks one cell for an edit made mid-run; every cached distance may be stale after it. */
+  setBlocked(cell: number, blocked: boolean) {
+    this.blocked[cell] = blocked ? 1 : 0;
+    this.fields.clear();
+  }
+
   idx(x: number, y: number) {
     return y * this.cols + x;
   }

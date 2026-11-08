@@ -23,15 +23,20 @@ function toEvent(incident: Incident, at: number): SimEvent | null {
   }
 }
 
+/** What the Inspector asks for to show the settings the whole floor runs with. */
+export const FLOOR = 'floor';
+
 export class WarehouseRun implements Run {
   readonly sim: Sim;
   readonly log: TimedEvent[] = [];
 
-  constructor(
-    readonly world: World,
-    seed: number,
-  ) {
+  constructor(world: World, seed: number) {
     this.sim = new Sim(world, seed);
+  }
+
+  /** This run's own floor, which hand edits change as it goes. */
+  get world() {
+    return this.sim.world;
   }
 
   get tick() {
@@ -51,7 +56,15 @@ export class WarehouseRun implements Run {
 
   apply(patches: unknown[]) {
     this.log.push({ at: this.tick, patches });
-    this.sim.schedule({ type: 'apply_patch', at: this.tick, patches: patches as Patch[] });
+    this.sim.applyNow(patches as Patch[]);
+  }
+
+  check(patches: unknown[]) {
+    for (const patch of patches as Patch[]) {
+      const reason = this.sim.checkPatch(patch);
+      if (reason) return reason;
+    }
+    return null;
   }
 
   evaluation(): Evaluation {
@@ -71,13 +84,14 @@ export class WarehouseRun implements Run {
   telemetry(): Metric[] {
     const sim = this.sim;
     const last = sim.series[sim.series.length - 1];
-    const online = sim.robots.filter((r) => r.mode !== 'failed').length;
-    const backlog = sim.orders.length - sim.delivered;
+    const fleet = sim.robots.filter((r) => !r.gone);
+    const online = fleet.filter((r) => r.mode !== 'failed').length;
+    const backlog = sim.backlog();
     return [
       { label: 'delivered', value: sim.delivered },
       { label: 'per 100 ticks', value: last?.throughput ?? 0 },
       { label: 'backlog', value: backlog, tone: backlog > 25 ? 'warn' : undefined },
-      { label: 'robots online', value: `${online}/${sim.robots.length}`, tone: online < sim.robots.length ? 'danger' : undefined },
+      { label: 'robots online', value: `${online}/${fleet.length}`, tone: online < fleet.length ? 'danger' : undefined },
     ];
   }
 
@@ -93,7 +107,58 @@ export class WarehouseRun implements Run {
 
   inspect(target: string): Inspection | null {
     const { sim, world } = this;
-    const robot = sim.robots.find((r) => r.id === target);
+    if (target === FLOOR) {
+      const orderEvery = Math.round(sim.orderEvery);
+      return {
+        title: 'Floor settings',
+        rows: [
+          ['Robots', sim.robots.filter((r) => !r.gone).length],
+          ['Shelves', world.shelves.length],
+          ['Chargers', world.chargers.length],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'choice',
+            label: 'Dispatch',
+            hint: 'Zoned: each robot serves its own shelves. Pooled: the nearest free robot takes any order.',
+            value: sim.policy.dispatch,
+            options: [
+              { label: 'Zoned', value: 'zoned' },
+              { label: 'Pooled', value: 'pooled' },
+            ],
+            patch: { op: 'set_policy' },
+            key: 'dispatch',
+          },
+          {
+            kind: 'number',
+            label: 'Charge below',
+            hint: 'Robots head for a charger once their battery drops under this.',
+            value: Math.round(sim.policy.chargeThreshold * 100),
+            min: 5,
+            max: 80,
+            step: 5,
+            unit: '%',
+            scale: 100,
+            patch: { op: 'set_policy' },
+            key: 'chargeThreshold',
+          },
+          {
+            kind: 'number',
+            label: 'New order every',
+            hint: 'Lower is busier.',
+            value: orderEvery,
+            min: 1,
+            max: Math.max(60, orderEvery),
+            step: 1,
+            unit: ' ticks',
+            patch: { op: 'set_demand' },
+            key: 'orderEvery',
+          },
+        ],
+      };
+    }
+    const robot = sim.robots.find((r) => r.id === target && !r.gone);
     if (robot) {
       const zone = [...sim.shelfOwner.values()].filter((o) => o === robot.id).length;
       const failed = robot.mode === 'failed';
@@ -112,6 +177,7 @@ export class WarehouseRun implements Run {
                 ? { label: 'Repair robot', incident: { type: 'repair_robot', target }, destructive: false }
                 : { label: 'Fail this robot', incident: { type: 'fail_robot', target }, destructive: true },
             ],
+        edits: robot.removed ? [] : [{ label: 'Delete robot', patches: [{ op: 'delete_robot', robotId: target }] }],
       };
     }
     const belt = sim.belts.find((b) => b.id === target);
@@ -142,6 +208,7 @@ export class WarehouseRun implements Run {
             ? { label: 'Bring online', incident: { type: 'online_charger', target }, destructive: false }
             : { label: 'Take offline', incident: { type: 'offline_charger', target }, destructive: true },
         ],
+        edits: [{ label: 'Delete charger', patches: [{ op: 'delete_charger', chargerId: target }] }],
       };
     }
     if (target === world.sorter.id) {
@@ -165,6 +232,7 @@ export class WarehouseRun implements Run {
           ['Orders waiting', sim.queue.filter((o) => o.shelf.id === target).length],
         ],
         actions: [],
+        edits: [{ label: 'Delete shelf', patches: [{ op: 'delete_shelf', shelfId: target }] }],
       };
     }
     return null;
