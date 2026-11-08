@@ -40,7 +40,7 @@ export function contentBounds(root: THREE.Object3D) {
 }
 
 // The screen area the panels leave clear, in pixels.
-function clearArea(width: number, height: number) {
+export function clearArea(width: number, height: number) {
   const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
   const visible = (r: DOMRect | undefined) => r && r.width > 0 && r.height > 0;
   const left = rect('.panel.left');

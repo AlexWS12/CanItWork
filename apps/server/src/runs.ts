@@ -25,6 +25,8 @@ export interface SavedRun {
   people: string[];
   run: unknown;
   hash: string;
+  /** A small JPEG of the 3D view taken when it was saved, as a data URL, for its card in My systems */
+  thumb?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -101,7 +103,10 @@ function postgresStore(url: string): Store {
         hash text not null,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
-      )`.then(() => sql`create index if not exists runs_owner on runs (owner, updated_at desc)`));
+      )`
+      .then(() => sql`create index if not exists runs_owner on runs (owner, updated_at desc)`)
+      // Added after the first saves, so older tables gain it here
+      .then(() => sql`alter table runs add column if not exists thumb text`));
   const row = (r: Record<string, unknown>): SavedRun => ({
     id: r.id as string,
     owner: r.owner as string,
@@ -112,14 +117,15 @@ function postgresStore(url: string): Store {
     people: (r.people as string[]) ?? [],
     run: r.run,
     hash: r.hash as string,
+    thumb: (r.thumb as string) ?? null,
     createdAt: new Date(r.created_at as string).toISOString(),
     updatedAt: new Date(r.updated_at as string).toISOString(),
   });
   return {
     async save(run) {
       await table();
-      await sql`insert into runs (id, owner, owner_name, name, domain, visibility, people, run, hash)
-        values (${run.id}, ${run.owner}, ${run.ownerName}, ${run.name}, ${run.domain}, ${run.visibility}, ${run.people}, ${sql.json(run.run as never)}, ${run.hash})`;
+      await sql`insert into runs (id, owner, owner_name, name, domain, visibility, people, run, hash, thumb)
+        values (${run.id}, ${run.owner}, ${run.ownerName}, ${run.name}, ${run.domain}, ${run.visibility}, ${run.people}, ${sql.json(run.run as never)}, ${run.hash}, ${run.thumb ?? null})`;
     },
     async get(id) {
       await table();
@@ -172,6 +178,8 @@ const Sharing = z.object({
   people: z.array(z.string().trim().toLowerCase().email()).max(20).default([]),
 });
 const Body = Sharing.extend({
+  // What it is called in My systems; the system's own name when left out
+  name: z.string().trim().min(1).max(120).optional(),
   run: z.object({
     environment: z.object({ domain: z.string(), name: z.string() }).passthrough(),
     seed: z.number(),
@@ -179,10 +187,32 @@ const Body = Sharing.extend({
     events: z.array(z.unknown()),
     hash: z.string(),
   }),
+  // The picture for its card: a JPEG or WebP data URL the browser made from the 3D view, kept small
+  thumb: z
+    .string()
+    .max(150_000)
+    .regex(/^data:image\/(jpeg|webp);base64,[A-Za-z0-9+/]+=*$/)
+    .optional(),
 });
 const MAX_BYTES = 1_000_000;
 
-const summary = (r: SavedRun) => ({ id: r.id, name: r.name, domain: r.domain, visibility: r.visibility, people: r.people, updatedAt: r.updatedAt });
+// What a card in My systems shows: the run's picture, its description and how far it ran, without the run itself
+const summary = (r: SavedRun) => {
+  const run = r.run as { environment?: { summary?: unknown }; tick?: unknown; events?: unknown[] } | null;
+  return {
+    id: r.id,
+    name: r.name,
+    domain: r.domain,
+    visibility: r.visibility,
+    people: r.people,
+    updatedAt: r.updatedAt,
+    description: typeof run?.environment?.summary === 'string' ? run.environment.summary : '',
+    ticks: typeof run?.tick === 'number' ? run.tick : 0,
+    events: Array.isArray(run?.events) ? run.events.length : 0,
+    hash: r.hash,
+    thumb: r.thumb ?? null,
+  };
+};
 
 /** The runs listed for a kind of system: what anyone may see of them, which leaves out the owner's account and the run itself. */
 export async function listedRuns(domain: string) {
@@ -202,18 +232,19 @@ export function mountRuns(app: Hono) {
     if (text.length > MAX_BYTES) return c.json({ error: 'This run is too large to save' }, 413);
     const parsed = Body.safeParse(JSON.parse(text || '{}'));
     if (!parsed.success) return c.json({ error: 'That is not a run' }, 400);
-    const { run, visibility, people } = parsed.data;
+    const { run, visibility, people, name, thumb } = parsed.data;
     const now = new Date().toISOString();
     const saved: SavedRun = {
       id: id(),
       owner: user.sub,
       ownerName: user.name ?? null,
-      name: run.environment.name.slice(0, 120),
+      name: name ?? run.environment.name.slice(0, 120),
       domain: run.environment.domain,
       visibility,
       people: visibility === 'people' ? people : [],
       run,
       hash: run.hash,
+      thumb: thumb ?? null,
       createdAt: now,
       updatedAt: now,
     };
