@@ -28,6 +28,23 @@ const readFile = (): Record<string, unknown> => {
   }
 };
 
+let ping: { url: string; at: number; result: 'ok' | 'failing' } | null = null;
+/** Whether the database answers, checked at most once a minute; 'unchecked' when runs are kept in a local file. */
+export async function storageCheck(): Promise<'ok' | 'failing' | 'unchecked'> {
+  const db = database();
+  if (!db) return 'unchecked';
+  if (ping?.url === db.url && Date.now() - ping.at < 60_000) return ping.result;
+  let result: 'ok' | 'failing' = 'failing';
+  try {
+    await Promise.race([db.sql`select 1`, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))]);
+    result = 'ok';
+  } catch {
+    result = 'failing';
+  }
+  ping = { url: db.url, at: Date.now(), result };
+  return result;
+}
+
 export async function keepRoom(id: string, state: unknown) {
   const db = database();
   if (db) {

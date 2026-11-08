@@ -82,5 +82,7 @@ export interface ProviderStatus {
   swarms: boolean;
   prune: boolean;
   typesafe: boolean;
-  checks?: Record<'gemini' | 'swarms' | 'prune' | 'typesafe', KeyCheck>;
+  /** Where saved runs and live sessions are kept: Tiger Data's Postgres, or a local file. */
+  storage?: 'postgres' | 'file';
+  checks?: Record<'gemini' | 'swarms' | 'prune' | 'typesafe', KeyCheck> & { storage?: KeyCheck };
 }
