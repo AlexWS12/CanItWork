@@ -151,26 +151,78 @@ function UsageRow({ usage }: { usage: Usage }) {
   );
 }
 
+// "red-team" reads as "Red team"
+const featureName = (feature: string) => {
+  const words = feature.replace(/[-_]+/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/** What this system has cost so far, in plain words and one bar per agent; the receipts are a click further down. */
+function CostSummary({ usage }: { usage: Usage[] }) {
+  const byAgent = new Map<string, { cost: number; calls: number; saved: number }>();
+  for (const u of usage) {
+    const row = byAgent.get(u.feature) ?? { cost: 0, calls: 0, saved: 0 };
+    row.cost += u.costUsd ?? 0;
+    row.calls += 1;
+    row.saved += u.costSavedUsd ?? 0;
+    byAgent.set(u.feature, row);
+  }
+  const rows = [...byAgent].sort((a, b) => b[1].cost - a[1].cost);
+  const total = rows.reduce((sum, [, r]) => sum + r.cost, 0);
+  const saved = rows.reduce((sum, [, r]) => sum + r.saved, 0);
+  const top = Math.max(...rows.map(([, r]) => r.cost), 1e-9);
+  return (
+    <section className="cost-summary" aria-labelledby="cost-title">
+      <h3 id="cost-title">What this system cost</h3>
+      <b className="cost-total">{usd(total)}</b>
+      <p className="cost-line">
+        {usage.length} model {usage.length === 1 ? 'call' : 'calls'}
+        {saved > 0 && `, and Prune saved ${usd(saved)} on them`}.
+      </p>
+      <ul className="cost-agents">
+        {rows.map(([feature, r]) => (
+          <li key={feature}>
+            <span className="cost-agent">
+              {featureName(feature)}
+              {r.calls > 1 && <span className="cost-calls"> · {r.calls} calls</span>}
+            </span>
+            <span className="num">{usd(r.cost)}</span>
+            <span className="cost-bar" aria-hidden>
+              <span style={{ width: `${Math.max(2, (r.cost / top) * 100)}%` }} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function UsageLedger() {
   const usage = useStore((s) => s.usage);
+  if (!usage.length) {
+    return (
+      <div className="ledger">
+        <p className="empty">Nothing spent yet. A design from the verified cache costs nothing; every model call made for this system will show here.</p>
+        <PruneShowcase />
+      </div>
+    );
+  }
   return (
     <div className="ledger">
-      <PruneShowcase />
-      {usage.length ? (
-        <>
-          <div className="usage-head" aria-hidden>
-            <span>Agent call</span>
-            <span>Route</span>
-            <span className="num">Tokens</span>
-            <span className="num">Cost</span>
-          </div>
-          {usage.map((u, i) => (
-            <UsageRow key={i} usage={u} />
-          ))}
-        </>
-      ) : (
-        <p className="empty">No model calls yet. Every Gemini and Swarms call appears here with its tokens, cost and Prune receipt.</p>
-      )}
+      <CostSummary usage={usage} />
+      <details className="dev-detail">
+        <summary>Developer detail: Prune savings, tokens and receipts</summary>
+        <PruneShowcase />
+        <div className="usage-head" aria-hidden>
+          <span>Agent call</span>
+          <span>Route</span>
+          <span className="num">Tokens</span>
+          <span className="num">Cost</span>
+        </div>
+        {usage.map((u, i) => (
+          <UsageRow key={i} usage={u} />
+        ))}
+      </details>
     </div>
   );
 }
@@ -181,7 +233,6 @@ export function RightPanel() {
   // The build guide only exists for circuits.
   const TABS = electronics ? (['agents', 'build', 'usage'] as const) : (['agents', 'usage'] as const);
   const tab = (TABS as readonly string[]).includes(stored) ? stored : 'agents';
-  const usage = useStore((s) => s.usage.length);
   const set = useStore((s) => s.set);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const onKey = (e: KeyboardEvent) => {
@@ -193,7 +244,7 @@ export function RightPanel() {
     set({ tab: TABS[next] });
     refs.current[TABS[next]]?.focus();
   };
-  const label = { agents: 'Agents', build: 'Build', usage: `Usage${usage ? ` (${usage})` : ''}` };
+  const label = { agents: 'Agents', build: 'Build it', usage: 'Cost' };
   return (
     <aside className="panel right">
       <div className="tabs" role="tablist" aria-label="Run details" onKeyDown={onKey}>

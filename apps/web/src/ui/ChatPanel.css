@@ -74,25 +74,31 @@
 .chat-input {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   gap: var(--space-2);
   padding: var(--space-3);
   border-top: var(--rule);
 }
 
-.chat-input input {
+.chat-input textarea {
   flex: 1;
   min-width: 0;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+  line-height: 1.4;
+  outline: none;
   background: var(--color-fill);
   border: var(--rule);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
 }
 
-.chat-input input:focus-visible {
+.chat-input textarea:focus-visible {
   border-color: var(--color-focus);
 }
 
-.chat-input input::placeholder {
+.chat-input textarea::placeholder {
   color: var(--color-muted);
 }
 
@@ -128,4 +134,26 @@
 
 .limits .unmodelled {
   color: var(--color-accent);
+}
+
+/* Send is an arrow, so the input keeps the width for what is typed */
+.chat-send {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: var(--color-accent);
+  border-color: transparent;
+  color: var(--color-on-accent);
+}
+
+.chat-send:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.chat-send:disabled {
+  background: var(--color-fill);
+  color: var(--color-muted);
 }
