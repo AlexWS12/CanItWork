@@ -63,6 +63,26 @@ describe('live rooms', () => {
     await Promise.all([ana.close(), ben.close(), cleo.close()]);
   });
 
+  it('shares the agents’ work with everyone, including people who join later', async () => {
+    const step = { type: 'step', id: 'architect-1', agent: 'architect', engine: 'gemini', title: 'Designing the environment', status: 'done' };
+    const started = await app.request('/api/rooms', json({ environment, seed: 1, tick: 0, events: [], agents: [step] }));
+    const { id } = (await started.json()) as { id: string };
+    const ana = listen(await app.request(`/api/rooms/${id}/stream?client=ana-1&name=Ana`));
+    expect(await ana.next()).toMatchObject({ type: 'snapshot', agents: [step] });
+    const ben = listen(await app.request(`/api/rooms/${id}/stream?client=ben-2&name=Ben`));
+    await ben.next();
+    await ana.next();
+
+    const recovery = { type: 'recovery', report: { incident: { type: 'block_conveyor', target: 'C1' }, candidates: [] } };
+    expect((await app.request(`/api/rooms/${id}/agents`, json({ client: 'ana-1', event: recovery }))).status).toBe(200);
+    expect(await ben.next()).toMatchObject({ type: 'agent', event: recovery, by: { name: 'Ana' } });
+    expect((await app.request(`/api/rooms/${id}/agents`, json({ client: 'ana-1', event: { type: 'usage' } }))).status).toBe(400);
+
+    const cleo = listen(await app.request(`/api/rooms/${id}/stream?client=cleo-3`));
+    expect(await cleo.next()).toMatchObject({ type: 'snapshot', agents: [step, recovery] });
+    await Promise.all([ana.close(), ben.close(), cleo.close()]);
+  });
+
   it('only takes actions from people in the room, and says when a session has ended', async () => {
     const { id } = (await (await app.request('/api/rooms', json({ environment, seed: 1, tick: 0, events: [] }))).json()) as { id: string };
     expect((await app.request(`/api/rooms/${id}/events`, json({ client: 'stranger', event: { at: 1 } }))).status).toBe(403);

@@ -17,10 +17,14 @@ export interface Member {
 }
 
 type Message =
-  | { type: 'snapshot'; environment: Environment; seed: number; events: TimedEvent[]; tick: number; running: boolean; speed: number; members: Member[] }
+  | { type: 'snapshot'; environment: Environment; seed: number; events: TimedEvent[]; tick: number; running: boolean; speed: number; members: Member[]; agents: AgentEvent[] }
   | { type: 'event'; event: TimedEvent; by: Member }
   | { type: 'transport'; running: boolean; speed: number; tick: number; by: Member }
-  | { type: 'presence'; members: Member[]; joined?: Member; left?: Member };
+  | { type: 'presence'; members: Member[]; joined?: Member; left?: Member }
+  | { type: 'agent'; event: AgentEvent; by: Member };
+
+/** What the agents did, relayed from whoever's screen ran them: steps, Red Team findings, the Recovery Council's report, chat. */
+type AgentEvent = { type: string } & Record<string, unknown>;
 
 interface Room {
   id: string;
@@ -31,12 +35,16 @@ interface Room {
   anchor: { tick: number; at: number; running: boolean; speed: number };
   members: Map<string, Member>;
   listeners: Map<string, (message: Message) => void>;
+  // The agents' work so far, so someone joining late sees the same trace, findings and recovery as everyone else.
+  agents: AgentEvent[];
   touched: number;
 }
 
 const rooms = new Map<string, Room>();
 const COLORS = ['#f59e0b', '#22d3ee', '#a78bfa', '#34d399', '#f472b6', '#60a5fa', '#fb7185', '#facc15'];
 const MAX_EVENTS = 2000;
+const MAX_AGENT_EVENTS = 400;
+const AGENT_TYPES = new Set(['step', 'findings', 'recovery', 'reply', 'error', 'said', 'applied']);
 const IDLE_MS = 6 * 60 * 60 * 1000;
 
 const tickOf = (room: Room) => {
@@ -65,7 +73,12 @@ const Start = z.object({
   seed: z.number(),
   tick: z.number().min(0),
   events: z.array(z.object({ at: z.number() }).passthrough()).max(MAX_EVENTS),
+  agents: z
+    .array(z.object({ type: z.string() }).passthrough())
+    .max(MAX_AGENT_EVENTS)
+    .default([]),
 });
+const AgentBody = z.object({ client: z.string().min(4).max(40), event: z.object({ type: z.string() }).passthrough() });
 const EventBody = z.object({ client: z.string().min(4).max(40), event: z.object({ at: z.number().min(0) }).passthrough() });
 const TransportBody = z.object({ client: z.string().min(4).max(40), running: z.boolean(), speed: z.number().min(0.1).max(16), tick: z.number().min(0) });
 
@@ -76,7 +89,9 @@ async function memberFor(c: Context, room: Room, client: string): Promise<Member
   const user = await userFrom(c.req.header('authorization'));
   const color = COLORS[room.members.size % COLORS.length];
   const guest = (c.req.query('name') ?? '').trim().slice(0, 40);
-  return { client, name: user?.name ?? user?.email ?? (guest || `Guest ${room.members.size + 1}`), ...(user?.picture ? { picture: user.picture } : {}), color };
+  // An email sign-up's name is its address; the part before the @ reads better beside a face.
+  const name = user ? (user.name ?? user.email ?? '').split('@')[0] || 'Someone' : guest || `Guest ${room.members.size + 1}`;
+  return { client, name, ...(user?.picture ? { picture: user.picture } : {}), color };
 }
 
 export const roomCount = () => rooms.size;
@@ -88,7 +103,7 @@ export function mountRooms(app: Hono) {
     if (text.length > 1_000_000) return c.json({ error: 'This run is too large for a live session' }, 413);
     const parsed = Start.safeParse(JSON.parse(text || '{}'));
     if (!parsed.success || !(parsed.data.environment.domain in DOMAINS)) return c.json({ error: 'That is not a run' }, 400);
-    const { environment, seed, tick, events } = parsed.data;
+    const { environment, seed, tick, events, agents } = parsed.data;
     const id = roomId();
     rooms.set(id, {
       id,
@@ -98,6 +113,7 @@ export function mountRooms(app: Hono) {
       anchor: { tick, at: Date.now(), running: true, speed: 1 },
       members: new Map(),
       listeners: new Map(),
+      agents: agents.filter((a) => AGENT_TYPES.has(a.type)) as AgentEvent[],
       touched: Date.now(),
     });
     return c.json({ id }, 201);
@@ -128,6 +144,7 @@ export function mountRooms(app: Hono) {
         running,
         speed,
         members: [...room.members.values()],
+        agents: room.agents,
       });
       broadcast(room, { type: 'presence', members: [...room.members.values()], joined: member }, client);
       stream.onAbort(() => {
@@ -167,6 +184,23 @@ export function mountRooms(app: Hono) {
     const event = parsed.data.event as unknown as TimedEvent;
     room.events.push(event);
     broadcast(room, { type: 'event', event, by }, by.client);
+    return c.json({ ok: true });
+  });
+
+  // One person's agents ran (a break they made, a question they asked); everyone else sees the same steps and results.
+  app.post('/api/rooms/:id/agents', async (c) => {
+    const room = rooms.get(c.req.param('id'));
+    if (!room) return c.json({ error: 'This live session has ended' }, 404);
+    const text = await c.req.text();
+    if (text.length > 200_000) return c.json({ error: 'Too large to relay' }, 413);
+    const parsed = AgentBody.safeParse(JSON.parse(text || '{}'));
+    const by = parsed.success ? room.members.get(parsed.data.client) : undefined;
+    if (!parsed.success || !by) return c.json({ error: 'Join the session first' }, 403);
+    const event = parsed.data.event as AgentEvent;
+    if (!AGENT_TYPES.has(event.type)) return c.json({ error: 'Not an agent event' }, 400);
+    room.agents.push(event);
+    if (room.agents.length > MAX_AGENT_EVENTS) room.agents.splice(0, room.agents.length - MAX_AGENT_EVENTS);
+    broadcast(room, { type: 'agent', event, by }, by.client);
     return c.json({ ok: true });
   });
 

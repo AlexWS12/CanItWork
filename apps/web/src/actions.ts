@@ -2,7 +2,7 @@ import type { Candidate, Environment, Incident, ProviderStatus, StreamEvent } fr
 import { matchEntities } from './entities';
 import { runner } from './runner';
 import { authFetch, useAuth } from './auth';
-import { joinLive, leaveLive, liveIdOf, useLive } from './live';
+import { joinLive, leaveLive, liveIdOf, relayAgent, useLive } from './live';
 import { MAX_SHARED_TICKS, decodeRun, encodeRun, isSharedLink, runHash, sane, savedIdOf, savedRunLink, shortHash, type SharedRun } from './share';
 import { useStore, type Message } from './store';
 
@@ -175,10 +175,12 @@ export async function sendChat(message: string) {
   const history = runner.history();
   if (!environment || !history) return;
   store().addMessage({ role: 'user', text: message });
+  relayAgent({ type: 'said', text: message });
   store().set({ chatting: true });
   try {
     await stream('/api/chat', { environment, message, ...history, metrics: telemetry.stats }, (event) => {
       common(event);
+      relayAgent(event);
       if (event.type !== 'reply') return;
       reply(event.text);
       const { action } = event;
@@ -200,6 +202,7 @@ export async function breakThing(incident: Incident) {
   try {
     await stream('/api/recover', { environment, ...history }, (e) => {
       common(e);
+      relayAgent(e);
       if (e.type === 'recovery') store().set({ report: e.report, reportOpen: true });
     });
   } catch (error) {
@@ -210,6 +213,7 @@ export async function breakThing(incident: Incident) {
 
 export function applyCandidate(candidate: Candidate) {
   runner.applyPatches(candidate.patches);
+  relayAgent({ type: 'applied', id: candidate.id, title: candidate.title });
   store().set({ appliedId: candidate.id, reportOpen: false });
   store().addMessage({ role: 'app', text: `Applied: ${candidate.title}.` });
 }
