@@ -177,6 +177,21 @@ describe('importing pasted files', () => {
     expect(errors('software', DOMAINS.software.specSchema.parse(spec))).toEqual([]);
   });
 
+  it('reads a HorizontalPodAutoscaler as autoscaling from its minimum to its maximum', () => {
+    const hpa = `${K8S}---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: api-hpa }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: api }
+  minReplicas: 2
+  maxReplicas: 12
+`;
+    const spec = importFile(hpa)!.spec as SystemSpec;
+    expect(spec.nodes.find((n) => n.id === 'api')).toMatchObject({ replicas: 2, autoscale: { max: 12 } });
+    expect(errors('software', DOMAINS.software.specSchema.parse(spec))).toEqual([]);
+  });
+
   it('reads Kubernetes manifests: replicas, a Service alias in an env var, and an Ingress as the way in', () => {
     const got = importFile(K8S)!;
     expect(got.format).toBe('Kubernetes');

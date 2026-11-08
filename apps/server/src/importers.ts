@@ -310,6 +310,8 @@ interface Service {
   ports: boolean;
   // Built from source rather than a named image, so its "image" is only a folder and says nothing worth showing.
   built?: boolean;
+  // A HorizontalPodAutoscaler's ceiling for it.
+  autoscaleMax?: number;
 }
 
 const kindOf = (s: Service): NodeKind => {
@@ -389,6 +391,14 @@ function k8sServices(docs: K8sDoc[]): { services: Service[]; entries: string[] }
   for (const s of services) {
     for (const [alias, target] of aliases) if (target !== s.name && new RegExp(`\\b${alias}\\b`).test(s.text)) s.dependsOn.push(target);
   }
+  // A HorizontalPodAutoscaler starts its target at minReplicas and grows it to maxReplicas.
+  for (const d of docs.filter((x) => x.kind === 'HorizontalPodAutoscaler')) {
+    const spec = (d.spec ?? {}) as { scaleTargetRef?: { name?: string }; minReplicas?: number; maxReplicas?: number };
+    const target = services.find((s) => s.name === spec.scaleTargetRef?.name);
+    if (!target || !spec.maxReplicas) continue;
+    if (spec.minReplicas) target.replicas = Math.max(1, Math.min(50, spec.minReplicas));
+    target.autoscaleMax = Math.max(target.replicas, Math.min(50, spec.maxReplicas));
+  }
   const entries: string[] = [];
   for (const d of docs.filter((x) => x.kind === 'Ingress')) {
     const name = d.metadata?.name ?? 'ingress';
@@ -431,7 +441,13 @@ export function importYaml(text: string): Imported | null {
   const nodes: SystemNode[] = [{ id: 'users', label: 'Users', kind: 'client' }];
   for (const s of services) {
     const image = s.image.split('/').pop()!.split(':')[0];
-    nodes.push({ id: ids.get(s.name)!, label: image && image !== s.name && !s.built ? `${s.name} (${image})` : s.name, kind: kindOf(s), replicas: s.replicas });
+    nodes.push({
+      id: ids.get(s.name)!,
+      label: image && image !== s.name && !s.built ? `${s.name} (${image})` : s.name,
+      kind: kindOf(s),
+      replicas: s.replicas,
+      ...(s.autoscaleMax ? { autoscale: { max: s.autoscaleMax } } : {}),
+    });
   }
   const kind = (name: string) => nodes.find((n) => n.id === ids.get(name))?.kind;
   const edges: SystemEdge[] = [];
