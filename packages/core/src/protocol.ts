@@ -106,7 +106,8 @@ export interface Refusal {
   closest: DomainId | null;
 }
 
-export type ChatAction = { kind: 'patch'; patches: unknown[] } | { kind: 'rebuild'; environment: Environment } | { kind: 'inject'; incident: Incident } | { kind: 'none' };
+export type ChatAction =
+  { kind: 'patch'; patches: unknown[] } | { kind: 'rebuild'; environment: Environment; added?: string[] } | { kind: 'inject'; incident: Incident } | { kind: 'none' };
 
 export type StreamEvent =
   | StepEvent

@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select, useStore } from '../../store';
-import { ClaimPin, Tag, pick } from '../shared';
+import { ClaimPin, Movable, Tag, useArranged } from '../shared';
 
 const system = () => runner.run as SystemRun | null;
 const LAYER_GAP = 7;
@@ -290,7 +290,7 @@ export function Topology() {
   const run = system();
   const structure = useStore.getState().structure;
   const spec = useMemo(() => (run ? ({ ...run.spec } as SystemSpec) : null), [run, structure]);
-  const positions = useMemo(() => (spec ? layout(spec) : new Map<string, THREE.Vector3>()), [spec]);
+  const positions = useArranged(useMemo(() => (spec ? layout(spec) : new Map<string, THREE.Vector3>()), [spec]));
   const zones = useMemo(() => [...new Set(spec?.nodes.flatMap((n) => n.zones ?? []) ?? [])], [spec]);
   const legendZ = useMemo(() => Math.max(0, ...[...positions.values()].map((p) => p.z)) + 4.5, [positions]);
   if (!spec) return null;
@@ -307,13 +307,13 @@ export function Topology() {
         const at = positions.get(node.id);
         if (!at) return null;
         return (
-          <group key={node.id} position={at} onClick={pick(node.id)}>
+          <Movable key={node.id} id={node.id} position={at}>
             <NodeBody node={node} />
             <Beacon node={node} />
             <ZoneChips node={node} zones={zones} />
             <Tag text={node.label ?? node.id} tint="#9fd8ff" y={3} />
             <ClaimPin id={node.id} position={[0, 1.6, 0]} />
-          </group>
+          </Movable>
         );
       })}
     </group>

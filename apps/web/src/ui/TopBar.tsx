@@ -1,10 +1,9 @@
 import { DOMAINS, type KeyCheck, type ProviderStatus } from '@tv/core';
-import { useState } from 'react';
-import { shareRun, startOver } from '../actions';
-import { shortHash } from '../share';
+import { startOver } from '../actions';
 import { useStore } from '../store';
 import { ticks } from './labels';
 import { PrunePill } from './PruneSavings';
+import { ShareButton } from './SharePanel';
 import './TopBar.css';
 
 const CHECK_LABEL: Record<KeyCheck, string> = { ok: 'key works', failing: 'key failing', unchecked: 'key not checked' };
@@ -99,26 +98,5 @@ export function TopBar() {
         New system
       </button>
     </header>
-  );
-}
-
-// Copies a link that replays this exact run, and shows the provenance hash that proves it.
-function ShareButton() {
-  const [note, setNote] = useState<string | null>(null);
-  const share = async () => {
-    const shared = await shareRun();
-    if (!shared) return;
-    try {
-      await navigator.clipboard.writeText(shared.url);
-      setNote(`Link copied · ${shortHash(shared.hash)}`);
-    } catch {
-      setNote(`Link in the address bar · ${shortHash(shared.hash)}`);
-    }
-    setTimeout(() => setNote(null), 4000);
-  };
-  return (
-    <button className="new-system share" onClick={share} title="Copy a link that replays this exact run">
-      {note ?? 'Share'}
-    </button>
   );
 }
