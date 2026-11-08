@@ -216,7 +216,10 @@ export function LockedRunNotice() {
         </>
       ) : locked.reason === 'private' ? (
         <p>
-          <b>This run is private</b> and isn&apos;t shared with {account?.email ?? 'your account'}. Ask its owner to add you.
+          <b>This run is private</b> and isn&apos;t shared with {account?.email ?? 'your account'}.{' '}
+          {account?.emailVerified === false
+            ? 'Your email isn’t verified yet, and runs shared by email only open for a verified address: confirm it from the email Auth0 sent, or sign in with Google.'
+            : 'Ask its owner to add you.'}
         </p>
       ) : (
         <p>

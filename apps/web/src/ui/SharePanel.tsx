@@ -189,6 +189,7 @@ export function ShareButton() {
                       </label>
                     ))}
                   </fieldset>
+                  {visibility === 'people' && <p className="share-note">They open it by signing in with that email, once it is verified (Google sign-ins are).</p>}
                   {visibility === 'people' && (
                     <input
                       className="share-people"

@@ -8,6 +8,8 @@ export interface Account {
   name?: string;
   email?: string;
   picture?: string;
+  /** Runs shared by email only open for a verified address; Google sign-ins are verified, email sign-ups after confirming. */
+  emailVerified?: boolean;
 }
 
 /** A saved run the visitor couldn't open: they need to sign in, or it wasn't shared with them. */
@@ -60,7 +62,11 @@ export async function initAuth() {
       }
     }
     const user = (await client.isAuthenticated()) ? await client.getUser() : null;
-    useAuth.setState({ enabled: true, ready: true, account: user ? { name: user.name ?? user.nickname, email: user.email, picture: user.picture } : null });
+    useAuth.setState({
+      enabled: true,
+      ready: true,
+      account: user ? { name: user.name ?? user.nickname, email: user.email, picture: user.picture, emailVerified: user.email_verified } : null,
+    });
   } catch {
     useAuth.setState({ ready: true });
   }
