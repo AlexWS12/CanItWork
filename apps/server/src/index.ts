@@ -14,6 +14,7 @@ import { admit } from './integrations/limit';
 import { hasGemini, pruneBypass } from './llm';
 import { mountRooms } from './rooms';
 import { anchor, anchorOf, solanaEnabled } from './integrations/solana';
+import { mountExportCheck } from './exportCheck';
 import { listedRuns, mountRuns, storageKind } from './runs';
 import { summary } from './spend';
 import { checkedStatus, providerStatus } from './status';
@@ -63,6 +64,7 @@ app.get('/api/auth/config', (c) => {
 });
 
 mountRuns(app);
+mountExportCheck(app);
 
 // A run's proof hash, anchored in a Solana memo: anyone can check when it existed without trusting this server.
 // Only a 64-character hex hash is accepted, and each one is written once.

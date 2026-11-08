@@ -1,4 +1,4 @@
-import { SchemaRun, SystemRun } from '@tv/core';
+import { SchemaRun, SystemRun, type DatabaseSpec } from '@tv/core';
 import { runner } from './runner';
 import { useStore } from './store';
 
@@ -13,6 +13,32 @@ export interface ExportFile {
   text: string;
   /** A short count of what is in it: "4 tables · 3 foreign keys · 2 indexes" */
   summary: string;
+  /** For SQL: the design itself, which the server turns into statements and runs on Postgres to check them */
+  database?: DatabaseSpec;
+}
+
+export interface PostgresCheck {
+  ok: boolean;
+  version?: string;
+  tables?: number;
+  foreignKeys?: number;
+  indexes?: number;
+  error?: string;
+}
+
+/**
+ * Asks the server to run the design on Tiger Data's Postgres, in a scratch schema that is always rolled back. It sends the
+ * design, never SQL: the server writes the statements itself. Null when the check could not run (no database, busy).
+ */
+export async function checkOnPostgres(database: DatabaseSpec): Promise<PostgresCheck | { skipped: string }> {
+  try {
+    const res = await fetch('/api/export/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ spec: database }) });
+    const body = (await res.json().catch(() => ({}))) as PostgresCheck;
+    if (res.ok) return body;
+    return { skipped: body.error ?? 'The check could not run' };
+  } catch {
+    return { skipped: 'The check could not reach the server' };
+  }
 }
 
 const slug = (name: string) =>
@@ -43,6 +69,7 @@ export function exportFile(): ExportFile | null {
       mime: 'application/sql',
       text,
       summary: [plural(run.spec.tables.length, 'table'), plural(keys, 'foreign key'), plural(indexes, 'index').replace(/indexs$/, 'indexes')].join(' · '),
+      database: structuredClone(run.spec),
     };
   }
   if (run instanceof SystemRun) {

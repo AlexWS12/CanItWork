@@ -20,7 +20,7 @@ export { SystemRun, edgeKey, topoOrder } from './domains/software/system';
 export type { NodeKind, SystemEdge, SystemNode, SystemSpec } from './domains/software/schema';
 export { SchemaRun, isIndexed } from './domains/database/engine';
 export { asDatabaseNode, sizeWorkload } from './domains/database/link';
-export { ident, toSql, type SqlExportOptions } from './domains/database/export';
+export { ident, sqlStatements, toSql, type SqlExportOptions } from './domains/database/export';
 export { serviceName, toCompose, type ComposeExportOptions } from './domains/software/export';
 export type { Column, DatabaseSpec, Query, Table } from './domains/database/schema';
 export { NetRun, linkKey, netOrder, type NetNode, type NetSpec } from './domains/network';
