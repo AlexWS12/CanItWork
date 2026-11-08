@@ -11,6 +11,10 @@ export const HEALTH_LABEL: Record<Health, string> = { good: 'Healthy', watch: 'W
 const RULES: Array<[RegExp, (m: RegExpMatchArray) => string]> = [
   // Specific readings first, so "worst part load" isn't read as a station's load
   [/worst part load/i, () => 'How close the most stressed part is to its limit. Over 100% it overheats and burns out.'],
+  [
+    /^monthly cost$/i,
+    () => 'What this system would cost to run for a month at rough cloud list prices. It moves as replicas are added or traffic changes, so you can see what a fix costs.',
+  ],
   [/^% of (.+?) within (.+)$/i, (m) => `Your main goal: the share of ${m[1]} answered in under ${m[2]}, which feels instant. Higher is better.`],
   [/^% of (.+)$/i, (m) => `Your main goal: the share of ${m[1]}. Higher is better; under 90% means people or work are being let down.`],
   [/^within (.+)$/i, (m) => `The share answered in under ${m[1]}, which feels instant. Higher is better.`],

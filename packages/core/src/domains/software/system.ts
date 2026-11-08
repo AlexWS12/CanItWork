@@ -1,5 +1,7 @@
 import { SYSTEM, checkPatches, type Breakable, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type TimedEvent } from '../../domain';
+import { money } from '../../cost';
 import { createRng, type Rng } from '../../rng';
+import { softwareCost } from './cost';
 import { DEFAULT_CAPACITY, DEFAULT_LATENCY, SystemPatchSchema, replicaZones, zonesOf, type SystemEdge, type SystemNode, type SystemPatch, type SystemSpec } from './schema';
 
 const TIMEOUT_MS = 1000;
@@ -457,6 +459,7 @@ export class SystemRun implements Run {
         ...(this.rejected >= 0.5 ? [{ label: 'requests rate-limited', value: Math.round(this.rejected) }] : []),
         ...(this.trips ? [{ label: 'breaker trips', value: this.trips }] : []),
         ...(this.scaledUp ? [{ label: 'replicas autoscaled', value: this.scaledUp }] : []),
+        { label: 'monthly cost', value: money(this.cost().usd) },
       ],
       series: this.series,
     };
@@ -472,7 +475,25 @@ export class SystemRun implements Run {
       { label: 'queue backlog', value: Math.round(backlog), tone: backlog > 1000 ? 'warn' : undefined },
       { label: 'services down', value: down, tone: down ? 'danger' : undefined },
       ...this.resilience(),
+      this.costMetric(),
     ];
+  }
+
+  /** The month's cost of the system as it runs now: replicas autoscaling and fixes move it, and so does traffic through queues and APIs. */
+  cost() {
+    return softwareCost(this.spec, (id) => this.states.get(id)?.inflow ?? 0);
+  }
+
+  private costMetric(): Metric {
+    const cost = this.cost();
+    return {
+      label: 'monthly cost',
+      value: money(cost.usd),
+      detail: [
+        ...cost.lines.slice(0, 6).map((l) => ({ label: l.label, value: money(l.usd) })),
+        ...(cost.ceiling ? [{ label: 'at full autoscale', value: money(cost.ceiling) }] : []),
+      ],
+    };
   }
 
   /** Breakers, rate limits and autoscaling, shown only for a design that has them. */

@@ -1,6 +1,7 @@
 import {
   DOMAINS,
   IncidentSchema,
+  costOfFix,
   componentDiff,
   editSpec,
   defaultCompare,
@@ -724,6 +725,16 @@ const humanize = (incident: Incident | undefined) => {
   return text[0].toUpperCase() + text.slice(1);
 };
 
+/** What a fix adds to the monthly running cost while the incident it answers plays out, for domains with a price list. */
+function monthlyOf(domain: Domain, model: unknown, patches: unknown[], seed: number, during: { events: TimedEvent[]; ticks: number; at: number }): { monthly?: number } {
+  try {
+    const monthly = costOfFix(domain, model, patches, seed, during);
+    return monthly === null ? {} : { monthly };
+  } catch {
+    return {};
+  }
+}
+
 interface LiveState {
   environment: Environment;
   seed: number;
@@ -752,6 +763,7 @@ export async function recover(input: LiveState, emit: Emit) {
       rationale: p.rationale,
       patches: p.patches,
       evaluation: evaluate(domain, model, { seed, ticks, events: [...events, { at: applyAt, patches: p.patches }] }),
+      ...monthlyOf(domain, model, p.patches, seed, { events, ticks, at: applyAt }),
     }));
     candidates.sort((a, b) => b.evaluation.score - a.evaluation.score);
     detail(candidates.map((c) => `${c.title}: ${c.evaluation.score}`).join(' · '));
@@ -776,7 +788,10 @@ export async function recover(input: LiveState, emit: Emit) {
   let headline: string | undefined = nothingHelps ? `Doing nothing is best: no fix beats ${unmitigated.score} ${unit.replace(/^%\s*/, '% ')}` : undefined;
   let tradeoff: string | undefined;
   const tied = winner ? ranked.filter((c) => c.evaluation.score >= winner.evaluation.score - tolerance) : [];
-  let valueId: string | null = winner?.id ?? null;
+  // Among fixes that tie on the result, the one that adds least to the monthly bill is the one to recommend; the Analyst may
+  // still pick another on effort, which the price list doesn't see.
+  const cheapest = [...tied].sort((a, b) => (a.monthly ?? Infinity) - (b.monthly ?? Infinity))[0];
+  let valueId: string | null = (nothingHelps ? winner?.id : (cheapest?.id ?? winner?.id)) ?? null;
   if (winner && hasGemini()) {
     summary = await step('analyst', 'gemini', 'Explaining the result', async () => {
       const result = await chatJson({
@@ -790,7 +805,7 @@ export async function recover(input: LiveState, emit: Emit) {
         }),
         onUsage: onUsage(emit),
         system: `You are the Analyst. Explain to the non-technical person who runs this system what happened and what to do, in everyday words with no simulator jargon. Use only the numbers provided.
-For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars".
+For every option, judge from its changes what it would take in real life: effort "low" (a quick change with what they already have), "medium" (moving people or paying for a temporary fix) or "high" (hiring, buying equipment or rebuilding), and a short cost, such as "one extra barista for the rush" or "a second espresso machine, a few thousand dollars". When an option has "monthlyUsd", that is the simulator's estimate of what it adds to the monthly running cost: use it in the cost, such as "about $120 a month more".
 The options listed in "tied" score within a point of each other, so the result is the same in practice: pick the one with the lowest effort among them and recommend it. If doing nothing scores within a couple of points of no incident, say plainly that this problem barely hurt and a fix is optional.
 If "nothingHelps" is true, no option scores better than doing nothing: recommend leaving things as they are, say that every option scores the same as or worse than doing nothing, never describe an option as a way to recover, and set "pick" to "Do nothing".
 Reply with JSON only: {"pick":"exact title of the recommended option","headline":"one sentence recommendation, such as Add a third cashier for the rush: almost nobody walks out","summary":"two plain sentences on why the recommended option is the best choice, against the others and doing nothing","tradeoff":"one sentence on what the recommended option costs or asks of them","options":[{"title":"exact title","effort":"low|medium|high","cost":"short phrase"}]}`,
@@ -801,7 +816,13 @@ Reply with JSON only: {"pick":"exact title of the recommended option","headline"
           doNothing: unmitigated.score,
           nothingHelps,
           tied: tied.map((c) => c.title),
-          options: ranked.map((c) => ({ title: c.title, score: c.evaluation.score, rationale: c.rationale, changes: JSON.stringify(c.patches).slice(0, 400) })),
+          options: ranked.map((c) => ({
+            title: c.title,
+            score: c.evaluation.score,
+            rationale: c.rationale,
+            changes: JSON.stringify(c.patches).slice(0, 400),
+            ...(c.monthly !== undefined ? { monthlyUsd: c.monthly } : {}),
+          })),
         }),
       });
       for (const option of result.options ?? []) {

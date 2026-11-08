@@ -1,4 +1,6 @@
 import type { Breakable, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { money } from '../../cost';
+import { databaseCost } from './cost';
 import { DEFAULT_POOL, partitionsOf, type DatabasePatch, type DatabaseSpec, type Query, type Table } from './schema';
 
 // One round trip from the app to the database, paid once per query in an N+1 loop.
@@ -152,6 +154,11 @@ export class SchemaRun implements Run {
    * Every node has the same capacity, multiplied by its replicas.
    */
   /** Nodes answering reads: the primary, plus the replicas unless reads were moved off them. */
+  /** Read replicas running now, counting any added as a fix. */
+  replicaCount() {
+    return this.replicas;
+  }
+
   private readers() {
     return 1 + (this.readsOnPrimary ? 0 : this.replicas);
   }
@@ -385,6 +392,11 @@ export class SchemaRun implements Run {
     this.measure();
   }
 
+  /** The month's cost of the schema as it stands: replicas, partitions, storage as rows grow, and a pooler once one is added. */
+  cost() {
+    return databaseCost({ ...this.spec, replicas: this.replicaCount() }, { pooler: this.pooler });
+  }
+
   /** Queries the app runs in an N+1 loop. */
   loops() {
     return this.spec.workload.filter((q) => (q.repeats ?? 1) > 1);
@@ -400,6 +412,7 @@ export class SchemaRun implements Run {
     ];
     if (this.replicas > 0) metrics.push({ label: 'replica lag', value: `${Math.round(this.lag)} s` });
     if (this.loops().length) metrics.push({ label: 'N+1 loops', value: this.loops().length });
+    metrics.push({ label: 'monthly cost', value: money(this.cost().usd) });
     return { score: this.tick ? Math.round((this.scoreSum / this.tick) * 10) / 10 : 0, scoreLabel: '% of queries within 100 ms', metrics, series: this.series };
   }
 
@@ -429,6 +442,8 @@ export class SchemaRun implements Run {
       });
     }
     if (this.loops().length) out.push({ label: 'N+1 loops', value: this.loops().length, tone: 'warn' });
+    const cost = this.cost();
+    out.push({ label: 'monthly cost', value: money(cost.usd), detail: cost.lines.map((l) => ({ label: l.label, value: money(l.usd) })) });
     return out;
   }
 

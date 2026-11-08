@@ -69,6 +69,8 @@ export interface Candidate {
   // The Analyst's estimate of what this fix asks of whoever runs the system
   effort?: 'low' | 'medium' | 'high';
   cost?: string;
+  // What the fix adds to the system's monthly running cost, from the simulator's price list (negative when it saves)
+  monthly?: number;
 }
 
 export interface RecoveryReport {

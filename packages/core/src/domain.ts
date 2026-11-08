@@ -110,6 +110,15 @@ export interface Run {
   telemetry(): Metric[];
   breakables(): Breakable[];
   inspect(target: string): Inspection | null;
+  /** What the system as it stands costs to run for a month, for domains with a price list. */
+  cost?(): MonthlyCost;
+}
+
+/** An estimate from rough cloud list prices, line by line; `ceiling` is what it reaches with every autoscaler at its max. */
+export interface MonthlyCost {
+  usd: number;
+  lines: Array<{ label: string; usd: number }>;
+  ceiling?: number;
 }
 
 export interface Hypothesis {
@@ -184,6 +193,11 @@ export interface Environment {
 }
 
 export function evaluate(domain: Domain, model: unknown, scenario: Scenario): Evaluation {
+  return replay(domain, model, scenario).evaluation();
+}
+
+/** A scenario played out on a fresh run, which is left as it ends for anything else worth reading from it. */
+export function replay(domain: Domain, model: unknown, scenario: Scenario): Run {
   const run = domain.createRun(model, scenario.seed);
   const events = [...scenario.events].sort((a, b) => a.at - b.at);
   let next = 0;
@@ -195,7 +209,7 @@ export function evaluate(domain: Domain, model: unknown, scenario: Scenario): Ev
     }
     run.step();
   }
-  return run.evaluation();
+  return run;
 }
 
 export function defaultCompare(base: Evaluation, after: Evaluation): { hurt: boolean; evidence: string } {

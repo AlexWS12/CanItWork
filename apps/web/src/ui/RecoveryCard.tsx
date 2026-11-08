@@ -1,4 +1,4 @@
-import type { Candidate, RecoveryReport } from '@tv/core';
+import { money, type Candidate, type RecoveryReport } from '@tv/core';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { applyCandidate } from '../actions';
 import { useStore } from '../store';
@@ -9,6 +9,16 @@ import './RecoveryCard.css';
 const STAGGER_MS = 80;
 
 const EFFORT_LABEL = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' } as const;
+
+// What a fix adds to the monthly bill, shaded like effort: free or saving, a modest addition, or a big one.
+function Monthly({ usd }: { usd: number | undefined }) {
+  if (usd === undefined) return null;
+  return (
+    <span className="effort" data-effort={usd <= 0 ? 'low' : usd < 200 ? 'medium' : 'high'} title="What this fix adds to the monthly running cost">
+      {money(usd, true)}
+    </span>
+  );
+}
 
 // Proposals race as score bars against the "no incident" and "do nothing" markers
 function Race({ report, chosen, picking, onPick }: { report: RecoveryReport; chosen: Candidate | undefined; picking: boolean; onPick: (c: Candidate) => void }) {
@@ -38,6 +48,7 @@ function Race({ report, chosen, picking, onPick }: { report: RecoveryReport; cho
                     {EFFORT_LABEL[c.effort]}
                   </span>
                 )}
+                <Monthly usd={c.monthly} />
                 {c.cost ?? c.author}
               </small>
             </span>
@@ -174,11 +185,14 @@ export function RecoveryCard() {
           The simulator says this problem costs you {hurt > 0 ? `${hurt} points` : 'nothing'}, so a fix is optional. Try a bigger problem to see the agents earn their keep.
         </p>
       )}
-      {chosen?.effort && (
+      {(chosen?.effort || chosen?.monthly !== undefined) && (
         <p className="rc-cost">
-          <span className="effort" data-effort={chosen.effort}>
-            {EFFORT_LABEL[chosen.effort]}
-          </span>
+          {chosen.effort && (
+            <span className="effort" data-effort={chosen.effort}>
+              {EFFORT_LABEL[chosen.effort]}
+            </span>
+          )}
+          <Monthly usd={chosen.monthly} />
           {chosen.cost}
         </p>
       )}
@@ -186,7 +200,8 @@ export function RecoveryCard() {
         <p className="rc-why">
           Recommended over <b>{cheaper.title}</b> ({cheaper.evaluation.score}
           {pct}
-          {cheaper.effort && `, ${EFFORT_LABEL[cheaper.effort].toLowerCase()}`}): it gets nearly the same result for less.
+          {cheaper.effort && `, ${EFFORT_LABEL[cheaper.effort].toLowerCase()}`}
+          {cheaper.monthly !== undefined && `, ${money(cheaper.monthly, true)}`}): it gets nearly the same result for less.
         </p>
       )}
       {chosen && (

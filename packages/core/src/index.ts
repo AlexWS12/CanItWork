@@ -1,5 +1,6 @@
 export * from './domain';
 export * from './domains';
+export { costOfFix, designCost, money } from './cost';
 export * from './edit';
 export * from './hash';
 export * from './protocol';
