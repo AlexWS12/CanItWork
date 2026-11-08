@@ -127,7 +127,16 @@ function recoveries(spec: FleetSpec, incident: Incident | undefined): RecoveryOp
     ? { op: 'add_units', role: relay.id, count: 1 }
     : {
         op: 'add_role',
-        role: RoleSchema.parse({ id: 'relay', label: 'Relay', behavior: 'relay', count: 1, speed: busiest.speed, endurance: busiest.endurance * 1.5, range: busiest.range * 1.5 }),
+        // Half again the busiest role's endurance and range, capped at what the schema allows: ground robots already run 180-240 minutes.
+        role: RoleSchema.parse({
+          id: 'relay',
+          label: 'Relay',
+          behavior: 'relay',
+          count: 1,
+          speed: busiest.speed,
+          endurance: Math.min(240, busiest.endurance * 1.5),
+          range: Math.min(20000, busiest.range * 1.5),
+        }),
       };
   switch (incident?.type) {
     case 'lose_unit': {
@@ -146,7 +155,7 @@ function recoveries(spec: FleetSpec, incident: Incident | undefined): RecoveryOp
           author,
           title: 'Fit longer-range radios',
           rationale: "Double every role's radio range.",
-          patches: spec.roles.map((r) => ({ op: 'set_role', role: r.id, range: r.range * 2 })),
+          patches: spec.roles.map((r) => ({ op: 'set_role', role: r.id, range: Math.min(20000, r.range * 2) })),
         },
         { author, title: 'Clear the jamming', rationale: 'Find and stop the interference.', patches: [{ op: 'clear_jam' }] },
       ];

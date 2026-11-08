@@ -6,6 +6,8 @@ const TIMEOUT_MS = 1000;
 const CACHE_HIT = 0.8;
 const CACHE_WARMUP = 40;
 const SERIES_STEP = 5;
+/** A queue keeps about 15 s (at 8 ticks a second) of its traffic; older messages expire and their requests count as failed. */
+const RETENTION_TICKS = 120;
 
 export interface NodeState {
   inflow: number;
@@ -62,6 +64,8 @@ export class SystemRun implements Run {
   private series: Point[] = [];
   private scoreSum = 0;
   private failed = 0;
+  /** Queued messages that waited past retention, so their requests never really completed. */
+  expired = 0;
   private added = 0;
 
   constructor(spec: SystemSpec, seed: number) {
@@ -110,6 +114,7 @@ export class SystemRun implements Run {
     this.flows.clear();
     const jitter = 0.97 + this.rng.next() * 0.06;
     let total = 0;
+    let expiredNow = 0;
 
     for (const id of this.order) {
       const node = this.node(id);
@@ -130,6 +135,12 @@ export class SystemRun implements Run {
         }, 0);
         const drained = Math.min(state.backlog, consumers);
         state.backlog -= drained;
+        // A dead or swamped consumer can't hide behind the queue for ever: work past the retention window expires.
+        const kept = state.served * RETENTION_TICKS;
+        if (state.served > 0 && state.backlog > kept) {
+          expiredNow += state.backlog - kept;
+          state.backlog = kept;
+        }
         for (const e of out) {
           const flow = out.length ? drained / out.length : 0;
           this.flows.set(edgeKey(e), flow);
@@ -198,7 +209,9 @@ export class SystemRun implements Run {
 
     const clients = this.spec.nodes.filter((n) => n.kind === 'client').map((n) => this.states.get(n.id)!);
     const offered = clients.reduce((sum, s) => sum + s.inflow, 0) || 1;
-    this.success = clients.reduce((sum, s) => sum + s.success * s.inflow, 0) / offered;
+    // Requests whose queued work expired failed too, even though the caller got an answer at the time.
+    this.expired += expiredNow;
+    this.success = Math.max(0, clients.reduce((sum, s) => sum + s.success * s.inflow, 0) / offered - expiredNow / offered);
     this.latency = clients.reduce((sum, s) => sum + s.latency * s.inflow, 0) / offered;
     this.amplification = total / offered / Math.max(1, this.spec.nodes.length - 1);
     this.failed += offered * (1 - this.success);
@@ -311,6 +324,7 @@ export class SystemRun implements Run {
         { label: 'requests failed', value: Math.round(this.failed) },
         { label: 'latency', value: `${Math.round(this.latency)} ms` },
         { label: 'queue backlog', value: Math.round(backlog) },
+        ...(this.expired >= 0.5 ? [{ label: 'messages expired', value: Math.round(this.expired) }] : []),
       ],
       series: this.series,
     };
