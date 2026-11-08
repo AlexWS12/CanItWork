@@ -1,6 +1,6 @@
-import type { Breakable, DomainId, Evaluation, Incident, Inspection, Metric, Point, Run, TimedEvent } from '../../domain';
+import { SYSTEM, checkPatches, type Breakable, type DomainId, type Evaluation, type Incident, type Inspection, type Metric, type Point, type Run, type Setting, type TimedEvent } from '../../domain';
 import { createRng, type Rng } from '../../rng';
-import { linkKey, netOrder, type KindDef, type NetEdge, type NetNode, type NetPatch, type NetSpec, type Role } from './schema';
+import { NetPatchSchema, linkKey, netOrder, type KindDef, type NetEdge, type NetNode, type NetPatch, type NetSpec, type Role } from './schema';
 
 const SERIES_STEP = 5;
 const TRIP_TICKS = 3;
@@ -539,6 +539,56 @@ export class NetRun implements Run {
     for (const patch of patches as NetPatch[]) this.applyPatch(patch);
   }
 
+  check(patches: unknown[]) {
+    return checkPatches(NetPatchSchema, patches, (patch: NetPatch) => {
+      if ('node' in patch && !this.node(patch.node)) return `There is no ${patch.node} here.`;
+      if (patch.op === 'add_link') {
+        if (!this.node(patch.from) || !this.node(patch.to)) return 'Both ends of a link have to be in the design.';
+        if (this.links.has(linkKey(patch))) return 'Those two are already linked.';
+        if (netOrder({ ...this.spec, edges: [...this.spec.edges, patch] }).length !== this.spec.nodes.length) return 'That link would send work round in a loop.';
+      }
+      return null;
+    });
+  }
+
+  /** What a hand edit can change on one node as it runs: how many units it has and how much can wait there. */
+  private nodeSettings(node: NetNode): Setting[] {
+    const role = this.role(node);
+    if (role === 'sink') return [];
+    const units = node.count ?? 1;
+    const out: Setting[] = [
+      {
+        kind: 'number',
+        label: 'Units',
+        hint: 'Each unit adds its share of capacity.',
+        value: units,
+        min: 1,
+        max: Math.min(100, Math.max(12, units * 3)),
+        step: 1,
+        unit: '',
+        patch: { op: 'scale', node: node.id },
+        key: 'count',
+      },
+    ];
+    const buffer = this.bufferOf(node);
+    if (role === 'stage' && buffer > 0) {
+      const step = buffer >= 1000 ? 100 : buffer >= 100 ? 10 : 1;
+      out.push({
+        kind: 'number',
+        label: this.config.mode === 'flow' ? 'Room to wait' : 'Storage',
+        hint: 'How much can wait here before it backs up.',
+        value: Math.round(buffer),
+        min: 0,
+        max: Math.max(step * 10, Math.round(buffer * 4)),
+        step,
+        unit: ` ${this.config.unit}`,
+        patch: { op: 'set_buffer', node: node.id },
+        key: 'buffer',
+      });
+    }
+    return out;
+  }
+
   private applyPatch(patch: NetPatch) {
     switch (patch.op) {
       case 'scale': {
@@ -712,6 +762,33 @@ export class NetRun implements Run {
   }
 
   inspect(target: string): Inspection | null {
+    if (target === SYSTEM) {
+      const waiting = this.spec.nodes.reduce((sum, n) => sum + (this.states.get(n.id)?.queue ?? 0), 0);
+      return {
+        title: 'System settings',
+        rows: [
+          ['Parts', this.spec.nodes.length],
+          ['Links', this.spec.edges.length],
+          [this.config.mode === 'flow' ? 'Waiting' : 'Stored', Math.round(waiting)],
+        ],
+        actions: [],
+        settings: [
+          {
+            kind: 'number',
+            label: this.config.mode === 'demand' ? 'Shed load' : 'Turn away',
+            hint: this.config.mode === 'demand' ? 'Demand cut on purpose so the rest is served.' : 'Arrivals refused at the door so the rest keep moving.',
+            value: Math.round(this.shedding * 100),
+            min: 0,
+            max: 90,
+            step: 5,
+            unit: '%',
+            scale: 100,
+            patch: { op: 'shed' },
+            key: 'fraction',
+          },
+        ],
+      };
+    }
     const node = this.node(target);
     const state = this.states.get(target);
     if (node && state) {
@@ -735,6 +812,7 @@ export class NetRun implements Run {
       return {
         title: this.name(node),
         rows,
+        settings: this.nodeSettings(node),
         actions: broken
           ? [{ label: 'Bring it back', incident: { type: 'recover', target }, destructive: false }]
           : [

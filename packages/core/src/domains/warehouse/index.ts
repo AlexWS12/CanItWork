@@ -1,4 +1,4 @@
-import { defaultCompare, type Breakable, type Domain, type Evaluation, type Incident, type Inspection, type Metric, type Run, type TimedEvent } from '../../domain';
+import { SYSTEM, defaultCompare, type Breakable, type Domain, type Evaluation, type Incident, type Inspection, type Metric, type Run, type TimedEvent } from '../../domain';
 import { DEFAULT_SPEC, compileWorld } from './compile';
 import { PatchSchema, WorldSpecSchema, type Patch, type SimEvent, type World, type WorldSpec } from './schema';
 import { Sim } from './sim';
@@ -23,8 +23,8 @@ function toEvent(incident: Incident, at: number): SimEvent | null {
   }
 }
 
-/** What the Inspector asks for to show the settings the whole floor runs with. */
-export const FLOOR = 'floor';
+/** What the Inspector asks for to show the settings the whole floor runs with: the same id every domain answers. */
+export const FLOOR = SYSTEM;
 
 export class WarehouseRun implements Run {
   readonly sim: Sim;
@@ -177,7 +177,8 @@ export class WarehouseRun implements Run {
                 ? { label: 'Repair robot', incident: { type: 'repair_robot', target }, destructive: false }
                 : { label: 'Fail this robot', incident: { type: 'fail_robot', target }, destructive: true },
             ],
-        edits: robot.removed ? [] : [{ label: 'Delete robot', patches: [{ op: 'delete_robot', robotId: target }] }],
+        edits: robot.removed ? [] : [{ label: 'Delete robot', patches: [{ op: 'delete_robot', robotId: target }], destructive: true }],
+        editHint: robot.removed ? undefined : 'Drag it to move it on the floor.',
       };
     }
     const belt = sim.belts.find((b) => b.id === target);
@@ -208,7 +209,8 @@ export class WarehouseRun implements Run {
             ? { label: 'Bring online', incident: { type: 'online_charger', target }, destructive: false }
             : { label: 'Take offline', incident: { type: 'offline_charger', target }, destructive: true },
         ],
-        edits: [{ label: 'Delete charger', patches: [{ op: 'delete_charger', chargerId: target }] }],
+        edits: [{ label: 'Delete charger', patches: [{ op: 'delete_charger', chargerId: target }], destructive: true }],
+        editHint: 'Drag it to move it on the floor.',
       };
     }
     if (target === world.sorter.id) {
@@ -232,7 +234,8 @@ export class WarehouseRun implements Run {
           ['Orders waiting', sim.queue.filter((o) => o.shelf.id === target).length],
         ],
         actions: [],
-        edits: [{ label: 'Delete shelf', patches: [{ op: 'delete_shelf', shelfId: target }] }],
+        edits: [{ label: 'Delete shelf', patches: [{ op: 'delete_shelf', shelfId: target }], destructive: true }],
+        editHint: 'Drag it to move it on the floor.',
       };
     }
     return null;
