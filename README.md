@@ -147,7 +147,7 @@ Agents propose and the simulators decide. Simulators are deterministic, so an en
 - **Red Team setups:** a claim can set inputs first, so an attack is judged in a state where its damage shows. On a 2-bit calculator, burning the XOR chip with 0 + 3 on the switches drops outputs from 100% to 49%.
 - **Packages and breadboards:** parts are drawn by package (DIP, module, TO-92, TO-220, axial, radial, bulb, display), so any chip or board looks right from its pin count and label, with its part number printed on top. Low-voltage signal circuits go on a breadboard: chips straddle the channel in datasheet pin order, leads sit in holes, and each wire is a jumper.
 - **Building blocks:** circuits too big to wire by hand are one line in a design, such as `{"kind":"adder","bits":16}`, and compile into real 74HC gate chips, switches, LEDs, wiring and behaviour tests. Blocks cover adders and adder-subtractors (up to 32 bits), comparators (32), multipliers (8) and ALUs (16). A 16-bit calculator is 20 chips and 341 wires that pass 10 of 10 tests, including 65535 + 1.
-- **Several breadboards:** a circuit too big for one board continues on full-size 63-column boards, two to a row with rail jumpers between them; no chip straddles a board's edge, and the build guide names each hole's board. A 16-bit calculator takes 5 boards.
+- **Several breadboards:** a circuit too big for one board continues on full-size 63-column boards, two to a row with rail jumpers between them; no chip straddles a board's edge, and the build guide names each hole's board. A 16-bit calculator takes 4 boards, with each switch and LED beside the chip it feeds.
 - **Build guide:** the Build tab lists the parts and gives numbered steps that name breadboard holes (pin 1 of U1 in f3, R2 from d5 to the top − rail), taken from the same layout the view draws.
 
 ## Measuring it
@@ -179,7 +179,6 @@ A flow domain such as power or airports is mostly a config for the flow engine: 
 - Without keys, only the built-in templates are available.
 - Live sessions are kept in the server's memory, so a restart ends them; saved runs persist.
 - Counters aren't a building block yet: at a clock slow enough to watch, the top bits of a wide counter take minutes to light.
-- On big multi-board circuits, some switches sit a board away from the chips they feed, so the wiring runs long.
 
 ## Working on it
 
