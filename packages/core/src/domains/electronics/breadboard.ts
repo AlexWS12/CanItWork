@@ -114,8 +114,13 @@ export function layoutBreadboard(spec: CircuitSpec): BoardLayout {
       continue;
     }
     let ref: { col: number; half: Half } | null = null;
-    // Place the lead that already has a home first, so the part sits next to the chip it serves.
-    const ordered = [...pins].sort((a, b) => Number(anchors.has(nets.find(`${part.id}.${b}`))) - Number(anchors.has(nets.find(`${part.id}.${a}`))));
+    // Place the lead that already has a home first, so the part sits next to the chip it serves. A lead on the supply goes to
+    // a rail beside its partner, so it goes last: placed first it has no spot of its own and would drag the part to the far end.
+    const rank = (pin: string) => {
+      const net = nets.find(`${part.id}.${pin}`);
+      return supply.has(net) ? 0 : anchors.has(net) ? 2 : 1;
+    };
+    const ordered = [...pins].sort((a, b) => rank(b) - rank(a));
     for (const pin of ordered) {
       const key = `${part.id}.${pin}`;
       const net = nets.find(key);
