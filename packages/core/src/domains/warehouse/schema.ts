@@ -109,7 +109,7 @@ export interface World {
 
 const CellSchema = z.object({ x: z.number().int(), y: z.number().int() });
 
-// The move and delete ops are hand edits from the floor view. They stay out of patchDoc, so the agents keep to the fixes above.
+// The move, delete and placed add ops are hand edits from the floor view. They stay out of patchDoc, so the agents keep to the fixes above.
 export const PatchSchema = z.discriminatedUnion('op', [
   z.object({
     op: z.literal('set_policy'),
@@ -117,7 +117,8 @@ export const PatchSchema = z.discriminatedUnion('op', [
     chargeThreshold: z.number().min(0.05).max(0.8).optional(),
     conveyorBypass: z.boolean().optional(),
   }),
-  z.object({ op: z.literal('add_robot') }),
+  // Without "at" a new robot parks on the first free cell along the north wall, as it always has.
+  z.object({ op: z.literal('add_robot'), at: CellSchema.optional() }),
   z.object({ op: z.literal('remove_robot'), robotId: z.string() }),
   z.object({ op: z.literal('reassign_zone'), fromRobotId: z.string() }),
   z.object({ op: z.literal('set_demand'), orderEvery: z.number().min(1).max(200) }),
@@ -125,6 +126,8 @@ export const PatchSchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('move_shelf'), shelfId: z.string(), to: CellSchema }),
   z.object({ op: z.literal('move_charger'), chargerId: z.string(), to: CellSchema }),
   z.object({ op: z.literal('delete_robot'), robotId: z.string() }),
+  z.object({ op: z.literal('add_shelf'), at: CellSchema }),
+  z.object({ op: z.literal('add_charger'), at: CellSchema }),
   z.object({ op: z.literal('delete_shelf'), shelfId: z.string() }),
   z.object({ op: z.literal('delete_charger'), chargerId: z.string() }),
 ]);

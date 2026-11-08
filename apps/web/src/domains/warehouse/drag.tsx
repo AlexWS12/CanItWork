@@ -18,20 +18,33 @@ export interface Grab {
   move: (to: Cell) => unknown;
 }
 
+export type Placeable = 'robot' | 'shelf' | 'charger';
+
 interface FloorEdit {
-  /** The cell under a dragged thing, and why it can't go there, if it can't */
+  /** The cell under a dragged or placed thing, and why it can't go there, if it can't */
   ghost: { cell: Cell; reason: string | null } | null;
   /** A refused drop, shown where it was dropped for a moment */
   warning: { cell: Cell; text: string; key: number } | null;
+  /** What the next click on the floor puts down, once the Add toolbar arms it */
+  placing: Placeable | null;
 }
 
-const useFloorEdit = create<FloorEdit>(() => ({ ghost: null, warning: null }));
+export const useFloorEdit = create<FloorEdit>(() => ({ ghost: null, warning: null, placing: null }));
+
+const placeAt = (kind: Placeable, at: Cell) => ({ op: kind === 'robot' ? 'add_robot' : kind === 'shelf' ? 'add_shelf' : 'add_charger', at });
 
 const WARNING_MS = 3200;
 const DRAG_THRESHOLD = 5;
 const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hit = new THREE.Vector3();
 const same = (a: Cell, b: Cell) => a.x === b.x && a.y === b.y;
+
+// The floor cell under the pointer, whatever it hits on the way down
+function cellUnder(e: ThreeEvent<PointerEvent | MouseEvent>, world: World): Cell | null {
+  if (!e.ray.intersectPlane(ground, hit)) return null;
+  const cell = { x: Math.floor(hit.x + world.cols / 2), y: Math.floor(hit.z + world.rows / 2) };
+  return cell.x < 0 || cell.y < 0 || cell.x >= world.cols || cell.y >= world.rows ? null : cell;
+}
 
 interface Press {
   pointer: number;
@@ -52,12 +65,6 @@ export function useFloorDrag(world: World) {
   const press = useRef<Press | null>(null);
   const dragged = useRef(false);
 
-  const cellAt = (e: ThreeEvent<PointerEvent>): Cell | null => {
-    if (!e.ray.intersectPlane(ground, hit)) return null;
-    const cell = { x: Math.floor(hit.x + world.cols / 2), y: Math.floor(hit.z + world.rows / 2) };
-    return cell.x < 0 || cell.y < 0 || cell.x >= world.cols || cell.y >= world.rows ? null : cell;
-  };
-
   const onPointerDown = (e: ThreeEvent<PointerEvent>, grab: Grab | null) => {
     if (!grab || e.button !== 0) return;
     e.stopPropagation();
@@ -74,7 +81,7 @@ export function useFloorDrag(world: World) {
     if (!p.moved && Math.hypot(e.nativeEvent.clientX - p.x, e.nativeEvent.clientY - p.y) < DRAG_THRESHOLD) return;
     p.moved = true;
     canvas.style.cursor = 'grabbing';
-    const cell = cellAt(e);
+    const cell = cellUnder(e, world);
     if (cell && p.cell && same(cell, p.cell)) return;
     p.cell = cell;
     const reason = !cell || same(cell, p.grab.from) ? null : (runner.run?.check?.([p.grab.move(cell)]) ?? null);
@@ -132,12 +139,57 @@ export function FloorEditMarks({ world }: { world: World }) {
           {ghost.reason && <Mark text={ghost.reason} />}
         </group>
       )}
-      {warning && !ghost && (
+      {warning && (!ghost || !same(ghost.cell, warning.cell)) && (
         <group position={toScene(world, warning.cell)}>
           <Mark text={warning.text} />
         </group>
       )}
     </>
+  );
+}
+
+/**
+ * While the Add toolbar is armed, a sheet over everything on the floor takes the pointer: hovering shows whether the
+ * cell beneath can take the new thing, and a click puts it there. Dragging still turns the camera.
+ */
+export function PlacementLayer({ world }: { world: World }) {
+  const placing = useFloorEdit((s) => s.placing);
+  const last = useRef<Cell | null>(null);
+  if (!placing) return null;
+
+  const onPointerMove = (e: ThreeEvent<PointerEvent>) => {
+    const cell = cellUnder(e, world);
+    if (cell && last.current && same(cell, last.current)) return;
+    last.current = cell;
+    const reason = cell ? (runner.run?.check?.([placeAt(placing, cell)]) ?? null) : null;
+    useFloorEdit.setState({ ghost: cell ? { cell, reason } : null });
+  };
+  const onClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    if (e.delta > DRAG_THRESHOLD) return;
+    const cell = cellUnder(e, world);
+    if (!cell) return;
+    const reason = editFloor([placeAt(placing, cell)]);
+    last.current = null;
+    if (reason) useFloorEdit.setState({ warning: { cell, text: reason, key: performance.now() } });
+    else useFloorEdit.setState({ placing: null, ghost: null });
+  };
+
+  return (
+    <mesh
+      position={[0, 2.5, 0]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      onPointerDown={(e) => e.stopPropagation()}
+      onPointerMove={onPointerMove}
+      onPointerOut={() => {
+        last.current = null;
+        useFloorEdit.setState({ ghost: null });
+      }}
+      onClick={onClick}
+    >
+      <planeGeometry args={[world.cols + 40, world.rows + 40]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
   );
 }
 

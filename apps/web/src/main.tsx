@@ -11,6 +11,7 @@ import { useStore } from './store';
 import './styles.css';
 import { LockedRunNotice, MySystems } from './ui/Account';
 import { ChatPanel } from './ui/ChatPanel';
+import { FloorTools } from './domains/warehouse/FloorTools';
 import { Inspector } from './ui/Inspector';
 import { Landing } from './ui/Landing';
 import { MobileNav } from './ui/MobileNav';
@@ -61,6 +62,7 @@ function App() {
           <ChatPanel />
           <RightPanel />
           <Inspector />
+          <FloorTools />
           <RecoveryCard />
           <Transport />
         </>

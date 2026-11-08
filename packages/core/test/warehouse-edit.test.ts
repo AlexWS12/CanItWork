@@ -327,3 +327,101 @@ describe('moving chargers and deleting things on a running floor', () => {
     expect(JSON.stringify(roomy)).toBe(before);
   });
 });
+
+describe('placing new robots, shelves and chargers on a running floor', () => {
+  it('adds a robot without a cell exactly as before, on the first free cell of the north wall', () => {
+    const plain = stepped(50);
+    const placedNowhere = stepped(50);
+    plain.sim.applyNow([{ op: 'add_robot' }]);
+    placedNowhere.apply([{ op: 'add_robot' }]);
+    const a = plain.sim.robots.at(-1)!;
+    const b = placedNowhere.sim.robots.at(-1)!;
+    expect([b.id, b.x, b.y]).toEqual([a.id, a.x, 0]);
+    expect(placedNowhere.check([{ op: 'add_robot' }])).toBeNull();
+  });
+
+  it('adds a robot on a chosen cell, gives it shelves, and it gets to work', () => {
+    const run = stepped(100);
+    const at = openCell(run, { x: -1, y: -1 }, (at) => ({ op: 'add_robot', at }), { x: 10, y: 2 });
+    run.apply([{ op: 'add_robot', at }]);
+    const robot = run.sim.robots.at(-1)!;
+    expect([robot.id, robot.x, robot.y]).toEqual(['R4', at.x, at.y]);
+    expect(robot.home).toBe(run.sim.grid.idx(at.x, at.y));
+    expect([...run.sim.shelfOwner.values()]).toContain('R4');
+    assertSane(run, 600);
+    expect(run.sim.orders.some((o) => o.state === 'done')).toBe(true);
+    expect(robot.mode === 'idle' && robot.battery === run.world.params.batteryCapacity).toBe(false);
+  });
+
+  it('adds a shelf with an open face, in the zone it stands in, and orders start coming from it', () => {
+    const zoned = compileWorld({ ...DEFAULT_SPEC, zones: [{ name: 'Cold storage', aisles: 1 }] });
+    const run = new WarehouseRun(zoned, 1);
+    const zone = run.world.zones[0];
+    const at = openCell(run, { x: -1, y: -1 }, (at) => ({ op: 'add_shelf', at }), { x: zone.x + 1, y: zone.y + zone.h });
+    run.apply([{ op: 'add_shelf', at }]);
+    const shelf = run.world.shelves.at(-1)!;
+    expect(shelf.id).toBe(`S${zoned.shelves.length + 1}`);
+    expect([shelf.x, shelf.y]).toEqual([at.x, at.y]);
+    expect(run.sim.grid.blocked[run.sim.grid.idx(at.x, at.y)]).toBe(1);
+    expect(Math.abs(shelf.access.x - at.x) + Math.abs(shelf.access.y - at.y)).toBe(1);
+    expect(run.sim.shelfOwner.get(shelf.id)).toBeDefined();
+    if (at.x >= zone.x && at.x < zone.x + zone.w && at.y >= zone.y && at.y < zone.y + zone.h) expect(shelf.zone).toBe(zone.name);
+    until(run, () => run.sim.orders.some((o) => o.shelf === shelf && o.state === 'done'), 6000);
+  });
+
+  it('adds a charger that robots use, and never reuses a deleted id', () => {
+    const run = busy(0);
+    run.apply([{ op: 'delete_charger', chargerId: 'E2' }]);
+    const at = openCell(run, { x: -1, y: -1 }, (at) => ({ op: 'add_charger', at }), { x: 3, y: 1 });
+    run.apply([{ op: 'add_charger', at }]);
+    const charger = run.world.chargers.at(-1)!;
+    expect(charger.id).toBe('E3');
+    expect(run.sim.chargers.map((c) => c.id)).toEqual(['E1', 'E3']);
+    expect(Math.abs(charger.bay.x - at.x) + Math.abs(charger.bay.y - at.y)).toBe(1);
+    until(run, () => run.sim.robots.some((r) => r.mode === 'charging' && r.charger === 1));
+    assertSane(run, 300);
+  });
+
+  it('refuses a cell that is taken or worked from, with the same reasons as a move', () => {
+    const run = stepped(20);
+    const shelf = run.world.shelves[0];
+    const robot = run.sim.robots[0];
+    const home = { x: run.sim.grid.x(robot.home), y: run.sim.grid.y(robot.home) };
+    for (const op of ['add_robot', 'add_shelf', 'add_charger'] as const) {
+      const at = (cell: Cell) => ({ op, at: { x: cell.x, y: cell.y } }) as Patch;
+      expect(run.check([at(shelf)])).toMatch(/shelf already stands/);
+      expect(run.check([at(shelf.access)])).toMatch(/pick a shelf from there/);
+      expect(run.check([at(run.world.chargers[0].bay)])).toMatch(/charge there/);
+      expect(run.check([at(home)])).toMatch(/standing there|parks there/);
+      expect(run.check([at({ x: run.world.cols, y: 0 })])).toMatch(/off the floor/);
+    }
+    const before = JSON.stringify(run.world);
+    const robots = run.sim.robots.length;
+    run.apply([{ op: 'add_shelf', at: { x: shelf.access.x, y: shelf.access.y } }]);
+    run.apply([{ op: 'add_robot', at: { x: shelf.x, y: shelf.y } }]);
+    expect(JSON.stringify(run.world)).toBe(before);
+    expect(run.sim.robots.length).toBe(robots);
+  });
+
+  it('refuses a shelf that would wall a charger off', () => {
+    const run = new WarehouseRun(world, 1);
+    const { bay } = run.world.chargers[0];
+    run.apply([{ op: 'add_shelf', at: { x: bay.x, y: bay.y - 1 } }]);
+    run.apply([{ op: 'add_shelf', at: { x: bay.x + 1, y: bay.y } }]);
+    expect(run.world.shelves.length).toBe(world.shelves.length + 2);
+    expect(run.check([{ op: 'add_shelf', at: { x: bay.x, y: bay.y + 1 } }])).toMatch(/Charger E1 can't be reached/);
+  });
+
+  it('replays placed robots, shelves and chargers to the same result', () => {
+    const live = busy(100);
+    const add = (patch: (at: Cell) => Patch, near: Cell) => live.apply([patch(openCell(live, { x: -1, y: -1 }, patch, near))]);
+    add((at) => ({ op: 'add_robot', at }), { x: 12, y: 2 });
+    for (let i = 0; i < 60; i++) live.step();
+    add((at) => ({ op: 'add_shelf', at }), { x: 16, y: 6 });
+    add((at) => ({ op: 'add_charger', at }), { x: 2, y: 9 });
+    // Refused, and refused the same way in the replay.
+    live.apply([{ op: 'add_charger', at: { x: live.world.shelves[0].x, y: live.world.shelves[0].y } }]);
+    for (let i = 0; i < 400; i++) live.step();
+    expect(evaluate(domain, roomy, { seed: 2, ticks: live.tick, events: live.log })).toEqual(live.evaluation());
+  });
+});

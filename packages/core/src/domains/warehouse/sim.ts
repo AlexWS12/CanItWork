@@ -101,6 +101,9 @@ export class Sim {
   private waitTicks = 0;
   private chargeWaitTicks = 0;
   private spawnedRobots = 0;
+  // Ids for shelves and chargers added by hand carry on from the compiled ones, so a deleted id is never reused.
+  private spawnedShelves = 0;
+  private spawnedChargers = 0;
   private shelfWeights: number[] | null;
 
   constructor(compiled: World, seed: number, events: SimEvent[] = []) {
@@ -122,6 +125,9 @@ export class Sim {
     for (const shelf of world.shelves) this.shelfOwner.set(shelf.id, shelf.owner);
     for (const def of world.robots) this.addRobot(def.id, def.name, this.grid.idx(def.home.x, def.home.y));
     this.spawnedRobots = world.robots.length;
+    const last = (ids: string[]) => Math.max(0, ...ids.map((id) => Number(id.replace(/\D/g, '')) || 0));
+    this.spawnedShelves = last(world.shelves.map((s) => s.id));
+    this.spawnedChargers = last(world.chargers.map((c) => c.id));
     for (const e of events) this.schedule(e);
   }
 
@@ -257,7 +263,8 @@ export class Sim {
         if (patch.conveyorBypass !== undefined) this.policy.conveyorBypass = patch.conveyorBypass;
         break;
       case 'add_robot': {
-        const free = this.freeParkingCell();
+        if (this.checkPatch(patch)) break;
+        const free = patch.at ? this.grid.idx(patch.at.x, patch.at.y) : this.freeParkingCell();
         if (free === null) break;
         const n = ++this.spawnedRobots;
         this.addRobot(`R${n}`, robotName(n - 1), free);
@@ -300,6 +307,16 @@ export class Sim {
         if (robot && !this.checkPatch(patch)) this.deleteRobot(robot);
         break;
       }
+      case 'add_shelf': {
+        const shelf = this.checkPatch(patch) ? null : this.newShelf(this.grid.idx(patch.at.x, patch.at.y));
+        if (shelf) this.addShelf(shelf);
+        break;
+      }
+      case 'add_charger': {
+        const charger = this.checkPatch(patch) ? null : this.newCharger(this.grid.idx(patch.at.x, patch.at.y));
+        if (charger) this.addCharger(charger);
+        break;
+      }
       case 'delete_shelf': {
         const shelf = this.world.shelves.find((s) => s.id === patch.shelfId);
         if (shelf && !this.checkPatch(patch)) this.deleteShelf(shelf);
@@ -334,9 +351,58 @@ export class Sim {
       case 'move_shelf':
       case 'move_charger':
         return this.checkMove(patch);
+      case 'add_robot':
+        return patch.at ? this.checkAdd('robot', patch.at) : null;
+      case 'add_shelf':
+        return this.checkAdd('shelf', patch.at);
+      case 'add_charger':
+        return this.checkAdd('charger', patch.at);
       default:
         return null;
     }
+  }
+
+  private checkAdd(kind: 'robot' | 'shelf' | 'charger', at: Cell): string | null {
+    if (at.x < 0 || at.y < 0 || at.x >= this.world.cols || at.y >= this.world.rows) return "That's off the floor.";
+    const cell = this.grid.idx(at.x, at.y);
+    const why = this.blockedBy(cell) ?? this.keptClear(cell) ?? this.robotAt(cell);
+    if (why) return why;
+    if (kind === 'robot') {
+      // Robots don't block cells, so a new one only needs a way out to the rest of the floor.
+      const other = this.robots.find((r) => !r.removed);
+      return !other || this.grid.reachable(this.cell(other), cell) ? null : 'A robot there would be boxed in.';
+    }
+    const world = structuredClone(this.world);
+    if (kind === 'shelf') {
+      const shelf = this.newShelf(cell);
+      if (!shelf) return 'There would be no open side for robots to reach it from.';
+      world.shelves.push(shelf);
+    } else {
+      const charger = this.newCharger(cell);
+      if (!charger) return 'There would be no open side for robots to reach it from.';
+      world.chargers.push(charger);
+    }
+    return this.layoutCheck(world, new Map());
+  }
+
+  /** A shelf for `cell`, picked from the west like the compiled ones where it can be, in the zone it stands in. */
+  private newShelf(cell: number): Shelf | null {
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const access = this.sideFor({ id: '', x, y, access: { x: x - 1, y }, owner: '' }, { x: x - 1, y }, cell);
+    if (!access) return null;
+    const shelf: Shelf = { id: `S${this.spawnedShelves + 1}`, x, y, access, owner: '' };
+    const zone = this.world.zones.find((z) => x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h);
+    if (zone) shelf.zone = zone.name;
+    return shelf;
+  }
+
+  /** A charger for `cell`, charging from the east like the compiled ones where it can be. */
+  private newCharger(cell: number): Charger | null {
+    const x = this.grid.x(cell);
+    const y = this.grid.y(cell);
+    const bay = this.sideFor({ id: '', x, y, bay: { x: x + 1, y } }, { x: x + 1, y }, cell);
+    return bay ? { id: `E${this.spawnedChargers + 1}`, x, y, bay } : null;
   }
 
   private checkMove(patch: Extract<Patch, { to: Cell }>): string | null {
@@ -524,6 +590,23 @@ export class Sim {
     robot.gone = true;
     this.resetTraffic();
     this.rebalanceZones();
+  }
+
+  private addShelf(shelf: Shelf) {
+    this.spawnedShelves++;
+    this.world.shelves.push(shelf);
+    this.grid.setBlocked(this.grid.idx(shelf.x, shelf.y), true);
+    this.shelfWeights = orderWeights(this.world);
+    this.rebalanceZones();
+    this.resetTraffic();
+  }
+
+  private addCharger(charger: Charger) {
+    this.spawnedChargers++;
+    this.world.chargers.push(charger);
+    this.chargers.push({ id: charger.id, offline: false, claimedBy: null });
+    this.grid.setBlocked(this.grid.idx(charger.x, charger.y), true);
+    this.resetTraffic();
   }
 
   private deleteShelf(shelf: Shelf) {

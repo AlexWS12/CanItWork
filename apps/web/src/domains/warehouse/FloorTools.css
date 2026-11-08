@@ -1,0 +1,46 @@
+.floor-tools {
+  position: fixed;
+  top: calc(var(--top-h) + var(--gutter));
+  left: calc(var(--panel-left-w) + var(--gutter) * 2);
+  max-width: calc(100vw - var(--panel-left-w) - var(--panel-right-w) - var(--gutter) * 4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface);
+  border: var(--rule);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(14px);
+}
+
+.floor-tools .kicker {
+  padding: 0 var(--space-1);
+}
+
+.floor-tools button {
+  min-height: 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.floor-tools button[aria-pressed='true'] {
+  background: var(--color-fill-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.floor-tools-hint {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+/* Narrow screens give the stage to one panel at a time, so the toolbar sits at the top of the stage */
+@media (max-width: 900px) {
+  .floor-tools {
+    left: var(--gutter);
+    right: var(--gutter);
+    max-width: none;
+  }
+}

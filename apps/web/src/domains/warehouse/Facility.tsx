@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { runner } from '../../runner';
 import { select } from '../../store';
 import { ClaimPin, Tag, pick } from '../shared';
-import { FloorEditMarks, useFloorDrag } from './drag';
+import { FloorEditMarks, PlacementLayer, useFloorDrag } from './drag';
 import { COLORS, ZONE_TINTS, robotColor, toScene, warehouseSim } from './palette';
 
 const dummy = new THREE.Object3D();
@@ -394,6 +394,7 @@ export function Facility({ world }: { world: World }) {
         <ChargerPost key={c.id} world={world} index={i} />
       ))}
       <FloorEditMarks world={world} />
+      <PlacementLayer world={world} />
     </group>
   );
 }
