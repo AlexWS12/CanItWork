@@ -2,6 +2,7 @@ import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { Component, Suspense, useEffect, useMemo, type ReactNode } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { reducedMotion } from '../motion';
 
@@ -115,6 +116,43 @@ export function Packed({ fallback, children }: { fallback: ReactNode; children: 
       <Suspense fallback={fallback}>{children}</Suspense>
     </Fallback>
   );
+}
+
+const instanced = new Map<string, { geometry: THREE.BufferGeometry; material: THREE.Material }>();
+
+/**
+ * A pack model as one geometry and one material, for an instancedMesh that draws hundreds of copies in a single call (crates,
+ * belt segments). Baked to fit a unit cube: centred on the origin, its largest side 1, so callers scale it like a unit box.
+ * Suspends while loading; put it inside `Packed` with the code-built drawing as the fallback.
+ */
+export function useInstancedModel(id: ModelId) {
+  const { scene } = useGLTF(url(id));
+  return useMemo(() => {
+    const cached = instanced.get(id);
+    if (cached) return cached;
+    scene.updateMatrixWorld(true);
+    const parts: THREE.BufferGeometry[] = [];
+    let material: THREE.Material | undefined;
+    scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      material ??= Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+      const g = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+      for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(name)) g.deleteAttribute(name);
+      parts.push(g.index ? g.toNonIndexed() : g);
+    });
+    const geometry = parts.length === 1 ? parts[0] : mergeGeometries(parts)!;
+    geometry.computeBoundingBox();
+    const box = geometry.boundingBox!;
+    const size = box.getSize(new THREE.Vector3());
+    const centre = box.getCenter(new THREE.Vector3());
+    geometry.translate(-centre.x, -centre.y, -centre.z);
+    geometry.scale(1 / size.x, 1 / size.y, 1 / size.z);
+    geometry.computeBoundingSphere();
+    const made = { geometry, material: material! };
+    instanced.set(id, made);
+    return made;
+  }, [id, scene]);
 }
 
 /** Starts fetching models a view is about to draw, so they arrive with the design instead of after it. */

@@ -572,7 +572,26 @@
 }
 
 .landing-footer {
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+}
+
+.built-with {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.built-with b {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .landing-footer .wordmark {
@@ -654,6 +673,10 @@
 
   .chapter[data-flip='true'] .chapter-figure {
     order: 0;
+  }
+
+  .built-with {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

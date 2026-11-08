@@ -46,7 +46,7 @@ function useVerified() {
 // The live hero: real showcase designs take turns behind the page, each a simulation running, not a picture
 const HERO: Array<{ id: DomainId; label: string }> = [
   { id: 'electronics', label: 'Breadboard' },
-  { id: 'warehouse', label: 'Warehouse' },
+  { id: 'power', label: 'Power grid' },
   { id: 'supply', label: 'Supply chain' },
   { id: 'airport', label: 'Airport' },
   { id: 'queues', label: 'Supermarket' },
@@ -69,6 +69,18 @@ const ICON: Record<DomainId, string> = {
   queues: 'M5 8a2 2 0 1 0 0-.1 M12 8a2 2 0 1 0 0-.1 M19 8a2 2 0 1 0 0-.1 M3 20v-4a2 2 0 0 1 4 0v4 M10 20v-4a2 2 0 0 1 4 0v4 M17 20v-4a2 2 0 0 1 4 0v4',
   fleet: 'M9 9h6v6H9z M9 9L5 5 M15 9l4-4 M9 15l-4 4 M15 15l4 4 M3 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0 M17 5a2 2 0 1 0 4 0a2 2 0 1 0-4 0',
 };
+
+// Every tool the app is built on, and what each one does here
+const BUILT_WITH = [
+  ['Gemini', 'designs and reviews'],
+  ['TypeSafe Jev', 'picks the simulator'],
+  ['Prune', 'routes the Gemini calls'],
+  ['Swarms', 'red team and councils'],
+  ['Tiger Data', 'saves every run'],
+  ['Auth0', 'sign-in and sharing'],
+  ['Vultr', 'hosting'],
+  ['Kenney', 'CC0 3D models'],
+] as const;
 
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1) + '.';
 
@@ -370,7 +382,13 @@ export function Landing() {
 
       <footer className="landing-footer">
         <Wordmark />
-        <span>Gemini · Swarms · TypeSafe Jev · Tiger Data · 3D models by Kenney (CC0)</span>
+        <ul className="built-with" aria-label="Built with">
+          {BUILT_WITH.map(([name, role]) => (
+            <li key={name}>
+              <b>{name}</b> {role}
+            </li>
+          ))}
+        </ul>
       </footer>
     </div>
   );
