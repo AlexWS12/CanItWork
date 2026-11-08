@@ -370,7 +370,7 @@ export function Landing() {
 
       <footer className="landing-footer">
         <Wordmark />
-        <span>Gemini · Swarms · TypeSafe Jev · Tiger Data · 3D models by Kenney (CC0)</span>
+        <span>Gemini · Prune · Swarms · TypeSafe Jev · Tiger Data · Auth0 · 3D models by Kenney (CC0)</span>
       </footer>
     </div>
   );
