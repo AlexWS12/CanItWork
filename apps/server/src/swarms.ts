@@ -128,7 +128,8 @@ export async function runCouncil(opts: {
   const replies: Array<{ agent: string; json: unknown }> = [];
   const allTurns = turns(body.output);
   const crashed = allTurns.filter((t) => t.role.endsWith('(failed)'));
-  if (crashed.length && crashed.length >= opts.agents.length) {
+  // Every reply that came back is a crash (agents that crash may not answer at all), so the model is broken and billed for nothing.
+  if (crashed.length && crashed.length === allTurns.length) {
     haltModel(model, crashed[0].content);
     throw new Error(`Swarms agents crashed on ${model}. It stays off until the server restarts.`);
   }

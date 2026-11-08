@@ -47,6 +47,14 @@ let pruneRestUntil = 0;
 export const resetPruneRest = () => {
   pruneRestUntil = 0;
 };
+export const pruneResting = () => Boolean(pruneKey()) && Date.now() < pruneRestUntil;
+
+// Prune itself answers, but the Gemini key vaulted in it is out of quota or rejected, so every call through it would fail.
+function pruneUpstreamProblem(error: string): string | null {
+  if (/HTTP 429/.test(error) && /provider_upstream|exceeded your current quota/.test(error)) return 'quota is exhausted';
+  if (/HTTP 40[13]/.test(error) && /provider_upstream|rejected the API key/.test(error)) return 'key is rejected (vault a working key in the Prune dashboard)';
+  return null;
+}
 
 function routes(): Route[] {
   const out: Route[] = [];
@@ -250,9 +258,10 @@ async function chatOnce<S extends z.ZodTypeAny>(opts: ChatOptions<S>): Promise<z
       return opts.schema.parse(extractJson(repair.text));
     } catch (error) {
       if (error instanceof ShieldBlock) throw error;
-      if (route.via === 'prune' && /HTTP 429/.test(String(error)) && /provider_upstream|exceeded your current quota/.test(String(error))) {
+      const upstream = route.via === 'prune' ? pruneUpstreamProblem(String(error)) : null;
+      if (upstream) {
         pruneRestUntil = Date.now() + PRUNE_REST_MS;
-        console.warn("[llm] Prune's upstream Gemini quota is exhausted; going direct for 10 minutes");
+        console.warn(`[llm] Prune's upstream Gemini ${upstream}; going direct for 10 minutes`);
       } else console.warn(`[llm] gemini via ${route.via} failed:`, String(error));
       lastError = error;
     }
