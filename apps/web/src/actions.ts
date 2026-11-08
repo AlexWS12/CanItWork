@@ -1,6 +1,7 @@
 import { componentIds, type Candidate, type Environment, type Incident, type ProviderStatus, type SpecEdit, type SpendSummary, type StreamEvent } from '@tv/core';
 import { matchEntities } from './entities';
 import { runner } from './runner';
+import { snapshotView } from './scene/snapshot';
 import { authFetch, useAuth } from './auth';
 import { joinLive, leaveLive, liveIdOf, relayAgent, useLive } from './live';
 import { MAX_SHARED_TICKS, decodeRun, encodeRun, isSharedLink, runHash, sane, savedIdOf, savedRunLink, shortHash, type SharedRun } from './share';
@@ -171,11 +172,13 @@ export type Visibility = 'public' | 'private' | 'people';
 
 /** Saves the open run to the signed-in user's account and returns its short link. */
 export async function saveRun(run: SharedRun, visibility: Visibility, people: string[], name?: string) {
-  const res = await authFetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run, visibility, people, name }) });
+  // A picture of the view as it is now, for the system's card in My systems
+  const thumb = snapshotView() ?? undefined;
+  const res = await authFetch('/api/runs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ run, visibility, people, name, thumb }) });
   const body = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
   if (!res.ok || !body.id) throw new Error(body.error ?? 'The run could not be saved');
   window.history.replaceState(null, '', savedRunLink(body.id));
-  return { id: body.id, url: savedRunLink(body.id) };
+  return { id: body.id, url: savedRunLink(body.id), thumb: thumb ?? null };
 }
 
 function replayShared(shared: SharedRun, from: string) {
