@@ -1,8 +1,18 @@
 # CanItWork
 
+[![CI](https://github.com/AlexWS12/CanItWork/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexWS12/CanItWork/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 ![CanItWork: describe any system, watch it run in 3D, checked by a simulator](brand/banner-github-1280x640.png)
 
-Describe a system in plain English and get an interactive model of it. Run it, break it, and compare fixes by what they actually do.
+Describe a system in plain English and get an interactive model of it. Run it, break it, and compare fixes by what they actually do and what they cost.
+
+**▶ [Watch the 1:22 demo on YouTube](https://youtu.be/V2Z0jw9NqDA)**
+
+[![CanItWork demo video](https://img.youtube.com/vi/V2Z0jw9NqDA/hqdefault.jpg)](https://youtu.be/V2Z0jw9NqDA)
+
+![A chat app after traffic triples: the Recovery Council's fixes, tested in the simulator, with what each one adds to the monthly bill](docs/screenshot.png)
+
+**Try it locally:** `npm install && npm run dev`, then open http://localhost:5173. It runs with no keys (see [Run](#run)).
 
 CanItWork is a team of AI agents that builds a live simulation of any system you describe, and the same team runs every build in every domain:
 - an Interpreter works out what kind of system it is;
@@ -130,6 +140,7 @@ Copy `.env.example` to `.env`. The server re-reads it on every request.
 | `REQUIRE_SIGN_IN` | With Auth0 configured, `1` keeps the AI for signed-in people: guests are offered a Sign-in button instead. Cached examples stay free for everyone |
 | `GUEST_LIMIT_PER_HOUR` | With `REQUIRE_SIGN_IN`, AI builds a guest may try an hour before being asked to sign in. Unset means none |
 | `PORT` | API port. Defaults to 8787 |
+| `TRUST_PROXY` | Behind a reverse proxy such as Caddy, `1` makes the hourly limit use the proxy's `X-Forwarded-For` address. Unset, it uses the connection's own address, since a client could forge that header |
 | `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID` | Turn on sign-in with Auth0: the tenant domain and a Single Page Application's client ID, whose allowed callback, logout and web origin URLs include where the app runs. Neither is secret. Without them, sign-in stays hidden |
 | `AUTH0_AUDIENCE` | Optional Auth0 API identifier: with it, tokens are checked locally against the tenant's keys; without it, the server asks Auth0 once per sign-in |
 | `DATABASE_URL` | Postgres connection string, such as Tiger Data's, for saved runs. Without it, runs are kept in `apps/server/.data/runs.json` |
@@ -195,7 +206,7 @@ Agents propose and the simulators decide. Simulators are deterministic, so an en
 
 `npm run capture -w @tv/web -- <label> [domain ...]` pictures every 3D view in a headless browser from verified designs, with draw calls and triangles per domain, so a change to the 3D can be compared before and after (`--ui` for the whole page, `--landing` for the landing at desktop and phone width). It needs the dev server running. Opening a design asks the Explainer for plain-word labels, which costs a fraction of a cent.
 
-Latest runs: 57 of 57 on the strict suite, 19 of 19 on breadth and 16 of 16 on fleet and queue prompts. [docs/reports](docs/reports) has the run reports.
+Latest full runs: 90 of 100 general cases ([docs/reports/eval-2026-11-08.md](docs/reports/eval-2026-11-08.md) explains the 10 that still fail) and 73 of 76 software and database cases. Earlier focused suites passed 57 of 57 strict cases, 19 of 19 breadth cases and 16 of 16 fleet and queue prompts. [docs/reports](docs/reports) has the run reports.
 
 ## Adding a domain
 

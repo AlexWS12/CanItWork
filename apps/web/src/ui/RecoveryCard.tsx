@@ -8,6 +8,10 @@ import './RecoveryCard.css';
 
 const STAGGER_MS = 80;
 
+// When the price list already gives the dollars, an AI phrase that only restates a dollar amount adds nothing but doubt
+const onlyMoney = (text: string) =>
+  /\$\s?[\d,.]+/.test(text) && text.replace(/(about|roughly|around|~|≈)?\s*\$\s?[\d,.]+k?\s*(a|per|\/)\s*mo(nth)?\.?\s*(more|extra|less|saved)?/gi, '').trim().length < 4;
+
 const EFFORT_LABEL = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' } as const;
 
 const AI_ESTIMATE = 'Written by the AI from what the fix changes. The simulator does not check it.';
@@ -200,7 +204,7 @@ export function RecoveryCard() {
           <span className="effort" data-effort={chosen.effort}>
             {EFFORT_LABEL[chosen.effort]}
           </span>
-          {chosen.cost && <span className="rc-cost-text">{chosen.cost}</span>}
+          {chosen.cost && !(chosen.monthly !== undefined && onlyMoney(chosen.cost)) && <span className="rc-cost-text">{chosen.cost}</span>}
           <span className="rc-source" data-kind="ai" title={AI_ESTIMATE}>
             AI estimate
           </span>

@@ -84,7 +84,7 @@ Fixes from this round:
 
 **Swarms design council, first live run:** for "a 4-bit binary counter clocked by a 555 timer", the Literalist and Engineer each scored 100, the Builder's reply was unreadable, and the simulator picked the Literalist's design. The Swarms Red Team's claim was confirmed. It cost $0.066 in Swarms credit and took 18 s; the balance went from $63.07 to $63.00.
 
-**Merge note:** combining the branches gives two small conflicts, `database/index.ts` (keep #16's keywords and this branch's suggestion text) and `apps/web/src/domains/index.tsx` (keep both imports). A second patch for #17, [`pr17-low-service-warning.patch`](../reviews/pr17-low-service-warning.patch), flags flow designs that miss demand despite enough supply.
+**Merge note:** combining the branches gives two small conflicts, `database/index.ts` (keep #16's keywords and this branch's suggestion text) and `apps/web/src/domains/index.tsx` (keep both imports). A second patch for #17, `pr17-low-service-warning.patch` (since merged, so the file was removed), flags flow designs that miss demand despite enough supply.
 
 ## Self-review
 
